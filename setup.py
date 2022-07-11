@@ -18,11 +18,14 @@ setup(
     author="Simon Pfreundschuh",
     author_email="simon.pfreundschuh@chalmers.se",
     install_requires=[
-        "numpy", "scipy", "xarray", "pandas", "quantnn>=0.0.4dev"
+        "torch", "numpy", "scipy", "xarray", "pandas", "quantnn>=0.0.4dev"
     ],
     packages=find_packages(),
     python_requires=">=3.6",
     project_urls={
         "Source": "https://github.com/simonpf/cimr/",
+    },
+    entry_points = {
+        'console_scripts': ['cimr=cimr.bin:cimr'],
     },
 )
