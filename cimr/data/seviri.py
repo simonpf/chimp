@@ -4,7 +4,7 @@ cimr.data.seviri
 
 Functionality for reading and processing SEVIRI data.
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import subprocess
@@ -12,6 +12,8 @@ import subprocess
 import numpy as np
 import pandas as pd
 from pansat.roi import any_inside
+from pansat.download.providers.eumetsat import EUMETSATProvider
+from pansat.products.satellite.meteosat import l1b_msg_seviri
 from pyresample import geometry, kd_tree
 from satpy import Scene
 import xarray as xr
@@ -24,6 +26,7 @@ class SEVIRI:
     """
     Interface class to read SEVIRI data.
     """
+
     @staticmethod
     def filename_to_date(filename):
         """
@@ -70,7 +73,8 @@ class SEVIRI:
             end_time = np.datetime64(end_time)
 
         return [
-            file for file, date in zip(files, dates)
+            file
+            for file, date in zip(files, dates)
             if (date >= start_time) and (date <= end_time)
         ]
 
@@ -100,16 +104,15 @@ class SEVIRI:
             scene = Scene([filename], reader="seviri_l1b_native")
 
             datasets = scene.all_dataset_names()
-            print(datasets)
             scene.load(datasets)
 
             datasets = np.array([name for name in datasets if name != "HRV"])
             wavelengths = np.array([int(name[-3:]) for name in datasets])
-            datasets = ["HRV"] + list(datasets[np.argsort(wavelengths)])
-            names = {name: f"channel_{i + 1:02}" for i, name in enumerate(datasets)}
+            datasets = list(datasets[np.argsort(wavelengths)])
+            names = {name: f"geo_{i + 1:02}" for i, name in enumerate(datasets)}
 
             scene.load(datasets)
-            scene_r = scene.resample(NORDIC_4, radius_of_influence=16e3)
+            scene_r = scene.resample(NORDIC_4, radius_of_influence=24e3)
 
         dataset = scene_r.to_xarray_dataset().compute().rename(names)
         for var in dataset.variables:
@@ -140,10 +143,37 @@ def save_file(dataset, output_folder):
     filename = f"seviri_{year}{month:02}{day:02}_{hour:02}_{minute:02}.nc"
     output_filename = Path(output_folder) / filename
 
-    encoding = {
-        f"channel_{i:02}": {
-            "dtype": "int16",
-            "scale_factor": 0.1
-        } for i in range(1, 13)
-    }
+    comp = {"dtype": "int16", "scale_factor": 0.01, "zlib": True, "_FillValue": -99}
+    encoding = {f"geo_{i:02}": comp for i in range(1, 12)}
     dataset.to_netcdf(output_filename, encoding=encoding)
+
+
+def process_day(year, month, day, output_folder, path=None):
+    """
+    Extract training data from a day of SEVIRI observations.
+
+    Args:
+        year: The year
+        month: The month
+        day: The day
+        output_folder: The folder to which to write the extracted
+            observations.
+        path: Not used, included for compatibility.
+    """
+    output_folder = Path(output_folder) / "geo"
+    if not output_folder.exists():
+        output_folder.mkdir(parents=True, exist_ok=True)
+
+    provider = EUMETSATProvider(l1b_msg_seviri)
+    start_time = datetime(year, month, day)
+    end_time = datetime(year, month, day) + timedelta(hours=23, minutes=59)
+    files = provider.get_files_in_range(start_time, end_time)
+
+    with TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+
+        for link in files:
+            print("processing: ", link)
+            filename = provider.download_file(link, tmp)
+            data = SEVIRI(filename).to_xarray_dataset()
+            save_file(data, output_folder)
