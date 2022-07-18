@@ -25,6 +25,7 @@ def add_parser(subparsers):
     """
     parser = subparsers.add_parser(
         "extract_data",
+        help="Extraction of training data.",
         description=(
             """
             Extract training data for cimr.
