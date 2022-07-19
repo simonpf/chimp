@@ -9,6 +9,9 @@ from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 
+MISSING = -1.5
+MASK = -100
+
 def round_time(time):
     """
     Round time to closest 15 minutes.
