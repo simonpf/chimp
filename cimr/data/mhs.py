@@ -27,10 +27,12 @@ import xarray as xr
 from cimr.areas import ROI_NORDIC, NORDIC_8, ROI_POLY
 from cimr.utils import round_time
 
+
 class MHS:
     """
     Interface class to read MHS data.
     """
+
     @staticmethod
     def filename_to_date(filename):
         """
@@ -77,7 +79,8 @@ class MHS:
             end_time = np.datetime64(end_time)
 
         return [
-            file for file, date in zip(files, dates)
+            file
+            for file, date in zip(files, dates)
             if (date >= start_time) and (date <= end_time)
         ]
 
@@ -109,22 +112,21 @@ class MHS:
         data = xr.load_dataset(self.filename, decode_times=False)
 
         start_time = data["record_start_time"].data
-        start_time = (np.datetime64("2000-01-01T00:00:00") +
-                      start_time.astype("timedelta64[s]"))
+        start_time = np.datetime64("2000-01-01T00:00:00") + start_time.astype(
+            "timedelta64[s]"
+        )
         end_time = data["record_stop_time"].data
-        end_time = (np.datetime64("2000-01-01T00:00:00") +
-                    end_time.astype("timedelta64[s]"))
-
+        end_time = np.datetime64("2000-01-01T00:00:00") + end_time.astype(
+            "timedelta64[s]"
+        )
 
         time = start_time + 0.5 * (end_time - start_time)
 
         data["time"] = (("along_track",), time)
 
-
         names = [f"channel_{i:01}" for i in range(1, 6)]
         names += ["lon", "lat", "time"]
         data = data[names]
-
 
         new_names = {f"channel_{i:01}": f"channel_{i:02}" for i in range(1, 6)}
         new_names["lon"] = "longitude"
@@ -134,24 +136,14 @@ class MHS:
         return data
 
 
-BANDS = {
-    "mw_90": [(0, 1)],
-    "mw_160": [(1, 1)],
-    "mw_183": [(2, 0), (3, 2), (4, 4)]
-}
+BANDS = {"mw_90": [(0, 1)], "mw_160": [(1, 1)], "mw_183": [(2, 0), (3, 2), (4, 4)]}
 
-N_CHANS = {
-    "mw_90": 2,
-    "mw_160": 2,
-    "mw_183": 5
-}
+N_CHANS = {"mw_90": 2, "mw_160": 2, "mw_183": 5}
+
 
 def make_band(band):
     n_chans = N_CHANS[band]
-    return xr.DataArray(
-        np.zeros(NORDIC_8.shape + (n_chans,), dtype=np.float32)
-    )
-
+    return xr.DataArray(np.zeros(NORDIC_8.shape + (n_chans,), dtype=np.float32))
 
 
 def save_file(dataset, output_folder):
@@ -180,11 +172,7 @@ def save_file(dataset, output_folder):
         swath = geometry.SwathDefinition(lons=lons, lats=lats)
         tbs = scene.tbs.data
         tbs_r = kd_tree.resample_nearest(
-            swath,
-            tbs,
-            NORDIC_8,
-            radius_of_influence=64e3,
-            fill_value=np.nan
+            swath, tbs, NORDIC_8, radius_of_influence=64e3, fill_value=np.nan
         )
         # Only use scenes with substantial information
         if np.any(np.isfinite(tbs_r[..., 0]), axis=-1).sum() < 100:
@@ -197,10 +185,12 @@ def save_file(dataset, output_folder):
                 b.data[..., ind_out] = tbs_r[..., ind_in]
             results[band] = b
 
-        results = xr.Dataset({
-            band: (("y", "x", f"channels_{band}"), results[band].data)
-            for band in BANDS
-        })
+        results = xr.Dataset(
+            {
+                band: (("y", "x", f"channels_{band}"), results[band].data)
+                for band in BANDS
+            }
+        )
 
         filename = f"mhs_{year}{month:02}{day:02}_{hour:02}_{minute:02}.nc"
         output_filename = Path(output_folder) / filename
@@ -221,7 +211,8 @@ def save_file(dataset, output_folder):
             comp = {
                 "dtype": "int16",
                 "scale_factor": 0.01,
-                "zlib": True, "_FillValue": -99
+                "zlib": True,
+                "_FillValue": -99,
             }
             encoding = {band: comp for band in BANDS.keys()}
             results.to_netcdf(output_filename, encoding=encoding)
@@ -233,9 +224,10 @@ MHS_PRODUCTS = [
     l1c_metopc_mhs,
 ]
 
+
 def process_day(year, month, day, output_folder, path=None):
     """
-    Extract training data from a day of SEVIRI observations.
+    Extract training data for a day of MHS observations.
 
     Args:
         year: The year

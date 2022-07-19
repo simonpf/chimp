@@ -11,6 +11,7 @@ import argparse
 import sys
 import warnings
 
+
 def cimr():
     """
     This function implements the top-level command line interface for the
@@ -21,16 +22,11 @@ def cimr():
 
     warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-    description = (
-        "cimr: The Chalmers Integrated Multi-Satellite Retrieval."
-    )
+    description = "cimr: The Chalmers Integrated Multi-Satellite Retrieval."
 
-    parser = argparse.ArgumentParser(
-            prog='cimr',
-            description=description
-    )
+    parser = argparse.ArgumentParser(prog="cimr", description=description)
 
-    subparsers = parser.add_subparsers(help='Sub-commands')
+    subparsers = parser.add_subparsers(help="Sub-commands")
     extract_data.add_parser(subparsers)
 
     if len(sys.argv) == 1:

@@ -46,23 +46,28 @@ def add_parser(subparsers):
     )
     parser.add_argument(
         "month",
-        metavar="year",
+        metavar="month",
         type=int,
         help="The month for which to extract the data.",
     )
     parser.add_argument(
         "day",
-        metavar="year",
+        metavar="day",
         type=int,
         nargs="*",
-        help=("The days for which to extract the data. If omitted data for all"
-              "days of the month will be extracted.")
+        help=(
+            "The days for which to extract the data. If omitted data for all"
+            "days of the month will be extracted."
+        ),
     )
     parser.add_argument(
         "output",
         metavar="output",
         type=str,
-        help="Destination to store the extracted data. "
+        help="Destination to store the extracted data. ",
+    )
+    parser.add_argument(
+        "--path", metavar="path", type=str, help="Location of local input data."
     )
     parser.add_argument(
         "--n_processes",
@@ -72,53 +77,6 @@ def add_parser(subparsers):
         help="The number of processes to use for the data extraction.",
     )
     parser.set_defaults(func=run)
-
-
-def process_file(
-    input_file,
-    output_file,
-    model,
-    targets,
-    gradients,
-    device,
-    log_queue,
-    preserve_structure=False,
-    fmt=None,
-    sensor=None,
-):
-    """
-    Process input file.
-
-    Args:
-        input_file: Path pointing to the input file.
-        output_file: Path to the file to which to store the results.
-        model: The GPROF-NN model with which to run the retrieval.
-        targets: List of the targets to retrieve.
-        gradients: Whether or not to do a special run to calculate
-            gradients of the retrieval.
-        device: The device on which to run the retrieval
-        log_queue: Queue object to use for multi process logging.
-    """
-    gprof_nn.logging.configure_queue_logging(log_queue)
-    logger = logging.getLogger(__name__)
-    logger.info("Processing file %s.", input_file)
-    xrnn = QRNN.load(model)
-    if targets is not None:
-        xrnn.set_targets(targets)
-    driver = RetrievalDriver
-    if gradients:
-        driver = RetrievalGradientDriver
-    retrieval = driver(
-        input_file,
-        xrnn,
-        output_file=output_file,
-        device=device,
-        preserve_structure=preserve_structure,
-        sensor=sensor,
-        output_format=fmt,
-        tile=False,
-    )
-    retrieval.run()
 
 
 def run(args):
@@ -138,9 +96,7 @@ def run(args):
     try:
         module = importlib.import_module(module_name)
     except ModuleNotFoundError:
-        LOGGER.error(
-            "Sensor '%s' currently not supported."
-        )
+        LOGGER.error("Sensor '%s' currently not supported.")
         return 1
 
     year = args.year
@@ -151,21 +107,29 @@ def run(args):
 
     output = Path(args.output)
     if not output.exists():
-        LOGGER.error(
-            "Destination must be an existing path!"
-        )
+        LOGGER.error("Destination must be an existing path!")
         return 1
 
+    if args.path is not None:
+        path = Path(args.path)
+        if not path.exists():
+            LOGGER.error(
+                """
+                If provided, 'path' must point to an existing directory. Currently
+                it points to %s.
+                """,
+                path,
+            )
+            return 1
 
     n_procs = args.n_processes
     pool = ThreadPoolExecutor(max_workers=n_procs)
 
     tasks = []
     for day in days:
-        tasks.append(pool.submit(module.process_day, year, month, day, output))
+        args = [year, month, day, output]
+        kwargs = {"path": path}
+        tasks.append(pool.submit(module.process_day, *args, **kwargs))
 
     for task, day in zip(tasks, days):
         task.result()
-
-
-

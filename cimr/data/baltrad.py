@@ -5,7 +5,7 @@ cimr.data.baltrad
 Functionality to simplify reading and processing of Baltrad
 data.
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 import re
 
@@ -18,10 +18,12 @@ import xarray as xr
 
 from cimr.utils import round_time
 
+
 class Baltrad:
     """
     Interface class to read Baltrad data.
     """
+
     @staticmethod
     def filename_to_date(filename):
         """
@@ -68,7 +70,8 @@ class Baltrad:
             end_time = np.datetime64(end_time)
 
         return [
-            file for file, date in zip(files, dates)
+            file
+            for file, date in zip(files, dates)
             if (date >= start_time) and (date <= end_time)
         ]
 
@@ -96,11 +99,7 @@ class Baltrad:
 
             latlon = "+proj=longlat +ellps=bessel +datum=WGS84 +units=m"
 
-            transformer = Transformer.from_crs(
-                latlon,
-                projdef,
-                always_xy=True
-            )
+            transformer = Transformer.from_crs(latlon, projdef, always_xy=True)
 
             lon_min = data["where"].attrs["LL_lon"]
             lat_min = data["where"].attrs["LL_lat"]
@@ -117,7 +116,7 @@ class Baltrad:
                 projdef,
                 size_x,
                 size_y,
-                (x_min, y_min, x_max, y_max)
+                (x_min, y_min, x_max, y_max),
             )
             n_rows, n_cols = area.shape
             new_shape = ((n_rows // 4) * 4, (n_cols // 4) * 4)
@@ -141,9 +140,7 @@ class Baltrad:
             #
 
             dbz = data["dataset1/data3"]["data"][0:i_end, 0:j_end]
-            dataset = xr.Dataset({
-                "dbz": (("y", "x"), dbz)
-            })
+            dataset = xr.Dataset({"dbz": (("y", "x"), dbz)})
 
             gain = data["dataset1"]["data3"]["what"].attrs["gain"]
             offset = data["dataset1"]["data3"]["what"].attrs["offset"]
@@ -204,4 +201,37 @@ def save_file(dataset, output_folder):
 
     filename = f"radar_{year}{month:02}{day:02}_{hour:02}_{minute:02}.nc"
     output_filename = Path(output_folder) / filename
+
+    comp = {"dtype": "int16", "scale_factor": 0.01, "zlib": True, "_FillValue": -99}
+    encoding = {var: comp for var in dataset.variables.keys()}
+
     dataset.to_netcdf(output_filename)
+
+
+def process_day(year, month, day, output_folder, path=None):
+    """
+    Extract training data from a day of Baltrad measurements.
+
+    Args:
+        year: The year
+        month: The month
+        day: The day
+        output_folder: The folder to which to write the extracted
+            observations.
+        path: Not used, included for compatibility.
+    """
+    if path is None:
+        raise ValueError(
+            "'path' argument must be provided for extraction of Baltrad data."
+        )
+    output_folder = Path(output_folder) / "radar"
+    if not output_folder.exists():
+        output_folder.mkdir(parents=True, exist_ok=True)
+
+    start_time = datetime(year, month, day)
+    end_time = datetime(year, month, day) + timedelta(hours=23, minutes=59)
+    files = Baltrad.find_files(path, start_time=start_time, end_time=end_time)
+    for filename in files:
+        print(filename)
+        dataset = Baltrad(filename).to_xarray_dataset()
+        save_file(dataset, output_folder)
