@@ -103,16 +103,12 @@ class SEVIRI:
             filename = (Path(tmp) / self.filename.name).with_suffix(".nat")
             scene = Scene([filename], reader="seviri_l1b_native")
 
-            datasets = scene.all_dataset_names()
-            scene.load(datasets)
-
             datasets = np.array([name for name in datasets if name != "HRV"])
             wavelengths = np.array([int(name[-3:]) for name in datasets])
             datasets = list(datasets[np.argsort(wavelengths)])
             names = {name: f"geo_{i + 1:02}" for i, name in enumerate(datasets)}
-
             scene.load(datasets)
-            scene_r = scene.resample(NORDIC_4, radius_of_influence=24e3)
+            scene_r = scene.resample(NORDIC_4, radius_of_influence=32e3, fill_value=np.nan)
 
         dataset = scene_r.to_xarray_dataset().compute().rename(names)
         for var in dataset.variables:

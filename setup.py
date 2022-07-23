@@ -18,7 +18,13 @@ setup(
     author="Simon Pfreundschuh",
     author_email="simon.pfreundschuh@chalmers.se",
     install_requires=[
-        "torch", "numpy", "scipy", "xarray", "pandas", "quantnn>=0.0.4dev"
+        "torch",
+        "pytorch-lightning",
+        "numpy",
+        "scipy",
+        "xarray",
+        "pandas",
+        "quantnn>=0.0.4dev"
     ],
     packages=find_packages(),
     python_requires=">=3.6",

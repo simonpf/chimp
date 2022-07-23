@@ -335,3 +335,9 @@ def process_day(year, month, day, output_folder, path=None):
             filename = provider.download_file(link, tmp)
             data = AVHRR(filename).to_xarray_dataset()
             save_file(data, output_folder)
+
+provider = EUMETSATProvider(l1b_avhrr)
+start_time = datetime(2020, 5, 1)
+end_time = start_time + timedelta(hours=23, minutes=59)
+bb = (ROI_NORDIC[0], ROI_NORDIC[1], ROI_NORDIC[2], ROI_NORDIC[3])
+files = provider.get_files_in_range(start_time, end_time, bounding_box=bb)
