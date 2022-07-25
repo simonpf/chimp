@@ -166,7 +166,9 @@ class CIMRDataset:
                  folder,
                  sample_rate=4,
                  normalize=True,
-                 window_size=128
+                 window_size=128,
+                 start_time=None,
+                 end_time=None
     ):
         self.folder = Path(folder)
         self.sample_rate = sample_rate
@@ -174,6 +176,9 @@ class CIMRDataset:
 
         radar_files = sorted(list((self.folder / "radar").glob("radar*.nc")))
         times = np.array(list(map(get_date, radar_files)))
+        if start_time is not None and end_time is not None:
+            indices = (times >= start_time) * (times < end_time)
+            times = times[indices]
 
         self.samples = {
             time: SampleRecord(b_file) for time, b_file in zip(times, radar_files)
@@ -584,13 +589,17 @@ class CIMRSequenceDataset(CIMRDataset):
                  sample_rate=4,
                  normalize=True,
                  window_size=128,
-                 sequence_length=32
+                 sequence_length=32,
+                 start_time=None,
+                 end_time=None
     ):
         super().__init__(
             folder,
             sample_rate=sample_rate,
             normalize=normalize,
-            window_size=window_size
+            window_size=window_size,
+            start_time=start_time,
+            end_time=end_time
         )
 
         self.sequence_length = sequence_length
