@@ -1,0 +1,25 @@
+Bootstrap: docker
+
+From: continuumio/miniconda3
+
+%files
+    cimr.yml
+    ../pansat /pansat
+    ../quantnn /quantnn
+
+%environment
+    export PATH="/opt/conda/bin:$PATH"
+    export PATH="/opt/conda/envs/cimr/bin:$PATH"
+
+%post
+    apt update
+    apt install -y build-essential
+    /opt/conda/bin/conda env create -f cimr.yml
+    /opt/conda/envs/cimr/bin/python3 -m pip install -e /pansat /quantnn
+
+%runscript
+
+    echo ". /opt/conda/etc/profile.d/conda.sh" >> $SINGULARITY_ENVIRONMENT
+    echo "conda activate cimr" >> $SINGULARITY_ENVIRONMENT
+    exec "$@"
+    
