@@ -19,7 +19,7 @@ from cimr.areas import NORDIC_2
 from cimr.data.mhs import MHS
 from cimr.utils import MISSING
 
-NORMALIZER_GEO = MinMaxNormalizer(np.ones((1, 12, 1, 1)), feature_axis=0)
+NORMALIZER_GEO = MinMaxNormalizer(np.ones((12, 1, 1)), feature_axis=0)
 NORMALIZER_GEO.stats = {
     0: (0.0, 110.0),
     1: (0.0, 130),
@@ -35,7 +35,7 @@ NORMALIZER_GEO.stats = {
 }
 
 
-NORMALIZER_VISIR = MinMaxNormalizer(np.ones((1, 5, 1, 1)), feature_axis=0)
+NORMALIZER_VISIR = MinMaxNormalizer(np.ones((5, 1, 1)), feature_axis=0)
 NORMALIZER_VISIR.stats = {
     0: (0.0, 100.0),
     1: (0.0, 100.0),
@@ -45,19 +45,19 @@ NORMALIZER_VISIR.stats = {
 }
 
 
-NORMALIZER_MW_90 = MinMaxNormalizer(np.ones((1, 2, 1, 1)), feature_axis=0)
+NORMALIZER_MW_90 = MinMaxNormalizer(np.ones((2, 1, 1)), feature_axis=0)
 NORMALIZER_MW_90.stats = {
     0: (150, 300),
     1: (150, 300),
 }
 
-NORMALIZER_MW_160 = MinMaxNormalizer(np.ones((1, 2, 1, 1)), feature_axis=0)
+NORMALIZER_MW_160 = MinMaxNormalizer(np.ones((2, 1, 1)), feature_axis=0)
 NORMALIZER_MW_160.stats = {
     0: (150, 300),
     1: (150, 300),
 }
 
-NORMALIZER_MW_183 = MinMaxNormalizer(np.ones((1, 5, 1, 1)), feature_axis=0)
+NORMALIZER_MW_183 = MinMaxNormalizer(np.ones((5, 1, 1)), feature_axis=0)
 NORMALIZER_MW_183.stats = {
     0: (190, 290),
     1: (190, 290),
@@ -78,7 +78,7 @@ def load_geo_obs(sample, dataset, normalize=True):
 
     data = np.stack(data, axis=0)
     if normalize:
-        data = NORMALIZER_VISIR(data)
+        data = NORMALIZER_GEO(data)
     sample["geo"] = torch.tensor(data)
 
 
