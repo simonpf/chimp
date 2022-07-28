@@ -42,7 +42,8 @@ class SeparableConv(nn.Sequential):
                 kernel_size=7,
                 groups=channels_in
             ),
-            nn.BatchNorm2d(channels_in),
+            #nn.BatchNorm2d(channels_in),
+            nn.GroupNorm(channels_in, channels_in),
             nn.Conv2d(channels_in, channels_out, kernel_size=1),
         )
 
@@ -77,22 +78,24 @@ class DownsamplingBlock(nn.Sequential):
     def __init__(self, channels_in, channels_out, bn_first=True):
         if bn_first:
             blocks = [
-                nn.BatchNorm2d(channels_in),
+                #nn.BatchNorm2d(channels_in),
+                nn.GroupNorm(channels_in, channels_in),
                 nn.Conv2d(channels_in, channels_out, kernel_size=2, stride=2)
             ]
         else:
             blocks = [
                 nn.Conv2d(channels_in, channels_out, kernel_size=2, stride=2),
-                nn.BatchNorm2d(channels_out)
+                nn.GroupNorm(channels_out, channels_out),
+                #nn.BatchNorm2d(channels_out)
             ]
         super().__init__(*blocks)
 
 
 class DownsamplingStage(nn.Sequential):
-    def __init__(self, channels_in, channels_out, n_blocks):
+    def __init__(self, channels_in, channels_out, n_blocks, size=7):
         blocks = [DownsamplingBlock(channels_in, channels_out)]
         for i in range(n_blocks):
-            blocks.append(ConvNextBlock(channels_out))
+            blocks.append(ConvNextBlock(channels_out, size=size))
         super().__init__(*blocks)
 
 
@@ -100,7 +103,7 @@ class UpsamplingStage(nn.Module):
     """
     Xception upsampling block.
     """
-    def __init__(self, channels_in, channels_skip, channels_out):
+    def __init__(self, channels_in, channels_skip, channels_out, size=7):
         """
         Args:
             n_channels: The number of incoming and outgoing channels.
@@ -111,7 +114,7 @@ class UpsamplingStage(nn.Module):
                                     align_corners=False)
         self.block = nn.Sequential(
             nn.Conv2d(channels_in + channels_skip, channels_out, kernel_size=1),
-            ConvNextBlock(channels_out)
+            ConvNextBlock(channels_out, size=size)
         )
 
     def forward(self, x, x_skip):
@@ -966,6 +969,8 @@ class CIMRSeqSeviri(nn.Module):
             n_blocks: The number of blocks in each stage.
         """
         super().__init__()
+        self.n_stages = n_stages
+        self.n_hidden = n_hidden
 
         n_channels_in = 11
 
@@ -977,22 +982,30 @@ class CIMRSeqSeviri(nn.Module):
         ch_out = features
         ch_hidden = n_hidden
         for i in range(n_stages):
-            stages.append(DownsamplingStage(ch_in + ch_hidden, ch_out, n_blocks[i]))
+            stages.append(DownsamplingStage(ch_in + ch_hidden, ch_out, n_blocks[i], size=3))
             ch_in = ch_out
             ch_hidden = ch_hidden * 2
             ch_out = ch_out * 2
         self.down_stages = nn.ModuleList(stages)
 
         stages =[]
+        hidden_stages = []
         ch_out = ch_in // 2
         for i in range(n_stages):
             ch_skip = ch_out if i < n_stages - 1 else n_channels_in
-            stages.append(UpsamplingStage(ch_in, ch_skip, ch_out))
+            stages.append(UpsamplingStage(ch_in, ch_skip, ch_out, size=3))
+            hidden_stages.append(ConvNextBlock(ch_in + ch_hidden, ch_hidden, size=3))
             ch_in = ch_out
             ch_out = ch_out // 2 if i < n_stages - 2 else features
+            ch_hidden = ch_hidden // 2
+
+
         self.up_stages = nn.ModuleList(stages)
 
-        self.up = UpsamplingStage(features, 0, features)
+        hidden_stages.append(ConvNextBlock(ch_in + ch_hidden, ch_hidden, size=3))
+        self.hidden = nn.ModuleList(hidden_stages)
+
+        self.up = UpsamplingStage(features, 0, features, 3)
         self.head = nn.Sequential(
             nn.Conv2d(features, features, kernel_size=1),
             nn.GELU(),
@@ -1001,18 +1014,57 @@ class CIMRSeqSeviri(nn.Module):
             nn.Conv2d(features, n_outputs, kernel_size=1),
         )
 
+    def init_hidden(self, x):
+        t = x[0]["geo"]
+        device = t.device
+        dtype = t.dtype
+        b = t.shape[0]
+        h = t.shape[2]
+        w = t.shape[3]
 
-    def forward(self, x):
+        hidden = []
+        for i in range(self.n_stages + 1):
+            scl = 2 ** i
+            t = torch.zeros(
+                (b, self.n_hidden * scl, h // scl, w // scl),
+                device=device,
+                dtype=dtype
+            )
+            t.to(dtype=dtype, device=device)
+            hidden.append(t)
+        return hidden
+
+
+    def forward(self, x_seq, h_states=None):
         """Propagate input though model."""
 
-        skips = []
-        y = x["geo"]
-        for stage in self.down_stages:
-            skips.append(y)
-            y = stage(y)
+        if h_states is None:
+            h_states = self.init_hidden(x_seq)
 
-        skips.reverse()
-        for skip, stage in zip(skips, self.up_stages):
-            y = stage(y, skip)
+        results = []
+        for x in x_seq:
+            skips = []
+            y = x["geo"]
+            for hidden, stage in zip(h_states, self.down_stages):
+                skips.append(y)
+                y = stage(torch.cat([y, hidden], 1))
 
-        return self.head(self.up(y, None))
+            h_new = []
+            skips.reverse()
+            h_states.reverse()
+
+            for skip, up_stage, h_stage, h_old in zip(skips,
+                                                      self.up_stages,
+                                                      self.hidden,
+                                                      h_states):
+                h_new.append(h_stage(torch.cat([y, h_old], 1)))
+                y = up_stage(y, skip)
+
+            h_stage = self.hidden[-1]
+            h_new.append(h_stage(torch.cat([y, h_states[-1]], 1)))
+
+            h_states = h_new
+            h_states.reverse()
+            results.append(self.head(self.up(y, None)))
+
+        return results

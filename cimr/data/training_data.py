@@ -164,12 +164,24 @@ class CIMRDataset:
     """
     def __init__(self,
                  folder,
-                 sample_rate=4,
+                 sample_rate=1,
+                 sequence_length=1,
                  normalize=True,
                  window_size=128,
                  start_time=None,
                  end_time=None
     ):
+        """
+        Args:
+            folder: The root folder containing the training data.
+            sample_rate: How often each scene should be sampled per epoch.
+            normalize: Whether inputs should be normalized.
+            window_size: Size of the training scenes.
+            start_time: Start time of time interval to which to restrict training
+                data.
+            end_time: End time of a time interval to which to restrict the training
+                data.
+        """
         self.folder = Path(folder)
         self.sample_rate = sample_rate
         self.normalize = normalize
@@ -179,6 +191,7 @@ class CIMRDataset:
         if start_time is not None and end_time is not None:
             indices = (times >= start_time) * (times < end_time)
             times = times[indices]
+            radar_files = [radar_files[i] for i in np.where(indices)[0]]
 
         self.samples = {
             time: SampleRecord(b_file) for time, b_file in zip(times, radar_files)
@@ -207,14 +220,30 @@ class CIMRDataset:
 
         self.keys = np.array(list(self.samples.keys()))
 
-        self.window_size = 256
+        self.window_size = window_size
+
+        # Determine valid start point for input samples.
+        self.sequence_length = sequence_length
+        times = np.array(list(self.samples.keys()))
+        deltas = times[self.sequence_length:] - times[:-self.sequence_length]
+        starts = np.where(
+            deltas.astype("timedelta64[s]") <=
+            np.timedelta64(self.sequence_length * 15 * 60, "s")
+        )[0]
+        self.sequence_starts = starts
 
     def __len__(self):
-        return len(self.samples) * self.sample_rate
-
+        return len(self.sequence_starts) * self.sample_rate
 
     def load_sample(self, index, slices=None):
+        """
+        Load training sample.
 
+        Args:
+            index: Time stamp identifying the input sample.
+            slices: Optional row and column slices determining the
+                window to extract from each scene.
+        """
         key = self.keys[index]
 
         with xr.open_dataset(self.samples[key].radar) as data:
@@ -253,6 +282,7 @@ class CIMRDataset:
 
         # GEO data
         if self.samples[key].geo is not None:
+
             with xr.open_dataset(self.samples[key].geo) as data:
                 row_slice = slice(i_start * 2, i_end * 2)
                 col_slice = slice(j_start * 2, j_end * 2)
@@ -308,8 +338,53 @@ class CIMRDataset:
         return x, y
 
     def __getitem__(self, index):
+
         scene_index = index // self.sample_rate
-        return self.load_sample(scene_index)
+        key = self.keys[self.sequence_starts[scene_index]]
+
+        with xr.open_dataset(self.samples[key].radar) as data:
+
+            y = data.dbz.data.copy()
+            y[data.qi < 0.8] = np.nan
+
+            found = False
+            while not found:
+
+                n_rows, n_cols = y.shape
+
+                i_start = (n_rows - self.window_size) // 8
+                i_end = (n_rows + self.window_size) // 8
+                j_start = (n_cols - self.window_size) // 8
+                j_end = (n_cols + self.window_size) // 8
+                found = True
+                #i_start = np.random.randint(0, (n_rows - self.window_size) // 4)
+                #i_end = i_start + self.window_size // 4
+                #j_start = np.random.randint(0, (n_cols - self.window_size) // 4)
+                #j_end = j_start + self.window_size // 4
+
+                #row_slice = slice(4 * i_start, 4 * i_end)
+                #col_slice = slice(4 * j_start, 4 * j_end)
+
+                #y_s = y[row_slice, col_slice]
+
+                #if (y_s >= -100).mean() > 0.2:
+                #    found = True
+
+        slices = (i_start, i_end, j_start, j_end)
+
+        xs = []
+        ys = []
+
+        # If not in sequence mode return data directly.
+        if self.sequence_length == 1:
+            return self.load_sample(scene_index, slices=slices)
+
+        # Otherwise collect samples in list.
+        for i in range(self.sequence_length):
+            x, y = self.load_sample(self.sequence_starts[scene_index] + i, slices=slices)
+            xs.append(x)
+            ys.append(y)
+        return xs, ys
 
     def plot(self, key):
 
@@ -473,9 +548,7 @@ class CIMRDataset:
             x["geo"] = torch.tensor(
                 MISSING * np.ones((12,) + tuple([s // 2 for s in shape])),
                 dtype=torch.float,
-            )
-
-        # VISIR data
+            ) # VISIR data
         if self.samples[key].avhrr is not None:
             with xr.open_dataset(self.samples[key].avhrr) as data:
                 xs = np.stack([data[f"channel_{i:01}"].data for i in range(1, 6)])
@@ -649,3 +722,4 @@ class CIMRSequenceDataset(CIMRDataset):
             xs.append(x)
             ys.append(y)
         return xs, ys
+
