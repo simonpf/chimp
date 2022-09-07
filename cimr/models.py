@@ -917,7 +917,7 @@ class CIMRSeviri(nn.Module):
         ch_out = ch_in // 2
         for i in range(n_stages):
             ch_skip = ch_out if i < n_stages - 1 else n_channels_in
-            stages.append(UpsamplingStage(ch_in, ch_skip, ch_out))
+            stages.append(UpsamplingStage(2 * ch_in, 2 * ch_skip, ch_out))
             ch_in = ch_out
             ch_out = ch_out // 2 if i < n_stages - 2 else features
         self.up_stages = nn.ModuleList(stages)
@@ -963,14 +963,14 @@ class CIMRSeqSeviri(nn.Module):
     ):
         """
         Args:
-            n_stages: The number of stages in the encode
+            n_stages: The number of stages in the encoder
             features: The base number of features.
             n_outputs: The number of outputs of the model.
             n_blocks: The number of blocks in each stage.
         """
         super().__init__()
         self.n_stages = n_stages
-        self.n_hidden = n_hidden
+        self.n_features = features
 
         n_channels_in = 11
 
@@ -980,32 +980,27 @@ class CIMRSeqSeviri(nn.Module):
         stages = []
         ch_in = n_channels_in
         ch_out = features
-        ch_hidden = n_hidden
         for i in range(n_stages):
-            stages.append(DownsamplingStage(ch_in + ch_hidden, ch_out, n_blocks[i], size=3))
+            if i == 0:
+                stages.append(DownsamplingStage(ch_in, ch_out, n_blocks[i], size=3))
+            else:
+                stages.append(DownsamplingStage(2 * ch_in, ch_out, n_blocks[i], size=3))
             ch_in = ch_out
-            ch_hidden = ch_hidden * 2
             ch_out = ch_out * 2
         self.down_stages = nn.ModuleList(stages)
 
+        self.center = ConvNextBlock(2 * ch_in, ch_in)
+
         stages =[]
-        hidden_stages = []
         ch_out = ch_in // 2
         for i in range(n_stages):
-            ch_skip = ch_out if i < n_stages - 1 else n_channels_in
-            stages.append(UpsamplingStage(ch_in, ch_skip, ch_out, size=3))
-            hidden_stages.append(ConvNextBlock(ch_in + ch_hidden, ch_hidden, size=3))
+            ch_skip = 2 * ch_out if i < n_stages - 1 else n_channels_in
+            stages.append(UpsamplingStage(2 * ch_in, ch_skip, ch_out, size=3))
             ch_in = ch_out
             ch_out = ch_out // 2 if i < n_stages - 2 else features
-            ch_hidden = ch_hidden // 2
-
-
         self.up_stages = nn.ModuleList(stages)
 
-        hidden_stages.append(ConvNextBlock(ch_in + ch_hidden, ch_hidden, size=3))
-        self.hidden = nn.ModuleList(hidden_stages)
-
-        self.up = UpsamplingStage(features, 0, features, 3)
+        self.up = UpsamplingStage(2 * features, 0, features, 3)
         self.head = nn.Sequential(
             nn.Conv2d(features, features, kernel_size=1),
             nn.GELU(),
@@ -1015,6 +1010,7 @@ class CIMRSeqSeviri(nn.Module):
         )
 
     def init_hidden(self, x):
+
         t = x[0]["geo"]
         device = t.device
         dtype = t.dtype
@@ -1022,49 +1018,163 @@ class CIMRSeqSeviri(nn.Module):
         h = t.shape[2]
         w = t.shape[3]
 
-        hidden = []
-        for i in range(self.n_stages + 1):
+        hidden_down = []
+        for i in range(self.n_stages):
             scl = 2 ** i
             t = torch.zeros(
-                (b, self.n_hidden * scl, h // scl, w // scl),
+                (b, self.n_features * scl, h // scl // 2, w // scl // 2),
                 device=device,
                 dtype=dtype
             )
             t.to(dtype=dtype, device=device)
-            hidden.append(t)
+            hidden_down.append(t)
+
+        hidden_up = []
+        for i in range(self.n_stages - 1, -1, -1):
+            scl = 2 ** i
+            t = torch.zeros(
+                (b, self.n_features * scl, h // scl // 2, w // scl // 2),
+                device=device,
+                dtype=dtype
+            )
+            t.to(dtype=dtype, device=device)
+            hidden_up.append(t)
+
+        t = torch.zeros(
+            (b, self.n_features * scl, h, w),
+            device=device,
+            dtype=dtype
+        )
+        t.to(dtype=dtype, device=device)
+        hidden_up.append(t)
+
+        return hidden_down, hidden_up
+
+
+    def forward(self, x_seq, h_states=None):
+        """Propagate input though model."""
+
+        if not isinstance(x_seq, list):
+            x_seq = [x_seq]
+
+        if h_states is None:
+            h_down, h_up = self.init_hidden(x_seq)
+        else:
+            h_down, h_up = h_states
+
+        results = []
+
+        for i, x in enumerate(x_seq):
+
+            skips = []
+            y = x["geo"]
+
+            h_down_new = []
+            h_up_new = []
+
+            for hidden, stage in zip(h_down, self.down_stages):
+                skips.append(y)
+                y = stage(y)
+                h_down_new.append(y)
+                y = torch.cat([y, hidden], 1)
+
+            skips.reverse()
+
+            y = self.center(y)
+            h_up_new.append(y)
+            y = torch.cat([y, h_up[0]], 1)
+
+            for hidden, skip, up_stage, in zip(h_up[1:], skips, self.up_stages):
+                y = up_stage(y, skip)
+                h_up_new.append(y)
+                if hidden is not None:
+                    y = torch.cat([y, hidden], 1)
+
+            h_down = h_down_new
+            h_up = h_up_new
+
+            results.append(self.head(self.up(y, None)))
+
+        return results
+
+
+class RNN(nn.Module):
+    """
+    Independent-pixel RNN.
+    """
+    def __init__(self, n_inputs, n_features, n_outputs):
+        """
+        """
+        super().__init__()
+        self.n_features = n_features
+
+        self.body = nn.Sequential(
+            nn.Sequential(
+                nn.Conv2d(n_inputs, n_features, kernel_size=1),
+                nn.GELU(),
+            ),
+            nn.Sequential(
+                nn.Conv2d(n_features + n_features, n_features, kernel_size=1),
+                nn.GELU(),
+            ),
+            nn.Sequential(
+                nn.Conv2d(n_features + n_features, n_features, kernel_size=1),
+                nn.GELU(),
+            ),
+            nn.Sequential(
+                nn.Conv2d(n_features + n_features, n_features, kernel_size=1),
+                nn.GELU(),
+            )
+        )
+        self.head = nn.Sequential(
+                nn.Conv2d(n_features + n_features, n_features, kernel_size=1),
+                nn.GELU(),
+                nn.Conv2d(n_features, n_features, kernel_size=1),
+                nn.GELU(),
+                nn.Conv2d(n_features, n_outputs, kernel_size=1),
+        )
+
+
+    def init_hidden(self, x_seq):
+        t = x_seq[0]["geo"]
+        device = t.device
+        dtype = t.dtype
+        b = t.shape[0]
+        h = t.shape[2]
+        w = t.shape[3]
+        hidden = []
+
+        for i in range(len(self.body)):
+            hidden += [torch.zeros(
+                (b, self.n_features, h, w),
+                device=device,
+                dtype=dtype
+            )]
         return hidden
 
 
     def forward(self, x_seq, h_states=None):
         """Propagate input though model."""
 
+        if not isinstance(x_seq, list):
+            x_seq = [x_seq]
+
         if h_states is None:
             h_states = self.init_hidden(x_seq)
 
         results = []
-        for x in x_seq:
-            skips = []
+
+        for i, x in enumerate(x_seq):
+
             y = x["geo"]
-            for hidden, stage in zip(h_states, self.down_stages):
-                skips.append(y)
-                y = stage(torch.cat([y, hidden], 1))
+            hidden_new = []
 
-            h_new = []
-            skips.reverse()
-            h_states.reverse()
+            for hidden, stage in zip(h_states, self.body):
+                y = stage(y)
+                hidden_new.append(y)
+                y = torch.cat([y, hidden], 1)
 
-            for skip, up_stage, h_stage, h_old in zip(skips,
-                                                      self.up_stages,
-                                                      self.hidden,
-                                                      h_states):
-                h_new.append(h_stage(torch.cat([y, h_old], 1)))
-                y = up_stage(y, skip)
-
-            h_stage = self.hidden[-1]
-            h_new.append(h_stage(torch.cat([y, h_states[-1]], 1)))
-
-            h_states = h_new
-            h_states.reverse()
-            results.append(self.head(self.up(y, None)))
+            results.append(self.head(y))
+            h_states = hidden_new
 
         return results

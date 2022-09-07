@@ -205,7 +205,7 @@ def save_file(dataset, output_folder):
     comp = {"dtype": "int16", "scale_factor": 0.01, "zlib": True, "_FillValue": -99}
     encoding = {var: comp for var in dataset.variables.keys()}
 
-    dataset.to_netcdf(output_filename)
+    dataset.to_netcdf(output_filename, encoding=encoding)
 
 
 def process_day(year, month, day, output_folder, path=None):

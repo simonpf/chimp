@@ -5,7 +5,9 @@ cimr.data.training_data
 Interface classes for loading the CIMR training data.
 """
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
+import os
 
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
@@ -14,6 +16,7 @@ from quantnn.normalizer import MinMaxNormalizer
 import torch
 from torch import nn
 import xarray as xr
+import pandas as pd
 
 from cimr.areas import NORDIC_2
 from cimr.data.mhs import MHS
@@ -245,7 +248,6 @@ class CIMRDataset:
                 window to extract from each scene.
         """
         key = self.keys[index]
-
         with xr.open_dataset(self.samples[key].radar) as data:
 
             y = data.dbz.data.copy()
@@ -394,28 +396,6 @@ class CIMRDataset:
 
         f = plt.figure(figsize=(10, 12))
         gs = GridSpec(2, 2)
-        axs = np.array(
-            [
-                [f.add_subplot(gs[i, j], projection=crs) for j in range(2)]
-                for i in range(2)
-            ]
-        )
-
-        ax = axs[0, 0]
-        ax.set_title("Radar")
-
-        ax = axs[0, 1]
-        ax.set_title("geo 12u")
-
-        ax = axs[1, 0]
-        ax.set_title("VISIR")
-
-        ax = axs[1, 1]
-        ax.set_title("MHS (89 GHz)")
-
-        sample = self.samples[key]
-
-        radar_data = xr.load_dataset(sample.radar)
         ax = axs[0, 0]
         dbz = radar_data.dbz.data.copy()
         dbz[radar_data.qi < 0.8] = np.nan
@@ -723,3 +703,105 @@ class CIMRSequenceDataset(CIMRDataset):
             ys.append(y)
         return xs, ys
 
+
+def plot_sample(x, y):
+    """
+    Plot input and output from a sample.
+
+    Args:
+        x: The training input.
+        y: The training output.
+    """
+    if not isinstance(x, list):
+        x = [x]
+    if not isinstance(y, list):
+        y = [y]
+
+    n_steps = len(x)
+
+    for i in range(n_steps):
+        f, axs = plt.subplots(1, 2, figsize=(10, 5))
+
+        ax = axs[0]
+        ax.imshow(x[i]["geo"][-1])
+
+        ax = axs[1]
+        ax.imshow(y[i])
+
+
+def plot_date_distribution(path, keys=None):
+
+    if keys is None:
+        keys = ["seviri", "mhs", "radar"]
+    if not isinstance(keys, list):
+        keys = list(keys)
+
+    times = {}
+    time_min = None
+    time_max = None
+    for key in keys:
+        files = list(Path(path).glob(f"**/{key}*.nc"))
+        times_k = [
+            datetime.strptime(name.name[len(key) + 1:-3], "%Y%m%d_%H_%M") for name in files
+            ]
+
+        times_k = xr.DataArray(times_k)
+        t_min = times_k.min()
+        time_min = min(time_min, t_min) if time_min is not None else t_min
+        t_max = times_k.max()
+        time_max = max(time_max, t_max) if time_max is not None else t_max
+
+        times[key] = times_k
+
+    figure = plt.figure(figsize=(6, 4))
+    ax = figure.add_subplot(1, 1, 1)
+
+    bins = np.arange(
+        time_min.astype("datetime64[D]").data,
+        (time_max + np.timedelta64(2, "D")).astype("datetime64[D]").data,
+        dtype="datetime64[D]"
+    )
+    x = bins[:-1] + 0.5 * (bins[1:] - bins[:-1])
+
+    for key in keys:
+        y, _ = np.histogram(times[key], bins=bins)
+        ax.plot(x, y, label=key)
+
+    ax.legend()
+
+
+
+class TestDataSet:
+    def __init__(self,
+                 sequence_length=1,
+                 size=(128, 128),
+                 input_sampling=1
+    ):
+        seed = int.from_bytes(os.urandom(4), "big") + os.getpid()
+        self.rng = np.random.default_rng(seed)
+        self.size = size
+        self.sequence_length = sequence_length
+        self.input_sampling = input_sampling
+
+    def __len__(self):
+        return 10_000
+
+    def init_function(self, w_id):
+        seed = int.from_bytes(os.urandom(4), "big") + w_id
+        self.rng = np.random.default_rng(seed)
+
+    def __getitem__(self, index):
+
+        xs = [self.rng.uniform(-1, 1) * np.ones((11,) + self.size, dtype=np.float32)
+              for i in range(self.sequence_length)]
+        y = np.stack(xs, axis=0)[:, 0]
+        y[1:] += y[:-1]
+        y[1:] *= 0.5
+
+        y = list(y)
+        xs = [{"geo": x[..., ::self.input_sampling, ::self.input_sampling]} for x in xs]
+        for x in xs:
+            x = x["geo"]
+            x += self.rng.uniform(-0.01, 0.01, size=x.shape)
+
+        return xs, y

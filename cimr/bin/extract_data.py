@@ -127,9 +127,18 @@ def run(args):
 
     tasks = []
     for day in days:
+        print(day)
         args = [year, month, day, output]
         kwargs = {"path": path}
         tasks.append(pool.submit(module.process_day, *args, **kwargs))
 
     for task, day in zip(tasks, days):
-        task.result()
+        try:
+            task.result()
+        except Exception as e:
+            raise e
+            LOGGER.error(
+                "The following error was encountered while processing file '%s': %s %s",
+                f"{year}-{month:02}-{day:02}",
+                type(e),
+                e)

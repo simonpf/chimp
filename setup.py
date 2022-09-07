@@ -24,7 +24,7 @@ setup(
         "scipy",
         "xarray",
         "pandas",
-        "quantnn>=0.0.4dev"
+        "quantnn"
     ],
     packages=find_packages(),
     python_requires=">=3.6",

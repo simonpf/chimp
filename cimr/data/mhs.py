@@ -138,8 +138,6 @@ class MHS:
 
 BANDS = {"mw_90": [(0, 1)], "mw_160": [(1, 1)], "mw_183": [(2, 0), (3, 2), (4, 4)]}
 
-N_CHANS = {"mw_90": 2, "mw_160": 2, "mw_183": 5}
-
 
 def make_band(band):
     n_chans = N_CHANS[band]
@@ -192,7 +190,7 @@ def save_file(dataset, output_folder):
             }
         )
 
-        filename = f"mhs_{year}{month:02}{day:02}_{hour:02}_{minute:02}.nc"
+        filename = f"mw_{year}{month:02}{day:02}_{hour:02}_{minute:02}.nc"
         output_filename = Path(output_folder) / filename
 
         if output_filename.exists():
@@ -207,6 +205,8 @@ def save_file(dataset, output_folder):
                 else:
                     dataset_out[band] = results[band]
             dataset_out.to_netcdf(output_filename)
+            dataset_out.attrs["sensor"] = dataset.attrs["InstrumentName"]
+            dataset_out.attrs["satellite"] = dataset.attrs["SatelliteName"]
         else:
             comp = {
                 "dtype": "int16",

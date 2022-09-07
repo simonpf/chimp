@@ -5,6 +5,7 @@ cimr.data.seviri
 Functionality for reading and processing SEVIRI data.
 """
 from datetime import datetime, timedelta
+import logging
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import subprocess
@@ -20,6 +21,9 @@ import xarray as xr
 
 from cimr.areas import NORDIC_4
 from cimr.utils import round_time
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class SEVIRI:
@@ -103,6 +107,7 @@ class SEVIRI:
             filename = (Path(tmp) / self.filename.name).with_suffix(".nat")
             scene = Scene([filename], reader="seviri_l1b_native")
 
+            datasets = scene.available_dataset_names()
             datasets = np.array([name for name in datasets if name != "HRV"])
             wavelengths = np.array([int(name[-3:]) for name in datasets])
             datasets = list(datasets[np.argsort(wavelengths)])
@@ -119,6 +124,29 @@ class SEVIRI:
         return dataset.drop("crs")
 
 
+def get_output_filename(time):
+    """
+    Get filename for training sample.
+
+    Args:
+        time: The observation time.
+
+    Return:
+        A string specifying the filename of the training sample.
+    """
+    time_15 = round_time(time)
+    year = time_15.year
+    month = time_15.month
+    day = time_15.day
+    hour = time_15.hour
+    minute = time_15.minute
+
+    filename = f"seviri_{year}{month:02}{day:02}_{hour:02}_{minute:02}.nc"
+    return filename
+
+
+
+
 def save_file(dataset, output_folder):
     """
     Save file to training data.
@@ -129,14 +157,7 @@ def save_file(dataset, output_folder):
         output_folder: The folder to which to write the training data.
 
     """
-    time_15 = round_time(dataset.attrs["time"])
-    year = time_15.year
-    month = time_15.month
-    day = time_15.day
-    hour = time_15.hour
-    minute = time_15.minute
-
-    filename = f"seviri_{year}{month:02}{day:02}_{hour:02}_{minute:02}.nc"
+    filename = get_output_filename(dataset.attrs["time"])
     output_filename = Path(output_folder) / filename
 
     comp = {"dtype": "int16", "scale_factor": 0.01, "zlib": True, "_FillValue": -99}
@@ -164,12 +185,36 @@ def process_day(year, month, day, output_folder, path=None):
     start_time = datetime(year, month, day)
     end_time = datetime(year, month, day) + timedelta(hours=23, minutes=59)
     files = provider.get_files_in_range(start_time, end_time)
+    existing_files = [
+        f.name for f in output_folder.glob(f"seviri_{year}{month:02}{day:02}*.nc")
+    ]
+
+    print(len(existing_files), len(files))
+    # Nothing to do if all files are already available.
+    if len(existing_files) == len(files):
+        return None
 
     with TemporaryDirectory() as tmp:
         tmp = Path(tmp)
 
         for link in files:
-            print("processing: ", link)
-            filename = provider.download_file(link, tmp)
-            data = SEVIRI(filename).to_xarray_dataset()
-            save_file(data, output_folder)
+
+            try:
+                filename = link.split("/")[-1]
+                time = SEVIRI.filename_to_date(filename)
+                filename = get_output_filename(time)
+
+                if filename in existing_files:
+                    continue
+
+                filename = provider.download_file(link, tmp)
+                data = SEVIRI(filename).to_xarray_dataset()
+                save_file(data, output_folder)
+
+            except Exception as e:
+                LOGGER.error(
+                    "Processing of input_file '%s' failed with the "
+                    "following error: %s",
+                    link,
+                    e
+                )
