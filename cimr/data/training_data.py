@@ -235,6 +235,18 @@ class CIMRDataset:
         )[0]
         self.sequence_starts = starts
 
+        self.init_rng()
+
+    def init_rng(self, w_id=0):
+        """
+        Initialize random number generator.
+
+        Args:
+            w_id: The worker ID which of the worker process..
+        """
+        seed = int.from_bytes(os.urandom(4), "big") + w_id
+        self.rng = np.random.default_rng(seed)
+
     def __len__(self):
         return len(self.sequence_starts) * self.sample_rate
 
@@ -258,9 +270,9 @@ class CIMRDataset:
                 found = False
                 while not found:
                     n_rows, n_cols = y.shape
-                    i_start = np.random.randint(0, (n_rows - self.window_size) // 4)
+                    i_start = self.rng.integers(0, (n_rows - self.window_size) // 4)
                     i_end = i_start + self.window_size // 4
-                    j_start = np.random.randint(0, (n_cols - self.window_size) // 4)
+                    j_start = self.rng.integers(0, (n_cols - self.window_size) // 4)
                     j_end = j_start + self.window_size // 4
 
                     row_slice = slice(4 * i_start, 4 * i_end)
@@ -354,23 +366,18 @@ class CIMRDataset:
 
                 n_rows, n_cols = y.shape
 
-                i_start = (n_rows - self.window_size) // 8
-                i_end = (n_rows + self.window_size) // 8
-                j_start = (n_cols - self.window_size) // 8
-                j_end = (n_cols + self.window_size) // 8
-                found = True
-                #i_start = np.random.randint(0, (n_rows - self.window_size) // 4)
-                #i_end = i_start + self.window_size // 4
-                #j_start = np.random.randint(0, (n_cols - self.window_size) // 4)
-                #j_end = j_start + self.window_size // 4
+                i_start = self.rng.integers(0, (n_rows - self.window_size) // 4)
+                i_end = i_start + self.window_size // 4
+                j_start = self.rng.integers(0, (n_cols - self.window_size) // 4)
+                j_end = j_start + self.window_size // 4
 
-                #row_slice = slice(4 * i_start, 4 * i_end)
-                #col_slice = slice(4 * j_start, 4 * j_end)
+                row_slice = slice(4 * i_start, 4 * i_end)
+                col_slice = slice(4 * j_start, 4 * j_end)
 
-                #y_s = y[row_slice, col_slice]
+                y_s = y[row_slice, col_slice]
 
-                #if (y_s >= -100).mean() > 0.2:
-                #    found = True
+                if (y_s >= -100).mean() > 0.2:
+                    found = True
 
         slices = (i_start, i_end, j_start, j_end)
 
@@ -680,9 +687,9 @@ class CIMRSequenceDataset(CIMRDataset):
 
                 n_rows, n_cols = y.shape
 
-                i_start = np.random.randint(0, (n_rows - self.window_size) // 4)
+                i_start = self.rng.integers(0, (n_rows - self.window_size) // 4)
                 i_end = i_start + self.window_size // 4
-                j_start = np.random.randint(0, (n_cols - self.window_size) // 4)
+                j_start = self.rng.integers(0, (n_cols - self.window_size) // 4)
                 j_end = j_start + self.window_size // 4
 
                 row_slice = slice(4 * i_start, 4 * i_end)
