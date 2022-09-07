@@ -917,7 +917,7 @@ class CIMRSeviri(nn.Module):
         ch_out = ch_in // 2
         for i in range(n_stages):
             ch_skip = ch_out if i < n_stages - 1 else n_channels_in
-            stages.append(UpsamplingStage(2 * ch_in, 2 * ch_skip, ch_out))
+            stages.append(UpsamplingStage(ch_in, ch_skip, ch_out))
             ch_in = ch_out
             ch_out = ch_out // 2 if i < n_stages - 2 else features
         self.up_stages = nn.ModuleList(stages)
