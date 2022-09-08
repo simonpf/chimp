@@ -121,6 +121,8 @@ def run(args):
                 path,
             )
             return 1
+    else:
+        path = None
 
     n_procs = args.n_processes
     pool = ThreadPoolExecutor(max_workers=n_procs)
@@ -136,7 +138,6 @@ def run(args):
         try:
             task.result()
         except Exception as e:
-            raise e
             LOGGER.error(
                 "The following error was encountered while processing file '%s': %s %s",
                 f"{year}-{month:02}-{day:02}",
