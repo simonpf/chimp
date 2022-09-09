@@ -202,9 +202,8 @@ def save_file(dataset, output_folder):
     filename = f"radar_{year}{month:02}{day:02}_{hour:02}_{minute:02}.nc"
     output_filename = Path(output_folder) / filename
 
-    comp = {"dtype": "int16", "scale_factor": 0.01, "zlib": True, "_FillValue": -99}
+    comp = {"zlib": True}
     encoding = {var: comp for var in dataset.variables.keys()}
-
     dataset.to_netcdf(output_filename, encoding=encoding)
 
 
