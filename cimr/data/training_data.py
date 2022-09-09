@@ -136,6 +136,7 @@ class SampleRecord:
     Record holding the paths of the files for single training
     sample.
     """
+
     radar: Path = None
     geo: Path = None
     mw: Path = None
@@ -160,19 +161,21 @@ def get_date(filename):
     return np.datetime64(f"{year}-{month}-{day}T{hour}:{minute}:00")
 
 
-
 class CIMRDataset:
     """
     Dataset class for the CIMR training data.
     """
-    def __init__(self,
-                 folder,
-                 sample_rate=1,
-                 sequence_length=1,
-                 normalize=True,
-                 window_size=128,
-                 start_time=None,
-                 end_time=None
+
+    def __init__(
+        self,
+        folder,
+        sample_rate=1,
+        sequence_length=1,
+        normalize=True,
+        window_size=128,
+        start_time=None,
+        end_time=None,
+        quality_threshold=0.8,
     ):
         """
         Args:
@@ -188,6 +191,7 @@ class CIMRDataset:
         self.folder = Path(folder)
         self.sample_rate = sample_rate
         self.normalize = normalize
+        self.quality_threshold = quality_threshold
 
         radar_files = sorted(list((self.folder / "radar").glob("radar*.nc")))
         times = np.array(list(map(get_date, radar_files)))
@@ -228,10 +232,10 @@ class CIMRDataset:
         # Determine valid start point for input samples.
         self.sequence_length = sequence_length
         times = np.array(list(self.samples.keys()))
-        deltas = times[self.sequence_length:] - times[:-self.sequence_length]
+        deltas = times[self.sequence_length :] - times[: -self.sequence_length]
         starts = np.where(
-            deltas.astype("timedelta64[s]") <=
-            np.timedelta64(self.sequence_length * 15 * 60, "s")
+            deltas.astype("timedelta64[s]")
+            <= np.timedelta64(self.sequence_length * 15 * 60, "s")
         )[0]
         self.sequence_starts = starts
 
@@ -263,7 +267,7 @@ class CIMRDataset:
         with xr.open_dataset(self.samples[key].radar) as data:
 
             y = data.dbz.data.copy()
-            y[data.qi < 0.8] = np.nan
+            y[data.qi < self.quality_threshold] = np.nan
 
             if slices is None:
 
@@ -301,9 +305,7 @@ class CIMRDataset:
                 row_slice = slice(i_start * 2, i_end * 2)
                 col_slice = slice(j_start * 2, j_end * 2)
                 load_geo_obs(
-                    x,
-                    data[{"y": row_slice, "x": col_slice}],
-                    normalize=self.normalize
+                    x, data[{"y": row_slice, "x": col_slice}], normalize=self.normalize
                 )
         else:
             x["geo"] = torch.tensor(
@@ -317,9 +319,8 @@ class CIMRDataset:
                 row_slice = slice(4 * i_start, 4 * i_end)
                 col_slice = slice(4 * j_start, 4 * j_end)
                 load_visir_obs(
-                    x,
-                    data[{"y": row_slice, "x": col_slice}],
-                    normalize=self.normalize)
+                    x, data[{"y": row_slice, "x": col_slice}], normalize=self.normalize
+                )
         else:
             x["visir"] = torch.tensor(
                 MISSING * np.ones((5,) + (self.window_size,) * 2), dtype=torch.float
@@ -331,9 +332,7 @@ class CIMRDataset:
                 row_slice = slice(i_start, i_end)
                 col_slice = slice(j_start, j_end)
                 load_microwave_obs(
-                    x,
-                    data[{"y": row_slice, "x": col_slice}],
-                    normalize=self.normalize
+                    x, data[{"y": row_slice, "x": col_slice}], normalize=self.normalize
                 )
         else:
             x["mw_90"] = torch.tensor(
@@ -359,7 +358,7 @@ class CIMRDataset:
         with xr.open_dataset(self.samples[key].radar) as data:
 
             y = data.dbz.data.copy()
-            y[data.qi < 0.8] = np.nan
+            y[data.qi < self.quality_threshold] = np.nan
 
             found = False
             while not found:
@@ -390,7 +389,9 @@ class CIMRDataset:
 
         # Otherwise collect samples in list.
         for i in range(self.sequence_length):
-            x, y = self.load_sample(self.sequence_starts[scene_index] + i, slices=slices)
+            x, y = self.load_sample(
+                self.sequence_starts[scene_index] + i, slices=slices
+            )
             xs.append(x)
             ys.append(y)
         return xs, ys
@@ -405,7 +406,7 @@ class CIMRDataset:
         gs = GridSpec(2, 2)
         ax = axs[0, 0]
         dbz = radar_data.dbz.data.copy()
-        dbz[radar_data.qi < 0.8] = np.nan
+        dbz[radar_data.qi < self.quality_threshold] = np.nan
         img = ax.imshow(dbz, extent=extent, vmin=-20, vmax=20)
         ax.coastlines(color="grey")
 
@@ -479,7 +480,7 @@ class CIMRDataset:
             radar_data = xr.load_dataset(sample.radar)
             ax = axs[0, 0]
             dbz = radar_data.dbz.data.copy()
-            dbz[radar_data.qi < 0.8] = np.nan
+            dbz[radar_data.qi < self.quality_threshold] = np.nan
             img = ax.imshow(dbz, extent=extent, vmin=-20, vmax=20)
             ax.coastlines(color="grey")
 
@@ -535,7 +536,7 @@ class CIMRDataset:
             x["geo"] = torch.tensor(
                 MISSING * np.ones((12,) + tuple([s // 2 for s in shape])),
                 dtype=torch.float,
-            ) # VISIR data
+            )  # VISIR data
         if self.samples[key].avhrr is not None:
             with xr.open_dataset(self.samples[key].avhrr) as data:
                 xs = np.stack([data[f"channel_{i:01}"].data for i in range(1, 6)])
@@ -636,7 +637,6 @@ class CIMRDataset:
             x["avhrr"] = x["avhrr"].unsqueeze(0)
             x["mhs"] = x["mhs"].unsqueeze(0)
 
-
             yield x, y, slice_y, slice_x
 
 
@@ -644,14 +644,17 @@ class CIMRSequenceDataset(CIMRDataset):
     """
     Dataset class for the CIMR training data.
     """
-    def __init__(self,
-                 folder,
-                 sample_rate=4,
-                 normalize=True,
-                 window_size=128,
-                 sequence_length=32,
-                 start_time=None,
-                 end_time=None
+
+    def __init__(
+        self,
+        folder,
+        sample_rate=4,
+        normalize=True,
+        window_size=128,
+        sequence_length=32,
+        start_time=None,
+        end_time=None,
+        quality_threshold=0.8,
     ):
         super().__init__(
             folder,
@@ -659,17 +662,18 @@ class CIMRSequenceDataset(CIMRDataset):
             normalize=normalize,
             window_size=window_size,
             start_time=start_time,
-            end_time=end_time
+            end_time=end_time,
+            quality_threshold=quality_threshold,
         )
 
         self.sequence_length = sequence_length
         times = np.array(list(self.samples.keys()))
-        deltas = times[self.sequence_length:] - times[:-self.sequence_length]
+        deltas = times[self.sequence_length :] - times[: -self.sequence_length]
         starts = np.where(
-            deltas.astype("timedelta64[s]") <= np.timedelta64(self.sequence_length * 15 * 60, "s")
+            deltas.astype("timedelta64[s]")
+            <= np.timedelta64(self.sequence_length * 15 * 60, "s")
         )[0]
         self.sequence_starts = starts
-
 
     def __len__(self):
         return len(self.sequence_starts)
@@ -680,7 +684,7 @@ class CIMRSequenceDataset(CIMRDataset):
         with xr.open_dataset(self.samples[key].radar) as data:
 
             y = data.dbz.data.copy()
-            y[data.qi < 0.8] = np.nan
+            y[data.qi < self.quality_threshold] = np.nan
 
             found = False
             while not found:
@@ -749,8 +753,9 @@ def plot_date_distribution(path, keys=None):
     for key in keys:
         files = list(Path(path).glob(f"**/{key}*.nc"))
         times_k = [
-            datetime.strptime(name.name[len(key) + 1:-3], "%Y%m%d_%H_%M") for name in files
-            ]
+            datetime.strptime(name.name[len(key) + 1 : -3], "%Y%m%d_%H_%M")
+            for name in files
+        ]
 
         times_k = xr.DataArray(times_k)
         t_min = times_k.min()
@@ -766,7 +771,7 @@ def plot_date_distribution(path, keys=None):
     bins = np.arange(
         time_min.astype("datetime64[D]").data,
         (time_max + np.timedelta64(2, "D")).astype("datetime64[D]").data,
-        dtype="datetime64[D]"
+        dtype="datetime64[D]",
     )
     x = bins[:-1] + 0.5 * (bins[1:] - bins[:-1])
 
@@ -777,13 +782,8 @@ def plot_date_distribution(path, keys=None):
     ax.legend()
 
 
-
 class TestDataSet:
-    def __init__(self,
-                 sequence_length=1,
-                 size=(128, 128),
-                 input_sampling=1
-    ):
+    def __init__(self, sequence_length=1, size=(128, 128), input_sampling=1):
         seed = int.from_bytes(os.urandom(4), "big") + os.getpid()
         self.rng = np.random.default_rng(seed)
         self.size = size
@@ -799,14 +799,18 @@ class TestDataSet:
 
     def __getitem__(self, index):
 
-        xs = [self.rng.uniform(-1, 1) * np.ones((11,) + self.size, dtype=np.float32)
-              for i in range(self.sequence_length)]
+        xs = [
+            self.rng.uniform(-1, 1) * np.ones((11,) + self.size, dtype=np.float32)
+            for i in range(self.sequence_length)
+        ]
         y = np.stack(xs, axis=0)[:, 0]
         y[1:] += y[:-1]
         y[1:] *= 0.5
 
         y = list(y)
-        xs = [{"geo": x[..., ::self.input_sampling, ::self.input_sampling]} for x in xs]
+        xs = [
+            {"geo": x[..., :: self.input_sampling, :: self.input_sampling]} for x in xs
+        ]
         for x in xs:
             x = x["geo"]
             x += self.rng.uniform(-0.01, 0.01, size=x.shape)
