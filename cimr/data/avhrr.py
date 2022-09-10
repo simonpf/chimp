@@ -252,7 +252,7 @@ def resample_scene(scene):
     for name in names:
         data_in = scene[name]
 
-        if "_FillValue" in data_in.attrs():
+        if "_FillValue" in data_in.attrs:
             fill_value = data_in.attrs["_FillValue"]
         else:
             fill_value = np.nan
