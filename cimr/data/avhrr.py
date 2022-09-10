@@ -251,6 +251,12 @@ def resample_scene(scene):
     names = [f"visir_{i:02}" for i in range(1, 6)]
     for name in names:
         data_in = scene[name]
+
+        if "_FillValue" in data_in.attrs():
+            fill_value = data_in.attrs["_FillValue"]
+        else:
+            fill_value = np.nan
+
         data_out = kd_tree.get_sample_from_neighbour_info(
             "nn",
             NORDIC_2.shape,
