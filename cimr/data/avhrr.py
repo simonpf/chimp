@@ -162,6 +162,14 @@ class AVHRR:
         keys = ["lon", "lat", "image1", "image2", "image3", "image4", "image5"]
         time = AVHRR.filename_to_date(self.filename)
         ds = xr.load_dataset(self.filename, decode_cf=False)[keys]
+        new_names = {
+            "lon": "longitude",
+            "lat": "latitude",
+        }
+        for i in range(1, 6):
+            new_names[f"image{i}"] = f"visir_{i:02}"
+
+        ds = ds.rename(new_names)
         ds.attrs["time"] = time
         return ds
 
