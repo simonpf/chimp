@@ -321,23 +321,9 @@ def process_day(year, month, day, output_folder, path=None):
     if not output_folder.exists():
         output_folder.mkdir(parents=True, exist_ok=True)
 
-    provider = EUMETSATProvider(l1b_avhrr)
     start_time = datetime(year, month, day)
-    end_time = start_time + timedelta(hours=23, minutes=59)
-    bb = (ROI_NORDIC[0], ROI_NORDIC[1], ROI_NORDIC[2], ROI_NORDIC[3])
-    files = provider.get_files_in_range(start_time, end_time, bounding_box=bb)
-
-    with TemporaryDirectory() as tmp:
-        tmp = Path(tmp)
-
-        for link in files:
-            print("processing: ", link)
-            filename = provider.download_file(link, tmp)
-            data = AVHRR(filename).to_xarray_dataset()
-            save_file(data, output_folder)
-
-provider = EUMETSATProvider(l1b_avhrr)
-start_time = datetime(2020, 5, 1)
-end_time = start_time + timedelta(hours=23, minutes=59)
-bb = (ROI_NORDIC[0], ROI_NORDIC[1], ROI_NORDIC[2], ROI_NORDIC[3])
-files = provider.get_files_in_range(start_time, end_time, bounding_box=bb)
+    end_time = datetime(year, month, day) + timedelta(hours=23, minutes=59)
+    files = AVHRR.find_files(path, start_time=start_time, end_time=end_time)
+    for filename in files:
+        dataset = Baltrad(filename).to_xarray_dataset()
+        save_file(dataset, output_folder)
