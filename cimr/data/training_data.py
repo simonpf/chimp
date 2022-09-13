@@ -109,25 +109,25 @@ def load_microwave_obs(sample, dataset, normalize=True):
         x = np.transpose(dataset.mw_90.data, (2, 0, 1))
         if normalize:
             x = NORMALIZER_MW_90(x)
-        sample["mw_90"] = torch.tensor(x).to(torch.float)
+        sample["mw_90"] = torch.tensor(x)
     else:
-        sample["mw_90"] = MISSING * torch.ones((2,) + shape).to(torch.float)
+        sample["mw_90"] = MISSING * torch.ones((2,) + shape)
 
     if "mw_160" in dataset:
         x = np.transpose(dataset.mw_160.data, (2, 0, 1))
         if normalize:
             x = NORMALIZER_MW_160(x)
-        sample["mw_160"] = torch.tensor(x).to(torch.float)
+        sample["mw_160"] = torch.tensor(x)
     else:
-        sample["mw_160"] = MISSING * torch.ones((2,) + shape).to(torch.float)
+        sample["mw_160"] = MISSING * torch.ones((2,) + shape)
 
     if "mw_183" in dataset:
         x = np.transpose(dataset.mw_183.data, (2, 0, 1))
         if normalize:
             x = NORMALIZER_MW_183(x)
-        sample["mw_183"] = torch.tensor(x).to(torch.float)
+        sample["mw_183"] = torch.tensor(x)
     else:
-        sample["mw_160"] = MISSING * torch.ones((5,) + shape).to(torch.float)
+        sample["mw_160"] = MISSING * torch.ones((5,) + shape)
 
 
 @dataclass
@@ -312,6 +312,7 @@ class CIMRDataset:
                 MISSING * np.ones((11,) + (self.window_size // 2,) * 2),
                 dtype=torch.float,
             )
+            x["geo"][1] = -1 * MISSING
 
         # VISIR data
         if self.samples[key].visir is not None:
@@ -325,6 +326,7 @@ class CIMRDataset:
             x["visir"] = torch.tensor(
                 MISSING * np.ones((5,) + (self.window_size,) * 2), dtype=torch.float
             )
+            x["visir"][1] = -1 * MISSING
 
         # Microwave data
         if self.samples[key].mw is not None:
@@ -339,14 +341,17 @@ class CIMRDataset:
                 MISSING * np.ones((2,) + (self.window_size // 4,) * 2),
                 dtype=torch.float,
             )
+            x["mw_90"][1] = -1 * MISSING
             x["mw_160"] = torch.tensor(
                 MISSING * np.ones((2,) + (self.window_size // 4,) * 2),
                 dtype=torch.float,
             )
+            x["mw_160"][1] = -1 * MISSING
             x["mw_183"] = torch.tensor(
                 MISSING * np.ones((5,) + (self.window_size // 4,) * 2),
                 dtype=torch.float,
             )
+            x["mw_183"][1] = -1 * MISSING
 
         return x, y
 

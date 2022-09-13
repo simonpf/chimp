@@ -592,7 +592,7 @@ class CIMRSequenceModel(nn.Module):
         for i in range(6):
             scl = 2 ** i
             t = torch.zeros((b, self.n_hidden * scl, h // scl, w // scl))
-            t.to(dtype=dtype, device=device)
+            t = t.type_as(x_seq[0]["geo"])
             hidden.append(t)
         return hidden
 
@@ -816,7 +816,7 @@ class CIMRSmolSequenceModel(nn.Module):
                 device=device,
                 dtype=dtype
             )
-            t.to(dtype=dtype, device=device)
+            t = t.type_as(x_seq[0]["geo"])
             hidden.append(t)
         return hidden
 
@@ -1009,9 +1009,9 @@ class CIMRSeqSeviri(nn.Module):
             nn.Conv2d(features, n_outputs, kernel_size=1),
         )
 
-    def init_hidden(self, x):
+    def init_hidden(self, x_seq):
 
-        t = x[0]["geo"]
+        t = x_seq[0]["geo"]
         device = t.device
         dtype = t.dtype
         b = t.shape[0]
@@ -1026,7 +1026,7 @@ class CIMRSeqSeviri(nn.Module):
                 device=device,
                 dtype=dtype
             )
-            t.to(dtype=dtype, device=device)
+            t = t.type_as(x_seq[0]["geo"])
             hidden_down.append(t)
 
         hidden_up = []
@@ -1037,7 +1037,7 @@ class CIMRSeqSeviri(nn.Module):
                 device=device,
                 dtype=dtype
             )
-            t.to(dtype=dtype, device=device)
+            t = t.type_as(x_seq[0]["geo"])
             hidden_up.append(t)
 
         t = torch.zeros(
@@ -1045,7 +1045,7 @@ class CIMRSeqSeviri(nn.Module):
             device=device,
             dtype=dtype
         )
-        t.to(dtype=dtype, device=device)
+        t = t.type_as(x_seq[0]["geo"])
         hidden_up.append(t)
 
         return hidden_down, hidden_up
