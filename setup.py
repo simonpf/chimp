@@ -34,4 +34,6 @@ setup(
     entry_points = {
         'console_scripts': ['cimr=cimr.bin:cimr'],
     },
+    include_package_data=True,
+    package_data={'cimr': ['areas/*.yml']},
 )
