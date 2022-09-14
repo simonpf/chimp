@@ -748,7 +748,7 @@ def plot_sample(x, y):
 def plot_date_distribution(path, keys=None):
 
     if keys is None:
-        keys = ["seviri", "mhs", "radar"]
+        keys = ["seviri", "mw", "radar"]
     if not isinstance(keys, list):
         keys = list(keys)
 
@@ -756,19 +756,39 @@ def plot_date_distribution(path, keys=None):
     time_min = None
     time_max = None
     for key in keys:
+
         files = list(Path(path).glob(f"**/{key}*.nc"))
         times_k = [
             datetime.strptime(name.name[len(key) + 1 : -3], "%Y%m%d_%H_%M")
             for name in files
         ]
 
-        times_k = xr.DataArray(times_k)
-        t_min = times_k.min()
-        time_min = min(time_min, t_min) if time_min is not None else t_min
-        t_max = times_k.max()
-        time_max = max(time_max, t_max) if time_max is not None else t_max
+        if key == "mw":
+            sensors = {}
+            for time_k, filename in zip(times_k, files):
+                with xr.open_dataset(filename) as data:
+                    satellite = data.attrs["satellite"]
+                    sensor = data.attrs["sensor"]
+                    sensor = f"{sensor}"
+                    sensor_times = sensors.setdefault(sensor, [])
+                    sensor_times.append(time_k)
 
-        times[key] = times_k
+            for sensor in sensors:
+                times_s = sensors[sensor]
+                times_k = xr.DataArray(times_s)
+                times[sensor] = times_k
+                t_min = times_k.min()
+                time_min = min(time_min, t_min) if time_min is not None else t_min
+                t_max = times_k.max()
+                time_max = max(time_max, t_max) if time_max is not None else t_max
+        else:
+            times_k = xr.DataArray(times_k)
+            t_min = times_k.min()
+            time_min = min(time_min, t_min) if time_min is not None else t_min
+            t_max = times_k.max()
+            time_max = max(time_max, t_max) if time_max is not None else t_max
+
+            times[key] = times_k
 
     figure = plt.figure(figsize=(6, 4))
     ax = figure.add_subplot(1, 1, 1)
@@ -780,44 +800,121 @@ def plot_date_distribution(path, keys=None):
     )
     x = bins[:-1] + 0.5 * (bins[1:] - bins[:-1])
 
-    for key in keys:
+    for key in times:
         y, _ = np.histogram(times[key], bins=bins)
         ax.plot(x, y, label=key)
 
     ax.legend()
 
 
-class TestDataSet:
-    def __init__(self, sequence_length=1, size=(128, 128), input_sampling=1):
+class TestDataset:
+    """
+    A synthetic dataset that calculates a running average over the inputs
+    thus forcing the network to learn to combine information across time
+    steps. The purpose of this dataset is to test the sequence model
+    architectures.
+    """
+    def __init__(
+            self,
+            sequence_length=1,
+            size=(128, 128)
+    ):
+        """
+        Args:
+            sequence_length: The length of input sequences.
+            size: The size of the inputs.
+        """
         seed = int.from_bytes(os.urandom(4), "big") + os.getpid()
         self.rng = np.random.default_rng(seed)
         self.size = size
         self.sequence_length = sequence_length
-        self.input_sampling = input_sampling
 
     def __len__(self):
+        """Number of samples in dataset."""
         return 10_000
 
     def init_function(self, w_id):
+        """
+        Worker initialization function for multi-process data generation.
+        Seeds the workers random generator.
+
+        Args:
+            w_id: Id of the worker.
+        """
         seed = int.from_bytes(os.urandom(4), "big") + w_id
         self.rng = np.random.default_rng(seed)
 
     def __getitem__(self, index):
+        """
+        Generate a training sample.
 
-        xs = [
-            self.rng.uniform(-1, 1) * np.ones((11,) + self.size, dtype=np.float32)
+        Args:
+            index: Not used.
+        """
+        x_visir = [
+            self.rng.uniform(-1, 1) * np.ones((5,) + self.size, dtype=np.float32)
             for i in range(self.sequence_length)
         ]
-        y = np.stack(xs, axis=0)[:, 0]
+
+        size = tuple([s // 2 for s in self.size])
+        x_geo = [
+            self.rng.uniform(-1, 1) * np.ones((11,) + size, dtype=np.float32)
+            for i in range(self.sequence_length)
+        ]
+
+        size = tuple([s // 4 for s in self.size])
+        x_mw_90 = [
+            self.rng.uniform(-1, 1) * np.ones((2,) + size, dtype=np.float32)
+            for i in range(self.sequence_length)
+        ]
+        x_mw_160 = [
+            self.rng.uniform(-1, 1) * np.ones((2,) + size, dtype=np.float32)
+            for i in range(self.sequence_length)
+        ]
+        x_mw_183 = [
+            self.rng.uniform(-1, 1) * np.ones((5,) + size, dtype=np.float32)
+            for i in range(self.sequence_length)
+        ]
+
+        y = np.stack(x_visir, axis=0)[:, 0]
         y[1:] += y[:-1]
         y[1:] *= 0.5
 
-        y = list(y)
-        xs = [
-            {"geo": x[..., :: self.input_sampling, :: self.input_sampling]} for x in xs
-        ]
-        for x in xs:
-            x = x["geo"]
-            x += self.rng.uniform(-0.01, 0.01, size=x.shape)
+        y = [torch.tensor(y_i, dtype=torch.float32) for y_i in y]
 
+        xs = []
+        for visir, geo, mw_90, mw_160, mw_183 in zip(x_visir, x_geo, x_mw_90, x_mw_160, x_mw_183):
+            visir = (
+                torch.tensor(visir, dtype=torch.float32) +
+                torch.tensor(self.rng.uniform(-0.05, 0.05, size=visir.shape),
+                             dtype=torch.float32)
+            )
+            geo = (
+                torch.tensor(geo, dtype=torch.float32) +
+                torch.tensor(self.rng.uniform(-0.05, 0.05, size=geo.shape),
+                             dtype=torch.float32)
+            )
+            mw_90 = (
+                torch.tensor(mw_90, dtype=torch.float32) +
+                torch.tensor(self.rng.uniform(-0.05, 0.05, size=mw_90.shape),
+                             dtype=torch.float32)
+            )
+            mw_160 = (
+                torch.tensor(mw_160, dtype=torch.float32) +
+                torch.tensor(self.rng.uniform(-0.05, 0.05, size=mw_160.shape),
+                             dtype=torch.float32)
+            )
+            mw_183 = (
+                torch.tensor(mw_183, dtype=torch.float32) +
+                torch.tensor(self.rng.uniform(-0.05, 0.05, size=mw_183.shape),
+                             dtype=torch.float32)
+            )
+
+            xs.append({
+                "visir": visir,
+                "geo": geo,
+                "mw_90": mw_90,
+                "mw_160": mw_160,
+                "mw_183": mw_183
+            })
         return xs, y

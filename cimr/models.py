@@ -42,8 +42,7 @@ class SeparableConv(nn.Sequential):
                 kernel_size=7,
                 groups=channels_in
             ),
-            #nn.BatchNorm2d(channels_in),
-            nn.GroupNorm(channels_in, channels_in),
+            nn.BatchNorm2d(channels_in),
             nn.Conv2d(channels_in, channels_out, kernel_size=1),
         )
 
@@ -78,16 +77,23 @@ class DownsamplingBlock(nn.Sequential):
     def __init__(self, channels_in, channels_out, bn_first=True):
         if bn_first:
             blocks = [
-                #nn.BatchNorm2d(channels_in),
-                nn.GroupNorm(channels_in, channels_in),
+                nn.BatchNorm2d(channels_in),
                 nn.Conv2d(channels_in, channels_out, kernel_size=2, stride=2)
             ]
         else:
             blocks = [
                 nn.Conv2d(channels_in, channels_out, kernel_size=2, stride=2),
-                nn.GroupNorm(channels_out, channels_out),
-                #nn.BatchNorm2d(channels_out)
+                nn.BatchNorm2d(channels_out)
             ]
+        super().__init__(*blocks)
+
+
+class BlockSequence(nn.Sequential):
+    def __init__(self, channels_in, channels_out, n_blocks, size=7):
+        ch_in = channels_in
+        for i in range(n_blocks):
+            blocks.append(ConvNextBlock(ch_in, channels_out, size=size))
+            ch_in = channels_out
         super().__init__(*blocks)
 
 
@@ -948,6 +954,89 @@ class CIMRSeviri(nn.Module):
         return self.head(self.up(y, None))
 
 
+class CIMR(nn.Module):
+    """
+    The CIMR baseline model, which only uses SEVIRI observations
+    for the retrieval.
+    """
+    def __init__(
+            self,
+            n_stages,
+            n_features,
+            n_outputs,
+            n_blocks=2
+    ):
+        """
+        Args:
+            n_stages: The number of stages in the encode
+            n_features: The base number of features.
+            n_outputs: The number of outputs of the model.
+            n_blocks: The number of blocks in each stage.
+        """
+        super().__init__()
+
+        n_channels_in = 11
+
+        if not isinstance(n_blocks, list):
+            n_blocks = [n_blocks] * n_stages
+
+        self.head_visir = ConvNextBlock(5, n_features)
+        self.head_geo = ConvNextBlock(11, n_features)
+        self.head_mw = ConvNextBlock(9, n_features)
+
+        stages = []
+        ch_in = 0
+        ch_out = n_features
+        for i in range(n_stages):
+            if i < 3:
+                stages.append(DownsamplingStage(ch_in + n_features, ch_out, n_blocks[i]))
+            else:
+                stages.append(DownsamplingStage(ch_in, ch_out, n_blocks[i]))
+            ch_in = ch_out
+            ch_out = ch_out * 2
+        self.down_stages = nn.ModuleList(stages)
+
+
+        stages =[]
+        ch_out = ch_in // 2
+
+        for i in range(n_stages):
+            ch_skip = ch_out
+            stages.append(UpsamplingStage(ch_in, ch_skip, ch_out))
+            ch_in = ch_out
+            ch_out = ch_out // 2 if i < n_stages - 2 else n_features
+        self.up_stages = nn.ModuleList(stages)
+
+        self.head = nn.Sequential(
+            nn.Conv2d(n_features, n_features, kernel_size=1),
+            nn.GELU(),
+            nn.Conv2d(n_features, n_features, kernel_size=1),
+            nn.GELU(),
+            nn.Conv2d(n_features, n_outputs, kernel_size=1),
+        )
+
+
+    def forward(self, x):
+        """Propagate input though model."""
+
+        skips = []
+
+        y = self.head_visir(x["visir"])
+        for i, stage in enumerate(self.down_stages):
+            skips.append(y)
+            if i == 1:
+                y = torch.cat([y, self.head_geo(x["geo"])], 1)
+            elif i == 2:
+                y_mw = torch.cat([x["mw_90"], x["mw_160"], x["mw_183"]], 1)
+                y = torch.cat([y, self.head_mw(y_mw)], 1)
+            y = stage(y)
+
+        skips.reverse()
+        for skip, stage in zip(skips, self.up_stages):
+            y = stage(y, skip)
+
+        return self.head(y)
+
 class CIMRSeqSeviri(nn.Module):
     """
     The CIMR Seviri baseline model, which only uses SEVIRI observations
@@ -1095,6 +1184,141 @@ class CIMRSeqSeviri(nn.Module):
 
             results.append(self.head(self.up(y, None)))
 
+        return results
+
+
+class CIMRSeq(nn.Module):
+    """
+    The CIMR baseline model, which only uses SEVIRI observations
+    for the retrieval.
+    """
+    def __init__(
+            self,
+            n_stages,
+            n_features,
+            n_outputs,
+            n_blocks=2
+    ):
+        """
+        Args:
+            n_stages: The number of stages in the encode
+            n_features: The base number of features.
+            n_outputs: The number of outputs of the model.
+            n_blocks: The number of blocks in each stage.
+        """
+        super().__init__()
+        self.n_features = n_features
+        self.n_stages = n_stages
+
+        n_channels_in = 11
+
+        if not isinstance(n_blocks, list):
+            n_blocks = [n_blocks] * n_stages
+
+        self.head_visir = ConvNextBlock(5, n_features)
+        self.head_geo = ConvNextBlock(11, n_features)
+        self.head_mw = ConvNextBlock(9, n_features)
+
+        stages = []
+        ch_in = n_features
+        ch_out = 2 * n_features
+        for i in range(n_stages):
+            if i == 0:
+                stages.append(DownsamplingStage(2 * ch_in, ch_out, n_blocks[i]))
+            elif i < 3:
+                stages.append(DownsamplingStage(2 * ch_in + n_features, ch_out, n_blocks[i]))
+            else:
+                stages.append(DownsamplingStage(2 * ch_in, ch_out, n_blocks[i]))
+            ch_in = ch_out
+            ch_out = ch_out * 2
+        self.down_stages = nn.ModuleList(stages)
+
+        self.center = ConvNextBlock(2 * ch_in, ch_in)
+
+        stages =[]
+        ch_out = ch_in // 2
+
+        for i in range(n_stages):
+            ch_skip = ch_out
+            stages.append(UpsamplingStage(ch_in, ch_skip, ch_out))
+            ch_in = ch_out
+            ch_out = ch_out // 2 if i < n_stages - 2 else n_features
+        self.up_stages = nn.ModuleList(stages)
+
+        self.head = nn.Sequential(
+            nn.Conv2d(n_features, n_features, kernel_size=1),
+            nn.GELU(),
+            nn.Conv2d(n_features, n_features, kernel_size=1),
+            nn.GELU(),
+            nn.Conv2d(n_features, n_outputs, kernel_size=1),
+        )
+
+    def init_hidden(self, x_seq):
+
+        t = x_seq[0]["visir"]
+        device = t.device
+        dtype = t.dtype
+        b = t.shape[0]
+        h = t.shape[2]
+        w = t.shape[3]
+
+        hidden = []
+        for i in range(self.n_stages + 1):
+            scl = 2 ** i
+            t = torch.zeros(
+                (b, self.n_features * scl, h // scl, w // scl),
+                device=device,
+                dtype=dtype
+            )
+            t = t.type_as(x_seq[0]["geo"])
+            hidden.append(t)
+
+        return hidden
+
+
+    def forward(self, x_seq, hidden=None):
+        """Propagate input though model."""
+
+        if not isinstance(x_seq, list):
+            x_seq = [x_seq]
+
+        if hidden is None:
+            hidden = self.init_hidden(x_seq)
+
+
+        results = []
+
+        for i, x in enumerate(x_seq):
+
+            skips = []
+            hidden_new = []
+
+            y = self.head_visir(x["visir"])
+            for i, (h, stage) in enumerate(zip(hidden, self.down_stages)):
+                skips.append(y)
+                if i == 1:
+                    y = torch.cat([y, self.head_geo(x["geo"]), h], 1)
+                elif i == 2:
+                    y_mw = torch.cat([x["mw_90"], x["mw_160"], x["mw_183"]], 1)
+                    y = torch.cat([y, self.head_mw(y_mw), h], 1)
+                else:
+                    y = torch.cat([y, h], 1)
+                y = stage(y)
+
+            skips.reverse()
+            y = self.center(torch.cat([y, hidden[-1]], 1))
+            hidden_new.append(y)
+
+            hidden.reverse()
+
+            for skip, stage, in zip(skips, self.up_stages):
+                y = stage(y, skip)
+                hidden_new.append(y)
+
+            hidden = hidden_new
+            hidden.reverse()
+
+            results.append(self.head(y))
         return results
 
 
