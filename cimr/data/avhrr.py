@@ -161,7 +161,7 @@ class AVHRR:
 
         keys = ["lon", "lat", "image1", "image2", "image3", "image4", "image5"]
         time = AVHRR.filename_to_date(self.filename)
-        ds = xr.load_dataset(self.filename, decode_cf=False)[keys]
+        ds = xr.load_dataset(self.filename)[keys]
         new_names = {
             "lon": "longitude",
             "lat": "latitude",
@@ -281,7 +281,7 @@ def save_file(dataset, output_folder):
         output_folder: The folder to which to write the training data.
 
     """
-    comp = {"dtype": "int16", "scale_factor": 0.01, "zlib": True, "_FillValue": -99}
+    comp = {"dtype": "int16", "scale_factor": 0.1, "zlib": True, "_FillValue": -99}
     encoding = {f"visir_{i:02}": comp for i in range(1, 6)}
 
     scenes = find_overpasses(ROI_NORDIC, dataset)
