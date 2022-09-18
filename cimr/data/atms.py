@@ -120,7 +120,7 @@ def save_file(dataset, output_folder):
 
 
 ATMS_PRODUCTS = [
-    l1c_noaa20_atms,
+    #l1c_noaa20_atms,
     l1c_npp_atms,
 ]
 
@@ -148,17 +148,14 @@ def process_day(year, month, day, output_folder, path=None):
     for product in ATMS_PRODUCTS:
         provider = GesdiscProvider(product)
         product_files = provider.get_files_in_range(start_time, end_time)
-        print(start_time, end_time, product_files)
         # For all file on given day.
         for filename in product_files:
             # Check if swath covers ROI.
-            print(filename)
             swath = parse_swath(provider.download_metadata(filename))
             if swath.intersects(ROI_POLY.to_geometry()):
                 # Extract observations
                 with TemporaryDirectory() as tmp:
                     tmp = Path(tmp)
-                    print("processing: ", filename)
                     provider.download_file(filename, tmp / filename)
                     data = product.open(tmp / filename)
                     save_file(data, output_folder)

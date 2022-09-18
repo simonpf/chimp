@@ -1000,6 +1000,8 @@ class CIMR(nn.Module):
         stages =[]
         ch_out = ch_in // 2
 
+        shortcuts = []
+
         for i in range(n_stages):
             ch_skip = ch_out
             stages.append(UpsamplingStage(ch_in, ch_skip, ch_out))
@@ -1008,6 +1010,10 @@ class CIMR(nn.Module):
         self.up_stages = nn.ModuleList(stages)
 
         self.head = nn.Sequential(
+            nn.Conv2d(n_features, n_features, kernel_size=1),
+            nn.GELU(),
+            nn.Conv2d(n_features, n_features, kernel_size=1),
+            nn.GELU(),
             nn.Conv2d(n_features, n_features, kernel_size=1),
             nn.GELU(),
             nn.Conv2d(n_features, n_features, kernel_size=1),
@@ -1224,11 +1230,11 @@ class CIMRSeq(nn.Module):
         ch_out = 2 * n_features
         for i in range(n_stages):
             if i == 0:
-                stages.append(DownsamplingStage(2 * ch_in, ch_out, n_blocks[i]))
+                stages.append(DownsamplingStage(ch_in, ch_out, n_blocks[i]))
             elif i < 3:
-                stages.append(DownsamplingStage(2 * ch_in + n_features, ch_out, n_blocks[i]))
+                stages.append(DownsamplingStage(ch_in + n_features, ch_out, n_blocks[i]))
             else:
-                stages.append(DownsamplingStage(2 * ch_in, ch_out, n_blocks[i]))
+                stages.append(DownsamplingStage(ch_in, ch_out, n_blocks[i]))
             ch_in = ch_out
             ch_out = ch_out * 2
         self.down_stages = nn.ModuleList(stages)
@@ -1240,7 +1246,7 @@ class CIMRSeq(nn.Module):
 
         for i in range(n_stages):
             ch_skip = ch_out
-            stages.append(UpsamplingStage(ch_in, ch_skip, ch_out))
+            stages.append(UpsamplingStage(ch_in, ch_skip + ch_out, ch_out))
             ch_in = ch_out
             ch_out = ch_out // 2 if i < n_stages - 2 else n_features
         self.up_stages = nn.ModuleList(stages)
@@ -1284,9 +1290,10 @@ class CIMRSeq(nn.Module):
 
         if hidden is None:
             hidden = self.init_hidden(x_seq)
-
+            hidden.reverse()
 
         results = []
+
 
         for i, x in enumerate(x_seq):
 
@@ -1294,29 +1301,37 @@ class CIMRSeq(nn.Module):
             hidden_new = []
 
             y = self.head_visir(x["visir"])
+            #hidden_new.append(y)
+
             for i, (h, stage) in enumerate(zip(hidden, self.down_stages)):
                 skips.append(y)
                 if i == 1:
-                    y = torch.cat([y, self.head_geo(x["geo"]), h], 1)
+                    #y = torch.cat([y, self.head_geo(x["geo"]), h], 1)
+                    y = torch.cat([y, self.head_geo(x["geo"])], 1)
                 elif i == 2:
                     y_mw = torch.cat([x["mw_90"], x["mw_160"], x["mw_183"]], 1)
-                    y = torch.cat([y, self.head_mw(y_mw), h], 1)
+                    y = torch.cat([y, self.head_mw(y_mw)], 1)
+                    #y = torch.cat([y, self.head_mw(y_mw), h], 1)
                 else:
-                    y = torch.cat([y, h], 1)
+                    pass
+                    #y = torch.cat([y, h], 1)
                 y = stage(y)
+                #hidden_new.append(y)
 
             skips.reverse()
-            y = self.center(torch.cat([y, hidden[-1]], 1))
+            y = self.center(torch.cat([y, hidden[0]], 1))
+            #hidden_new.append(hidden[-1] + y)
             hidden_new.append(y)
 
-            hidden.reverse()
+            #hidden.reverse()
 
-            for skip, stage, in zip(skips, self.up_stages):
+            for h, skip, stage, in zip(hidden[1:], skips, self.up_stages):
+                skip = torch.cat([skip, h], 1)
                 y = stage(y, skip)
-                hidden_new.append(y)
+                hidden_new.append(h + y)
 
             hidden = hidden_new
-            hidden.reverse()
+            #hidden.reverse()
 
             results.append(self.head(y))
         return results

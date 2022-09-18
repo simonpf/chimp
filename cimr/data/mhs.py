@@ -26,6 +26,7 @@ import xarray as xr
 
 from cimr.areas import ROI_NORDIC, NORDIC_8, ROI_POLY
 from cimr.utils import round_time
+from cimr.definitions import N_CHANS
 
 
 class MHS:
@@ -197,16 +198,15 @@ def save_file(dataset, output_folder):
             dataset_out = xr.load_dataset(output_filename)
             for band in BANDS.keys():
                 if band in dataset_out:
-                    print("adding")
                     var_out = dataset_out[band]
                     var_in = results[band]
                     missing = ~np.isfinite(var_in.data)
                     var_out.data[~missing] = var_in.data[~missing]
                 else:
                     dataset_out[band] = results[band]
-            dataset_out.to_netcdf(output_filename)
             dataset_out.attrs["sensor"] = dataset.attrs["InstrumentName"]
             dataset_out.attrs["satellite"] = dataset.attrs["SatelliteName"]
+            dataset_out.to_netcdf(output_filename)
         else:
             comp = {
                 "dtype": "int16",
@@ -214,6 +214,8 @@ def save_file(dataset, output_folder):
                 "zlib": True,
                 "_FillValue": -99,
             }
+            results.attrs["sensor"] = dataset.attrs["InstrumentName"]
+            results.attrs["satellite"] = dataset.attrs["SatelliteName"]
             encoding = {band: comp for band in BANDS.keys()}
             results.to_netcdf(output_filename, encoding=encoding)
 
@@ -241,6 +243,8 @@ def process_day(year, month, day, output_folder, path=None):
     if not output_folder.exists():
         output_folder.mkdir(parents=True, exist_ok=True)
 
+    print(year, month, day)
+
     start_time = datetime(year, month, day)
     end_time = datetime(year, month, day) + timedelta(hours=23, minutes=59)
     files = []
@@ -248,17 +252,14 @@ def process_day(year, month, day, output_folder, path=None):
     for product in MHS_PRODUCTS:
         provider = GesdiscProvider(product)
         product_files = provider.get_files_in_range(start_time, end_time)
-        print(start_time, end_time, product_files)
         # For all file on given day.
         for filename in product_files:
             # Check if swath covers ROI.
-            print(filename)
             swath = parse_swath(provider.download_metadata(filename))
             if swath.intersects(ROI_POLY.to_geometry()):
                 # Extract observations
                 with TemporaryDirectory() as tmp:
                     tmp = Path(tmp)
-                    print("processing: ", filename)
                     provider.download_file(filename, tmp / filename)
                     data = product.open(tmp / filename)
                     save_file(data, output_folder)

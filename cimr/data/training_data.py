@@ -40,11 +40,11 @@ NORMALIZER_GEO.stats = {
 
 NORMALIZER_VISIR = MinMaxNormalizer(np.ones((5, 1, 1)), feature_axis=0)
 NORMALIZER_VISIR.stats = {
-    0: (0.0, 100.0),
-    1: (0.0, 100.0),
-    2: (170, 320),
-    3: (210, 310),
-    4: (210, 310),
+    0: (0.0, 320.0),
+    1: (0.0, 320.0),
+    2: (0.0, 320.0),
+    3: (180, 310),
+    4: (180, 310),
 }
 
 
@@ -70,7 +70,7 @@ NORMALIZER_MW_183.stats = {
 }
 
 
-def load_geo_obs(sample, dataset, normalize=True):
+def load_geo_obs(sample, dataset, normalize=True, rng=None):
     """
     Loads geostationary observations from dataset.
     """
@@ -81,11 +81,11 @@ def load_geo_obs(sample, dataset, normalize=True):
 
     data = np.stack(data, axis=0)
     if normalize:
-        data = NORMALIZER_GEO(data)
+        data = NORMALIZER_GEO(data, rng=rng)
     sample["geo"] = torch.tensor(data)
 
 
-def load_visir_obs(sample, dataset, normalize=True):
+def load_visir_obs(sample, dataset, normalize=True, rng=None):
     """
     Loads VIS/IR observations from dataset.
     """
@@ -96,11 +96,11 @@ def load_visir_obs(sample, dataset, normalize=True):
 
     data = np.stack(data, axis=0)
     if normalize:
-        data = NORMALIZER_VISIR(data)
+        data = NORMALIZER_VISIR(data, rng=rng)
     sample["visir"] = torch.tensor(data)
 
 
-def load_microwave_obs(sample, dataset, normalize=True):
+def load_microwave_obs(sample, dataset, normalize=True, rng=None):
     """
     Loads microwave observations from dataset.
     """
@@ -108,7 +108,7 @@ def load_microwave_obs(sample, dataset, normalize=True):
     if "mw_90" in dataset:
         x = np.transpose(dataset.mw_90.data, (2, 0, 1))
         if normalize:
-            x = NORMALIZER_MW_90(x)
+            x = NORMALIZER_MW_90(x, rng=rng)
         sample["mw_90"] = torch.tensor(x)
     else:
         sample["mw_90"] = MISSING * torch.ones((2,) + shape)
@@ -116,7 +116,7 @@ def load_microwave_obs(sample, dataset, normalize=True):
     if "mw_160" in dataset:
         x = np.transpose(dataset.mw_160.data, (2, 0, 1))
         if normalize:
-            x = NORMALIZER_MW_160(x)
+            x = NORMALIZER_MW_160(x, rng=rng)
         sample["mw_160"] = torch.tensor(x)
     else:
         sample["mw_160"] = MISSING * torch.ones((2,) + shape)
@@ -124,7 +124,7 @@ def load_microwave_obs(sample, dataset, normalize=True):
     if "mw_183" in dataset:
         x = np.transpose(dataset.mw_183.data, (2, 0, 1))
         if normalize:
-            x = NORMALIZER_MW_183(x)
+            x = NORMALIZER_MW_183(x, rng=rng)
         sample["mw_183"] = torch.tensor(x)
     else:
         sample["mw_160"] = MISSING * torch.ones((5,) + shape)
@@ -305,14 +305,14 @@ class CIMRDataset:
                 row_slice = slice(i_start * 2, i_end * 2)
                 col_slice = slice(j_start * 2, j_end * 2)
                 load_geo_obs(
-                    x, data[{"y": row_slice, "x": col_slice}], normalize=self.normalize
+                    x, data[{"y": row_slice, "x": col_slice}], normalize=self.normalize,
+                    rng=self.rng
                 )
         else:
             x["geo"] = torch.tensor(
                 MISSING * np.ones((11,) + (self.window_size // 2,) * 2),
                 dtype=torch.float,
             )
-            x["geo"][1] = -1 * MISSING
 
         # VISIR data
         if self.samples[key].visir is not None:
@@ -320,13 +320,13 @@ class CIMRDataset:
                 row_slice = slice(4 * i_start, 4 * i_end)
                 col_slice = slice(4 * j_start, 4 * j_end)
                 load_visir_obs(
-                    x, data[{"y": row_slice, "x": col_slice}], normalize=self.normalize
+                    x, data[{"y": row_slice, "x": col_slice}], normalize=self.normalize,
+                    rng=self.rng
                 )
         else:
             x["visir"] = torch.tensor(
                 MISSING * np.ones((5,) + (self.window_size,) * 2), dtype=torch.float
             )
-            x["visir"][1] = -1 * MISSING
 
         # Microwave data
         if self.samples[key].mw is not None:
@@ -334,24 +334,22 @@ class CIMRDataset:
                 row_slice = slice(i_start, i_end)
                 col_slice = slice(j_start, j_end)
                 load_microwave_obs(
-                    x, data[{"y": row_slice, "x": col_slice}], normalize=self.normalize
+                    x, data[{"y": row_slice, "x": col_slice}], normalize=self.normalize,
+                    rng=self.rng
                 )
         else:
             x["mw_90"] = torch.tensor(
                 MISSING * np.ones((2,) + (self.window_size // 4,) * 2),
                 dtype=torch.float,
             )
-            x["mw_90"][1] = -1 * MISSING
             x["mw_160"] = torch.tensor(
                 MISSING * np.ones((2,) + (self.window_size // 4,) * 2),
                 dtype=torch.float,
             )
-            x["mw_160"][1] = -1 * MISSING
             x["mw_183"] = torch.tensor(
                 MISSING * np.ones((5,) + (self.window_size // 4,) * 2),
                 dtype=torch.float,
             )
-            x["mw_183"][1] = -1 * MISSING
 
         return x, y
 
@@ -894,6 +892,7 @@ class TestDataset:
                 torch.tensor(self.rng.uniform(-0.05, 0.05, size=geo.shape),
                              dtype=torch.float32)
             )
+            geo[:5] = visir[..., ::2, ::2]
             mw_90 = (
                 torch.tensor(mw_90, dtype=torch.float32) +
                 torch.tensor(self.rng.uniform(-0.05, 0.05, size=mw_90.shape),
