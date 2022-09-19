@@ -22,6 +22,10 @@ from cimr.areas import NORDIC_2
 from cimr.data.mhs import MHS
 from cimr.utils import MISSING
 
+###############################################################################
+# Normalizer objects
+###############################################################################
+
 NORMALIZER_GEO = MinMaxNormalizer(np.ones((12, 1, 1)), feature_axis=0)
 NORMALIZER_GEO.stats = {
     0: (0.0, 110.0),
@@ -68,6 +72,11 @@ NORMALIZER_MW_183.stats = {
     3: (190, 290),
     4: (190, 290),
 }
+
+
+###############################################################################
+# Loader functions for the difference input types.
+###############################################################################
 
 
 def load_geo_obs(sample, dataset, normalize=True, rng=None):
@@ -133,10 +142,9 @@ def load_microwave_obs(sample, dataset, normalize=True, rng=None):
 @dataclass
 class SampleRecord:
     """
-    Record holding the paths of the files for single training
+    Record holding the paths of the files for a single training
     sample.
     """
-
     radar: Path = None
     geo: Path = None
     mw: Path = None
@@ -164,8 +172,9 @@ def get_date(filename):
 class CIMRDataset:
     """
     Dataset class for the CIMR training data.
-    """
 
+    Implements the PyTorch Dataset interface.
+    """
     def __init__(
         self,
         folder,
@@ -183,10 +192,12 @@ class CIMRDataset:
             sample_rate: How often each scene should be sampled per epoch.
             normalize: Whether inputs should be normalized.
             window_size: Size of the training scenes.
-            start_time: Start time of time interval to which to restrict training
-                data.
-            end_time: End time of a time interval to which to restrict the training
-                data.
+            start_time: Start time of time interval to which to restrict
+                training data.
+            end_time: End time of a time interval to which to restrict the
+                training data.
+            quality_threshold: Threshold for radar quality index used to mask
+                the radar measurements.
         """
         self.folder = Path(folder)
         self.sample_rate = sample_rate
@@ -252,6 +263,7 @@ class CIMRDataset:
         self.rng = np.random.default_rng(seed)
 
     def __len__(self):
+        """Number of samples in dataset."""
         return len(self.sequence_starts) * self.sample_rate
 
     def load_sample(self, index, slices=None):
@@ -310,7 +322,10 @@ class CIMRDataset:
                 )
         else:
             x["geo"] = torch.tensor(
-                MISSING * np.ones((11,) + (self.window_size // 2,) * 2),
+                NORMALIZER_GEO(
+                    np.nan * np.ones((11,) + (self.window_size // 2,) * 2),
+                    rng=self.rng
+                ),
                 dtype=torch.float,
             )
 
@@ -325,7 +340,11 @@ class CIMRDataset:
                 )
         else:
             x["visir"] = torch.tensor(
-                MISSING * np.ones((5,) + (self.window_size,) * 2), dtype=torch.float
+                NORMALIZER_VISIR(
+                    np.nan * np.ones((5,) + (self.window_size,) * 2),
+                    rng=self.rng
+                ),
+                dtype=torch.float
             )
 
         # Microwave data
@@ -339,21 +358,31 @@ class CIMRDataset:
                 )
         else:
             x["mw_90"] = torch.tensor(
-                MISSING * np.ones((2,) + (self.window_size // 4,) * 2),
+                NORMALIZER_MW_90(
+                    np.nan * np.ones((2,) + (self.window_size // 4,) * 2),
+                    rng=self.rng
+                ),
                 dtype=torch.float,
             )
             x["mw_160"] = torch.tensor(
-                MISSING * np.ones((2,) + (self.window_size // 4,) * 2),
+                NORMALIZER_MW_160(
+                    np.nan * np.ones((2,) + (self.window_size // 4,) * 2),
+                    rng=self.rng
+                ),
                 dtype=torch.float,
             )
             x["mw_183"] = torch.tensor(
-                MISSING * np.ones((5,) + (self.window_size // 4,) * 2),
+                NORMALIZER_MW_183(
+                    np.nan * np.ones((5,) + (self.window_size // 4,) * 2),
+                    rng=self.rng
+                ),
                 dtype=torch.float,
             )
 
         return x, y
 
     def __getitem__(self, index):
+        """Return ith training sample."""
 
         scene_index = index // self.sample_rate
         key = self.keys[self.sequence_starts[scene_index]]
@@ -521,54 +550,78 @@ class CIMRDataset:
 
         return f, axs, animator
 
-    def load_full_data(self, key, min_qi=0.8):
+    def load_full_data(self, key):
         with xr.open_dataset(self.samples[key].radar) as data:
             y = data.dbz.data.copy()
-            y[data.qi < 0.8] = np.nan
+            y[data.qi < self.quality_threshold] = np.nan
 
         y = torch.tensor(y, dtype=torch.float)
         shape = y.shape
 
         x = {}
-        # GEO data
-        if self.samples[key].geo is not None:
-            with xr.open_dataset(self.samples[key].geo) as data:
-                xs = np.stack([data[f"channel_{i:02}"].data for i in range(1, 13)])
-            x["geo"] = torch.tensor(NORMALIZER_GEO(xs), dtype=torch.float)
+
+        # VISIR data
+        if self.samples[key].visir is not None:
+            with xr.open_dataset(self.samples[key].visir) as data:
+                load_visir_obs(x, data, normalize=self.normalize, rng=self.rng)
         else:
-            x["geo"] = torch.tensor(
-                MISSING * np.ones((12,) + tuple([s // 2 for s in shape])),
-                dtype=torch.float,
-            )  # VISIR data
-        if self.samples[key].avhrr is not None:
-            with xr.open_dataset(self.samples[key].avhrr) as data:
-                xs = np.stack([data[f"channel_{i:01}"].data for i in range(1, 6)])
-            x["avhrr"] = torch.tensor(NORMALIZER_VISIR(xs), dtype=torch.float)
-        else:
-            x["avhrr"] = torch.tensor(
-                MISSING * np.ones((5,) + shape), dtype=torch.float
+            x["visir"] = torch.tensor(
+                NORMALIZER_VISIR(np.nan * np.ones((5,) + shape), rng=self.rng),
+                dtype=torch.float
             )
 
-        # MHS data
-        if self.samples[key].mhs is not None:
-            with xr.open_dataset(self.samples[key].mhs) as data:
-                xs = np.stack([data[f"channel_{i:02}"].data for i in range(1, 6)])
-            x["mhs"] = torch.tensor(NORMALIZER_MHS(xs), dtype=torch.float)
+        shape = tuple([n // 2 for n in y.shape])
+        if self.samples[key].geo is not None:
+            with xr.open_dataset(self.samples[key].geo) as data:
+                load_geo_obs(x, data, normalize=self.normalize, rng=self.rng)
         else:
-            x["mhs"] = torch.tensor(
-                MISSING * np.ones((5,) + tuple([s // 4 for s in shape])),
+            x["geo"] = torch.tensor(
+                NORMALIZER_GEO(np.nan * np.ones((11,) + shape), rng=self.rng),
+                dtype=torch.float
+            )
+
+        shape = tuple([n // 4 for n in y.shape])
+        # Microwave data
+        if self.samples[key].mw is not None:
+            with xr.open_dataset(self.samples[key].mw) as data:
+                load_microwave_obs(x, data, normalize=self.normalize, rng=self.rng
+                )
+        else:
+            x["mw_90"] = torch.tensor(
+                NORMALIZER_MW_90(np.nan * np.ones((2,) + shape), rng=self.rng),
+                dtype=torch.float,
+            )
+            x["mw_160"] = torch.tensor(
+                NORMALIZER_MW_160(np.nan * np.ones((2,) + shape), rng=self.rng),
+                dtype=torch.float,
+            )
+            x["mw_183"] = torch.tensor(
+                NORMALIZER_MW_183(MISSING * np.ones((5,) + shape), rng=self.rng),
                 dtype=torch.float,
             )
 
         return x, y
 
     def pad_input(self, x, multiple=32):
+        """
+        Pad retrieval input to a size that is a multiple of a given n.
 
-        input_avhrr = x["avhrr"]
+        Args:
+            x: A dict containing the input to pad.
+            multiple: The number n.
+
+        Return:
+            A tuple ``(x_pad, y_slice, x_slice)`` containing the padded input
+            ``x_pad`` and column- and row-slices to extract the unpadded
+            output.
+        """
+        input_visir = x["visir"]
         input_geo = x["geo"]
-        input_mhs = x["mhs"]
+        input_mw_90 = x["mw_90"]
+        input_mw_160 = x["mw_160"]
+        input_mw_183 = x["mw_183"]
 
-        shape = input_avhrr.shape[1:]
+        shape = input_visir.shape[-2:]
 
         padding_y = np.ceil(shape[0] / multiple) * multiple - shape[0]
         padding_y_l = padding_y // 2
@@ -583,11 +636,11 @@ class CIMRDataset:
             int(padding_y_r),
         )
 
-        slice_x = slice(padding_x_l, -padding_x_r)
-        slice_y = slice(padding_y_l, -padding_y_r)
+        slice_x = slice(int(padding_x_l), int(-padding_x_r))
+        slice_y = slice(int(padding_y_l), int(-padding_y_r))
 
-        input_avhrr = nn.functional.pad(input_avhrr, padding, "replicate")
-        x["avhrr"] = input_avhrr
+        input_visir = nn.functional.pad(input_visir, padding, "replicate")
+        x["visir"] = input_visir
 
         padding_y = padding_y // 2
         padding_y_l = padding_y // 2
@@ -601,7 +654,6 @@ class CIMRDataset:
             int(padding_y_l),
             int(padding_y_r),
         )
-
         input_geo = nn.functional.pad(input_geo, padding, "replicate")
         x["geo"] = input_geo
 
@@ -618,8 +670,12 @@ class CIMRDataset:
             int(padding_y_r),
         )
 
-        input_mhs = nn.functional.pad(input_mhs, padding, "replicate")
-        x["mhs"] = input_mhs
+        input_mw_90 = nn.functional.pad(input_mw_90, padding, "replicate")
+        x["mw_90"] = input_mw_90
+        input_mw_160 = nn.functional.pad(input_mw_160, padding, "replicate")
+        x["mw_160"] = input_mw_160
+        input_mw_183 = nn.functional.pad(input_mw_183, padding, "replicate")
+        x["mw_183"] = input_mw_183
 
         return x, slice_y, slice_x
 
@@ -636,11 +692,10 @@ class CIMRDataset:
             x, y = self.load_full_data(key)
             x, slice_y, slice_x = self.pad_input(x)
 
-            x["geo"] = x["geo"].unsqueeze(0)
-            x["avhrr"] = x["avhrr"].unsqueeze(0)
-            x["mhs"] = x["mhs"].unsqueeze(0)
+            for k, v in x.items():
+                x[k] = v.unsqueeze(0)
 
-            yield x, y, slice_y, slice_x
+            yield x, y, slice_y, slice_x, key
 
 
 class CIMRSequenceDataset(CIMRDataset):
@@ -743,10 +798,24 @@ def plot_sample(x, y):
         ax.imshow(y[i])
 
 
-def plot_date_distribution(path, keys=None):
+def plot_date_distribution(
+        path,
+        keys=None,
+        show_sensors=False,
+        ax=None
+):
+    """
+    Plot the number of training input samples per day.
 
+    Args:
+        path: Path to the directory that contains the training data.
+        keys: A list file prefixes to look for, e.g. ['geo', 'visir'] to
+            only list geostationary and AVHRR inputs.
+        show_sensors: Whether to show different microwave sensors separately.
+        ax: A matplotlib Axes object to use to draw the results.
+    """
     if keys is None:
-        keys = ["seviri", "mw", "radar"]
+        keys = ["seviri", "mw", "radar", "visir"]
     if not isinstance(keys, list):
         keys = list(keys)
 
@@ -761,7 +830,7 @@ def plot_date_distribution(path, keys=None):
             for name in files
         ]
 
-        if key == "mw":
+        if key == "mw" and show_sensors:
             sensors = {}
             for time_k, filename in zip(times_k, files):
                 with xr.open_dataset(filename) as data:
@@ -788,8 +857,9 @@ def plot_date_distribution(path, keys=None):
 
             times[key] = times_k
 
-    figure = plt.figure(figsize=(6, 4))
-    ax = figure.add_subplot(1, 1, 1)
+    if ax is None:
+        figure = plt.figure(figsize=(6, 4))
+        ax = figure.add_subplot(1, 1, 1)
 
     bins = np.arange(
         time_min.astype("datetime64[D]").data,
@@ -803,6 +873,7 @@ def plot_date_distribution(path, keys=None):
         ax.plot(x, y, label=key)
 
     ax.legend()
+    return ax
 
 
 class TestDataset:
