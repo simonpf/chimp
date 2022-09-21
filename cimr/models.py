@@ -4,10 +4,16 @@ cimr.models
 
 Machine learning models for CIMR.
 """
+import logging
+
 import torch
 from torch import nn
+from torch.nn.modules.batchnorm import _NormBase
 
 from cimr.utils import MISSING, MASK
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class SymmetricPadding(nn.Module):
@@ -29,6 +35,54 @@ class SymmetricPadding(nn.Module):
         return nn.functional.pad(x, self.amount, "replicate")
 
 
+class MaskedInstanceNorm(_NormBase):
+    """
+    Customized instance norm that ignores channels that have
+    zero variance.
+    """
+    def forward(self, x):
+        """
+        Apply instance norm to input x.
+        """
+        if not self.training:
+            mean = self.running_mean[None, ..., None, None].detach()
+            var = self.running_var[None, ..., None, None].detach()
+            x = (x - mean) / (self.eps + var).sqrt()
+            return x
+
+        mean = torch.mean(x, axis=(-2, -1), keepdim=True)
+        var = torch.var(x, axis=(-2, -1), keepdim=True)
+        mask = var > 1e-5
+
+        var = torch.where(mask, var, 1.0 - self.eps)
+        x = ((x - mean) / (self.eps + var).sqrt())
+
+        if self.training and self.track_running_stats:
+            mask_f = mask.type_as(mean)
+            n = mask_f.sum(0)
+
+            mean = mean.sum(0) / n
+            mean_new = (
+                (1 - self.momentum) * self.running_mean +
+                self.momentum * mean.squeeze()
+            )
+            var = var.sum(0) / n
+            var_new = (
+                (1 - self.momentum) * self.running_var +
+                self.momentum * var.squeeze()
+            )
+
+            c_mask = mask[..., 0, 0].any(0)
+            self.running_mean[c_mask] = mean_new[c_mask]
+            self.running_var[c_mask] = var_new[c_mask]
+
+        return x
+
+
+
+
+
+
 class SeparableConv(nn.Sequential):
     """
     Depth-wise separable convolution using with kernel size 3x3.
@@ -42,7 +96,8 @@ class SeparableConv(nn.Sequential):
                 kernel_size=7,
                 groups=channels_in
             ),
-            nn.BatchNorm2d(channels_in),
+            #nn.BatchNorm2d(channels_in),
+            MaskedInstanceNorm(channels_in),
             nn.Conv2d(channels_in, channels_out, kernel_size=1),
         )
 
@@ -77,13 +132,15 @@ class DownsamplingBlock(nn.Sequential):
     def __init__(self, channels_in, channels_out, bn_first=True):
         if bn_first:
             blocks = [
-                nn.BatchNorm2d(channels_in),
+                #nn.BatchNorm2d(channels_in),
+                MaskedInstanceNorm(channels_in),
                 nn.Conv2d(channels_in, channels_out, kernel_size=2, stride=2)
             ]
         else:
             blocks = [
                 nn.Conv2d(channels_in, channels_out, kernel_size=2, stride=2),
-                nn.BatchNorm2d(channels_out)
+                #nn.BatchNorm2d(channels_out)
+                MaskedInstanceNorm(channels_in),
             ]
         super().__init__(*blocks)
 
@@ -938,7 +995,7 @@ class CIMRSeviri(nn.Module):
         )
 
 
-    def forward(self, x):
+    def forward(self, x, state=None, return_state=False):
         """Propagate input though model."""
 
         skips = []
@@ -951,7 +1008,10 @@ class CIMRSeviri(nn.Module):
         for skip, stage in zip(skips, self.up_stages):
             y = stage(y, skip)
 
-        return self.head(self.up(y, None))
+        result = self.head(self.up(y, None))
+        if return_state:
+            return result, state
+        return result
 
 
 class CIMR(nn.Module):
@@ -1146,16 +1206,18 @@ class CIMRSeqSeviri(nn.Module):
         return hidden_down, hidden_up
 
 
-    def forward(self, x_seq, h_states=None):
+    def forward(self, x_seq, state=None, return_state=False):
         """Propagate input though model."""
 
+        return_list = True
         if not isinstance(x_seq, list):
             x_seq = [x_seq]
+            return_list = False
 
-        if h_states is None:
+        if state is None:
             h_down, h_up = self.init_hidden(x_seq)
         else:
-            h_down, h_up = h_states
+            h_down, h_up = state
 
         results = []
 
@@ -1190,6 +1252,11 @@ class CIMRSeqSeviri(nn.Module):
 
             results.append(self.head(self.up(y, None)))
 
+        if not return_list:
+            results = results[0]
+
+        if return_state:
+            return results, (h_down, h_up)
         return results
 
 
@@ -1230,11 +1297,11 @@ class CIMRSeq(nn.Module):
         ch_out = 2 * n_features
         for i in range(n_stages):
             if i == 0:
-                stages.append(DownsamplingStage(ch_in, ch_out, n_blocks[i]))
+                stages.append(DownsamplingStage(2 * ch_in, ch_out, n_blocks[i]))
             elif i < 3:
-                stages.append(DownsamplingStage(ch_in + n_features, ch_out, n_blocks[i]))
+                stages.append(DownsamplingStage(2 * ch_in + n_features, ch_out, n_blocks[i]))
             else:
-                stages.append(DownsamplingStage(ch_in, ch_out, n_blocks[i]))
+                stages.append(DownsamplingStage(2 * ch_in, ch_out, n_blocks[i]))
             ch_in = ch_out
             ch_out = ch_out * 2
         self.down_stages = nn.ModuleList(stages)
@@ -1271,7 +1338,7 @@ class CIMRSeq(nn.Module):
         hidden = []
         for i in range(self.n_stages + 1):
             scl = 2 ** i
-            t = torch.zeros(
+            t = -1.5 * torch.nomal(
                 (b, self.n_features * scl, h // scl, w // scl),
                 device=device,
                 dtype=dtype
@@ -1290,7 +1357,6 @@ class CIMRSeq(nn.Module):
 
         if hidden is None:
             hidden = self.init_hidden(x_seq)
-            hidden.reverse()
 
         results = []
 
@@ -1306,18 +1372,18 @@ class CIMRSeq(nn.Module):
             for i, (h, stage) in enumerate(zip(hidden, self.down_stages)):
                 skips.append(y)
                 if i == 1:
-                    #y = torch.cat([y, self.head_geo(x["geo"]), h], 1)
-                    y = torch.cat([y, self.head_geo(x["geo"])], 1)
+                    y = torch.cat([y, self.head_geo(x["geo"]), h], 1)
+                    #y = torch.cat([y, self.head_geo(x["geo"])], 1)
                 elif i == 2:
                     y_mw = torch.cat([x["mw_90"], x["mw_160"], x["mw_183"]], 1)
-                    y = torch.cat([y, self.head_mw(y_mw)], 1)
-                    #y = torch.cat([y, self.head_mw(y_mw), h], 1)
+                    #y = torch.cat([y, self.head_mw(y_mw)], 1)
+                    y = torch.cat([y, self.head_mw(y_mw), h], 1)
                 else:
-                    pass
-                    #y = torch.cat([y, h], 1)
+                    y = torch.cat([y, h], 1)
                 y = stage(y)
                 #hidden_new.append(y)
 
+            hidden.reverse()
             skips.reverse()
             y = self.center(torch.cat([y, hidden[0]], 1))
             #hidden_new.append(hidden[-1] + y)
@@ -1331,7 +1397,7 @@ class CIMRSeq(nn.Module):
                 hidden_new.append(h + y)
 
             hidden = hidden_new
-            #hidden.reverse()
+            hidden.reverse()
 
             results.append(self.head(y))
         return results
