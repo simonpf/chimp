@@ -6,11 +6,13 @@ Machine learning models for CIMR.
 """
 import logging
 
+import numpy as np
 import torch
 from torch import nn
 from torch.nn.modules.batchnorm import _NormBase
 
 from cimr.utils import MISSING, MASK
+from quantnn.packed_tensor import PackedTensor
 
 
 LOGGER = logging.getLogger(__name__)
@@ -40,6 +42,24 @@ class MaskedInstanceNorm(_NormBase):
     Customized instance norm that ignores channels that have
     zero variance.
     """
+    def __init__(
+            self,
+            num_features,
+            eps=1e-6,
+            momentum=0.1,
+            affine=True,
+            track_running_stats=False
+    ):
+        super().__init__(
+            num_features=num_features,
+            eps=eps,
+            momentum=momentum,
+            affine=False,
+            track_running_stats=True,
+            device=None,
+            dtype=None
+        )
+
     def forward(self, x):
         """
         Apply instance norm to input x.
@@ -52,7 +72,7 @@ class MaskedInstanceNorm(_NormBase):
 
         mean = torch.mean(x, axis=(-2, -1), keepdim=True)
         var = torch.var(x, axis=(-2, -1), keepdim=True)
-        mask = var > 1e-5
+        mask = var > 1e-3
 
         var = torch.where(mask, var, 1.0 - self.eps)
         x = ((x - mean) / (self.eps + var).sqrt())
@@ -88,28 +108,41 @@ class SeparableConv(nn.Sequential):
     Depth-wise separable convolution using with kernel size 3x3.
     """
 
-    def __init__(self, channels_in, channels_out, size=7):
+    def __init__(self, channels_in, channels_out, size=7, normalize=True):
+        if normalize:
+            blocks = [
+                nn.Conv2d(
+                    channels_in,
+                    channels_in,
+                    kernel_size=size,
+                    groups=channels_in
+                ),
+                nn.Conv2d(channels_in, channels_out, kernel_size=1),
+                nn.InstanceNorm2d(channels_out, eps=1e-5, affine=True),
+            ]
+        else:
+            blocks = [
+                nn.Conv2d(
+                    channels_in,
+                    channels_in,
+                    kernel_size=size,
+                    groups=channels_in
+                ),
+                nn.Conv2d(channels_in, channels_out, kernel_size=1),
+            ]
         super().__init__(
-            nn.Conv2d(
-                channels_in,
-                channels_in,
-                kernel_size=7,
-                groups=channels_in
-            ),
-            #nn.BatchNorm2d(channels_in),
-            MaskedInstanceNorm(channels_in),
-            nn.Conv2d(channels_in, channels_out, kernel_size=1),
+            *blocks
         )
 
 class ConvNextBlock(nn.Module):
-    def __init__(self, n_channels, n_channels_out=None, size=7, activation=nn.GELU):
+    def __init__(self, n_channels, n_channels_out=None, size=7, activation=nn.GELU, normalize=True):
         super().__init__()
 
         if n_channels_out is None:
             n_channels_out = n_channels
         self.body = nn.Sequential(
             SymmetricPadding(3),
-            SeparableConv(n_channels, 2 * n_channels_out, size=size),
+            SeparableConv(n_channels, 2 * n_channels_out, size=size, normalize=normalize),
             activation(),
             nn.Conv2d(2 * n_channels_out, n_channels_out, kernel_size=1),
         )
@@ -124,7 +157,7 @@ class ConvNextBlock(nn.Module):
         return y + self.projection(x)
 
 
-class DownsamplingBlock(nn.Sequential):
+class DownsamplingBlock(nn.Module):
     """
     Xception downsampling block.
     """
@@ -132,21 +165,44 @@ class DownsamplingBlock(nn.Sequential):
     def __init__(self, channels_in, channels_out, bn_first=True):
         if bn_first:
             blocks = [
-                #nn.BatchNorm2d(channels_in),
-                MaskedInstanceNorm(channels_in),
+                nn.InstanceNorm2d(channels_in, eps=1e-5, affine=True),
+                #MaskedInstanceNorm(channels_in),
                 nn.Conv2d(channels_in, channels_out, kernel_size=2, stride=2)
             ]
         else:
             blocks = [
                 nn.Conv2d(channels_in, channels_out, kernel_size=2, stride=2),
-                #nn.BatchNorm2d(channels_out)
-                MaskedInstanceNorm(channels_in),
+                nn.InstanceNorm2d(channels_out, eps=1e-5, affine=True)
+                #MaskedInstanceNorm(channels_in),
             ]
-        super().__init__(*blocks)
+        super().__init__()
+        self.body = nn.Sequential(*blocks)
+        self.projection = nn.Sequential(
+            nn.AvgPool2d(2, 2),
+            nn.Conv2d(channels_in, channels_out, kernel_size=1)
+        )
+
+    def forward(self, x):
+        y = self.body(x)
+        return y + self.projection(x)
+
+
+class MergeLayer(nn.Module):
+    """
+    Merge layer to combine potentially missing data streams.
+    """
+    def __init__(self, input_dims, output_dim):
+        super().__init__()
+        input_dim = sum(input_dims)
+        self.body = nn.Conv2d(input_dim, output_dim, 1)
+
+    def forward(self, inputs):
+        x = torch.cat(inputs, 1)
+        return self.body(x)
 
 
 class BlockSequence(nn.Sequential):
-    def __init__(self, channels_in, channels_out, n_blocks, size=7):
+    def __init__(self, channels_in, channels_out, n_blocks, size=5):
         ch_in = channels_in
         for i in range(n_blocks):
             blocks.append(ConvNextBlock(ch_in, channels_out, size=size))
@@ -1014,6 +1070,14 @@ class CIMRSeviri(nn.Module):
         return result
 
 
+def get_invalid_mask(x, invalid=-1.2):
+    """
+    Return a multiplicative to mask invalid samples.
+    """
+    valid = torch.flatten((x >= invalid), start_dim=1).any(dim=-1)
+    return valid[..., None, None, None].type_as(x)
+
+
 class CIMR(nn.Module):
     """
     The CIMR baseline model, which only uses SEVIRI observations
@@ -1040,18 +1104,18 @@ class CIMR(nn.Module):
         if not isinstance(n_blocks, list):
             n_blocks = [n_blocks] * n_stages
 
-        self.head_visir = ConvNextBlock(5, n_features)
-        self.head_geo = ConvNextBlock(11, n_features)
-        self.head_mw = ConvNextBlock(9, n_features)
+        self.stem_visir = ConvNextBlock(5, n_features, normalize=False)
+        self.stem_geo = ConvNextBlock(11, n_features, normalize=False)
+        self.stem_mw = ConvNextBlock(9, n_features, normalize=False)
+
+        self.merge_geo = MergeLayer([n_features, n_features], n_features)
+        self.merge_mw = MergeLayer([n_features * 2, n_features], 2 * n_features)
 
         stages = []
-        ch_in = 0
+        ch_in = n_features
         ch_out = n_features
         for i in range(n_stages):
-            if i < 3:
-                stages.append(DownsamplingStage(ch_in + n_features, ch_out, n_blocks[i]))
-            else:
-                stages.append(DownsamplingStage(ch_in, ch_out, n_blocks[i]))
+            stages.append(DownsamplingStage(ch_in, ch_out, n_blocks[i]))
             ch_in = ch_out
             ch_out = ch_out * 2
         self.down_stages = nn.ModuleList(stages)
@@ -1080,6 +1144,10 @@ class CIMR(nn.Module):
             nn.GELU(),
             nn.Conv2d(n_features, n_outputs, kernel_size=1),
         )
+        self.fill_in = nn.parameter.Parameter(
+            data=torch.normal(0, 1, (1, n_outputs, 1, 1))
+        )
+
 
 
     def forward(self, x):
@@ -1087,21 +1155,32 @@ class CIMR(nn.Module):
 
         skips = []
 
-        y = self.head_visir(x["visir"])
+        mask_visir = get_invalid_mask(x["visir"])
+        mask_geo = get_invalid_mask(x["geo"])
+        mask_mw_90 = get_invalid_mask(x["mw_90"])
+        mask_mw_160 = get_invalid_mask(x["mw_160"])
+        mask_mw_183 = get_invalid_mask(x["mw_183"])
+        mask_any = mask_visir + mask_geo + mask_mw_90 + mask_mw_160 + mask_mw_183
+
+        y = mask_visir * self.stem_visir(x["visir"])
         for i, stage in enumerate(self.down_stages):
             skips.append(y)
             if i == 1:
-                y = torch.cat([y, self.head_geo(x["geo"])], 1)
+                y_geo = self.stem_geo(x["geo"])
+                y = self.merge_geo([mask_visir * y, mask_geo * y_geo])
             elif i == 2:
-                y_mw = torch.cat([x["mw_90"], x["mw_160"], x["mw_183"]], 1)
-                y = torch.cat([y, self.head_mw(y_mw)], 1)
+                y_mw = self.stem_mw(torch.cat([x["mw_90"], x["mw_160"], x["mw_183"]], 1))
+                mask_mw = mask_mw_90 + mask_mw_160 + mask_mw_183
+                y = self.merge_mw([y, mask_mw * y_mw])
             y = stage(y)
 
         skips.reverse()
         for skip, stage in zip(skips, self.up_stages):
             y = stage(y, skip)
 
-        return self.head(y)
+        result = self.head(y)
+        fill_in = torch.broadcast_to(self.fill_in, result.shape)
+        return torch.where(mask_any > 0, result, fill_in)
 
 class CIMRSeqSeviri(nn.Module):
     """
@@ -1338,7 +1417,7 @@ class CIMRSeq(nn.Module):
         hidden = []
         for i in range(self.n_stages + 1):
             scl = 2 ** i
-            t = -1.5 * torch.nomal(
+            t = -1.5 * torch.normal(0, 1,
                 (b, self.n_features * scl, h // scl, w // scl),
                 device=device,
                 dtype=dtype
@@ -1483,3 +1562,274 @@ class RNN(nn.Module):
             h_states = hidden_new
 
         return results
+
+###############################################################################
+# Xception-based model
+###############################################################################
+
+class FPHead(nn.Module):
+    """
+    Feature-pyramid head.
+    """
+    def __init__(self, n_features, n_scales, n_outputs, n_layers):
+        super().__init__()
+        self.layers = nn.ModuleList()
+        n_inputs = n_features * n_scales
+        for i in range(n_layers - 1):
+            self.layers.append(
+                nn.Sequential(
+                    nn.Conv2d(n_inputs, 2 * n_outputs, 1),
+                    nn.GroupNorm(1, 2 * n_outputs),
+                    nn.GELU(),
+                )
+            )
+            n_inputs = 2 * n_outputs
+        self.layers.append(
+            nn.Sequential(
+                nn.Conv2d(2 * n_outputs, n_outputs, 1),
+            )
+        )
+
+        self.upsample_layers = nn.ModuleList([
+            nn.Upsample(
+                mode="bilinear",
+                scale_factor=2 ** i,
+                align_corners=False
+            )
+            for i in range(1, n_scales)
+        ])
+
+    def forward(self, x):
+        "Propagate input through head."
+        x = [x[0]] + [up(x_i) for x_i, up in zip(x[1:], self.upsample_layers)]
+        x = torch.cat(x, 1)
+        for l in self.layers[:-1]:
+            y = l(x)
+            n = min(x.shape[1], y.shape[1])
+            y[:, :n] += x[:, :n]
+            x = y
+        return self.layers[-1](y)
+
+
+class Encoder(nn.Module):
+    """
+    An encoder that uses top-down and down-top pathways to create
+    a hierarchical representation of its input.
+    """
+    def __init__(
+            self,
+            input_channels,
+            base_scale,
+            max_scale,
+            base_features,
+            n_blocks=2,
+            extend_scales=False
+    ):
+        """
+        Args:
+            input_channels: The number of input channels of the encoder.
+            base_scale: The scale of the input.
+            max_scale: The maximum scale of the representation.
+            base_features: The number of features at all levels of the feature pyramid.
+            n_blocks: The number of blocks per stage.
+        """
+        from quantnn.models.pytorch.xception import (
+            DownsamplingBlock,
+            UpsamplingBlock,
+            XceptionBlock,
+            SymmetricPadding,
+        )
+        super().__init__()
+
+        down_stages = []
+        scale = base_scale
+        self.in_block = XceptionBlock(input_channels, base_features)
+        while scale < max_scale:
+            down_stages.append(
+                DownsamplingBlock(base_features, n_blocks)
+            )
+            scale = scale * 2
+        self.down_stages = nn.ModuleList(
+            down_stages
+        )
+
+        up_stages = []
+        while scale > base_scale:
+            up_stages.append(
+                UpsamplingBlock(base_features)
+            )
+            scale = scale // 2
+        self.up_stages = nn.ModuleList(
+            up_stages
+        )
+
+        extra_stages = []
+        while scale > 1:
+            extra_stages.append(
+                UpsamplingBlock(base_features, skip_connections=False)
+            )
+            scale = scale // 2
+        self.extra_stages = nn.ModuleList(
+            extra_stages
+        )
+
+    def forward(self, x):
+        """
+        Propagate input through network.
+
+        Args:
+            x: The input to encode.
+        """
+        skips = []
+        y = self.in_block(x)
+        for stage in self.down_stages:
+            skips.append(y)
+            y = stage(y)
+        skips.reverse()
+        outputs = [y]
+        for stage, skip in zip(self.up_stages, skips):
+            y = stage(y, skip)
+            outputs.append(y)
+        for stage in self.extra_stages:
+            y = stage(y)
+            outputs.append(y)
+        outputs.reverse()
+        return outputs
+
+
+
+class Merger(nn.Module):
+    """
+    Merge module that combines data streams.
+    """
+    def __init__(
+            self,
+            n_scales,
+            n_features
+    ):
+        """
+        Args:
+            n_scales: The number of scales to combine.
+            n_features: The number of features at each scale.
+        """
+        from quantnn.models.pytorch.xception import (
+            DownsamplingBlock,
+            UpsamplingBlock,
+            XceptionBlock,
+            SymmetricPadding,
+        )
+        super().__init__()
+        self.n_scales = n_scales
+        self.merge_blocks = nn.ModuleList([
+            XceptionBlock(2 * n_features, n_features) for i in range(n_scales)
+        ])
+
+    def forward(self, main_streams, other_streams):
+
+        results = []
+        for block, main_stream, other_stream in zip(
+                self.merge_blocks,
+                main_streams,
+                other_streams
+        ):
+            if isinstance(main_stream, PackedTensor):
+                batch_size = main_stream.batch_size
+            else:
+                batch_size = main_stream.shape[0]
+
+
+            if not isinstance(other_stream, PackedTensor):
+                other_stream = PackedTensor(
+                    other_stream,
+                    batch_size,
+                    list(range(batch_size))
+                )
+
+            try:
+                no_merge = other_stream.difference(main_stream)
+            except IndexError:
+                # Both streams are empty, do nothing.
+                results.append(main_stream)
+                continue
+
+            main_comb, other_comb = other_stream.intersection(main_stream)
+
+            # No merge required, if there are no streams with complementary
+            # information.
+            if other_comb is None:
+                results.append(no_merge)
+                continue
+
+
+            merged = block(torch.cat([other_comb, main_comb], 1))
+            if no_merge is None:
+                results.append(merged)
+            else:
+                results.append(merged.sum(no_merge))
+        return results
+
+SOURCES = {
+    "visir": (5, 1),
+    "geo": (11, 2),
+    "mw": (9, 4)
+}
+
+class CIMRX(nn.Module):
+    """
+    CIMR multi-satellite retrieval model based on Xception blocks.
+    """
+    def __init__(
+            self,
+            max_scale,
+            base_features,
+            n_outputs,
+            n_blocks=2,
+            sources=None
+    ):
+        super().__init__()
+
+        n_scales = int(np.log2(max_scale) + 1)
+        if isinstance(sources, str):
+            sources = [sources]
+        if sources is None:
+            sources = ["geo", "visir", "mw"]
+        self.sources = sources
+        self.encoders = nn.ModuleDict()
+        for source in sources:
+            channels, base_scale = SOURCES[source]
+            self.encoders[source] =  Encoder(
+                channels,
+                base_scale,
+                max_scale,
+                base_features,
+                n_blocks=n_blocks
+            )
+
+        self.mergers = nn.ModuleList([
+            Merger(n_scales, base_features) for _ in sources[1:]
+        ])
+        self.head = FPHead(n_scales, base_features, n_outputs, 4)
+
+    def forward(self, x):
+
+        batch_size = x["visir"].shape[0]
+
+        y_enc = {}
+        for source in self.sources:
+            if source == "mw":
+                x_s = torch.cat([x["mw_90"], x["mw_160"], x["mw_183"]], 1)
+            else:
+                x_s = x[source]
+            batch_size = x_s.shape[0]
+            mask = get_invalid_mask(x_s)
+            indices = torch.where(mask)[0]
+            x_s = PackedTensor(x_s[indices], batch_size, indices)
+            y_enc[source] = self.encoders[source](x_s)
+
+        keys = iter(y_enc.keys())
+        key = next(keys)
+        y = y_enc[key]
+        for merger, key in zip(self.mergers, keys):
+            y = merger(y, y_enc[key])
+
+        return self.head(y)
