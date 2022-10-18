@@ -5,6 +5,7 @@ cimr.bin.extract_data
 
 This sub-module implements the cimr CLI to extract training data.
 """
+from calendar import monthrange
 import logging
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 import importlib
@@ -103,7 +104,8 @@ def run(args):
     month = args.month
     days = args.day
     if len(days) == 0:
-        days = list(range(1, 32))
+        n_days = monthrange(year, month)[1]
+        days = list(range(1, n_days + 1))
 
     output = Path(args.output)
     if not output.exists():

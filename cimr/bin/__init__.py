@@ -19,6 +19,8 @@ def cimr():
     any of the available sub-commands.
     """
     from cimr.bin import extract_data
+    from cimr.bin import train
+    from cimr.bin import test
 
     warnings.filterwarnings("ignore", category=RuntimeWarning)
 
@@ -28,6 +30,9 @@ def cimr():
 
     subparsers = parser.add_subparsers(help="Sub-commands")
     extract_data.add_parser(subparsers)
+    train.add_parser(subparsers)
+    test.add_parser(subparsers)
+
 
     if len(sys.argv) == 1:
         parser.print_help(sys.stderr)

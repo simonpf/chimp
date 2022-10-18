@@ -10,13 +10,18 @@ from pathlib import Path
 import os
 
 import matplotlib.pyplot as plt
+from matplotlib.colors import Normalize
 from matplotlib.gridspec import GridSpec
+from matplotlib.animation import FuncAnimation
 import numpy as np
+from scipy import fft
 from quantnn.normalizer import MinMaxNormalizer
+from quantnn.packed_tensor import PackedTensor
 import torch
 from torch import nn
 import xarray as xr
 import pandas as pd
+
 
 from cimr.areas import NORDIC_2
 from cimr.data.mhs import MHS
@@ -78,6 +83,129 @@ NORMALIZER_MW_183.stats = {
 # Loader functions for the difference input types.
 ###############################################################################
 
+def collate_recursive(sample, batch=None):
+    """
+    Recursive collate function that descends into tuple, lists and
+    dicts, and collects tensors and collects tensors and None values
+    into lists.
+
+    Args:
+        sample: Sample may be a tuple, list or dict or any nested
+            combination of those containing either tensors or None.
+        batch: Previously collected samples.
+
+    Return:
+        The returned value has the same structure as ``sample`` but the
+        leaf values are replaced by lists containing the original leaf
+        values. If batch is not ``None`` then these lists also contain
+        the previously collected leaf-lists from batch.
+    """
+    if batch is None:
+        if isinstance(sample, tuple):
+            return tuple([collate_recursive(sample_t, None) for sample_t in sample])
+        elif isinstance(sample, list):
+            return [collate_recursive(sample_t, None) for sample_t in sample]
+        elif isinstance(sample, dict):
+            return {
+                k: collate_recursive(sample_k) for k, sample_k in sample.items()
+            }
+        elif isinstance(sample, torch.Tensor):
+            return [sample]
+        elif sample is None:
+            return [sample]
+        else:
+            try:
+                return [torch.as_tensor(sample)]
+            except ValueError:
+                pass
+    else:
+        if isinstance(sample, tuple):
+            return tuple([
+                collate_recursive(sample_t, batch_t)
+                 for sample_t, batch_t in zip(sample, batch)
+            ])
+        elif isinstance(sample, list):
+            return [
+                collate_recursive(sample_t, batch_t)
+                 for sample_t, batch_t in zip(sample, batch)
+            ]
+        elif isinstance(sample, dict):
+            return {
+                k: collate_recursive(sample_k, batch[k])
+                for (k, sample_k) in sample.items()
+            }
+        elif isinstance(sample, torch.Tensor):
+            return batch + [sample]
+        elif sample is None:
+            return batch + [sample]
+        else:
+            try:
+                return batch + [torch.as_tensor(sample)]
+            except ValueError:
+                pass
+    raise ValueError(
+        "Encountered invalid type '%s' in collate function.",
+        type(sample)
+    )
+
+
+def is_tensor(x):
+    """
+    Helper function to determine whether an object is a tensor.
+    """
+    return isinstance(x, torch.Tensor)
+
+def stack(batch):
+    """
+    Stack collected samples into sparse tensors.
+
+    batch:
+        An optionally nested structure of tuples, list, and dicts
+        with lists of tensors and None values as leaves.
+
+    Return:
+        A copy of batch but with all leaves replaced by corresponding
+        packed tensors.
+    """
+    if isinstance(batch, tuple):
+        return tuple([stack(batch_t) for batch_t in batch])
+    elif isinstance(batch, list):
+        try:
+            if all(map(is_tensor, batch)):
+                return torch.stack(batch)
+            batch = PackedTensor.stack(batch)
+            return batch
+        except ValueError:
+            return [stack(batch_t) for batch_t in batch]
+    elif isinstance(batch, dict):
+        return {
+            k: stack(batch_k) for k, batch_k in batch.items()
+        }
+    raise ValueError(
+        "Encountered invalid type '%s' in stack function.",
+        type(batch)
+    )
+
+
+def sparse_collate(samples):
+    """
+    Collate a list of samples into a batch of packed tensors.
+
+    Args:
+        samples: A list of samples to collate into a batch.
+
+    Return:
+        A batch of input samples with all input samples collected
+        into PackedTensors.
+    """
+    batch = None
+    for sample in samples:
+        batch = collate_recursive(sample, batch)
+    return stack(batch)
+
+
+
+
 
 def load_geo_obs(sample, dataset, normalize=True, rng=None):
     """
@@ -90,8 +218,8 @@ def load_geo_obs(sample, dataset, normalize=True, rng=None):
 
     data = np.stack(data, axis=0)
     if normalize:
-        data = NORMALIZER_GEO(data, rng=rng)
-    sample["geo"] = torch.tensor(data)
+        data = NORMALIZER_GEO(data)
+    sample["geo"] = torch.as_tensor(data)
 
 
 def load_visir_obs(sample, dataset, normalize=True, rng=None):
@@ -105,38 +233,40 @@ def load_visir_obs(sample, dataset, normalize=True, rng=None):
 
     data = np.stack(data, axis=0)
     if normalize:
-        data = NORMALIZER_VISIR(data, rng=rng)
-    sample["visir"] = torch.tensor(data)
+        data = NORMALIZER_VISIR(data)
+    sample["visir"] = torch.as_tensor(data)
 
 
 def load_microwave_obs(sample, dataset, normalize=True, rng=None):
     """
     Loads microwave observations from dataset.
     """
+    # MW 90
     shape = (dataset.y.size, dataset.x.size)
     if "mw_90" in dataset:
         x = np.transpose(dataset.mw_90.data, (2, 0, 1))
-        if normalize:
-            x = NORMALIZER_MW_90(x, rng=rng)
-        sample["mw_90"] = torch.tensor(x)
     else:
-        sample["mw_90"] = MISSING * torch.ones((2,) + shape)
+        x = np.nan * torch.ones((2,) + shape)
+    if normalize:
+        x = NORMALIZER_MW_90(x)
+    sample["mw_90"] = torch.as_tensor(x)
 
+    # MW 160
     if "mw_160" in dataset:
         x = np.transpose(dataset.mw_160.data, (2, 0, 1))
-        if normalize:
-            x = NORMALIZER_MW_160(x, rng=rng)
-        sample["mw_160"] = torch.tensor(x)
     else:
-        sample["mw_160"] = MISSING * torch.ones((2,) + shape)
+        x = np.nan * torch.ones((2,) + shape)
+    if normalize:
+        x = NORMALIZER_MW_160(x)
+    sample["mw_160"] = torch.as_tensor(x)
 
     if "mw_183" in dataset:
         x = np.transpose(dataset.mw_183.data, (2, 0, 1))
-        if normalize:
-            x = NORMALIZER_MW_183(x, rng=rng)
-        sample["mw_183"] = torch.tensor(x)
     else:
-        sample["mw_160"] = MISSING * torch.ones((5,) + shape)
+        x =  np.nan * torch.ones((5,) + shape)
+    if normalize:
+        x = NORMALIZER_MW_183(x)
+    sample["mw_183"] = torch.as_tensor(x)
 
 
 @dataclass
@@ -185,6 +315,7 @@ class CIMRDataset:
         start_time=None,
         end_time=None,
         quality_threshold=0.8,
+        augment=True
     ):
         """
         Args:
@@ -203,6 +334,7 @@ class CIMRDataset:
         self.sample_rate = sample_rate
         self.normalize = normalize
         self.quality_threshold = quality_threshold
+        self.augment = augment
 
         radar_files = sorted(list((self.folder / "radar").glob("radar*.nc")))
         times = np.array(list(map(get_date, radar_files)))
@@ -266,7 +398,15 @@ class CIMRDataset:
         """Number of samples in dataset."""
         return len(self.sequence_starts) * self.sample_rate
 
-    def load_sample(self, index, slices=None):
+    def load_sample(
+            self,
+            index,
+            slices=None,
+            forecast=False,
+            flip_v=False,
+            flip_h=False,
+            transpose=False
+    ):
         """
         Load training sample.
 
@@ -306,13 +446,12 @@ class CIMRDataset:
                 y_s = y[row_slice, col_slice]
 
         y_s = np.nan_to_num(y_s, nan=-100)
-        y = torch.tensor(y_s, dtype=torch.float)
+        y = torch.as_tensor(y_s, dtype=torch.float)
 
         x = {}
 
         # GEO data
-        if self.samples[key].geo is not None:
-
+        if self.samples[key].geo is not None and not forecast:
             with xr.open_dataset(self.samples[key].geo) as data:
                 row_slice = slice(i_start * 2, i_end * 2)
                 col_slice = slice(j_start * 2, j_end * 2)
@@ -320,17 +459,14 @@ class CIMRDataset:
                     x, data[{"y": row_slice, "x": col_slice}], normalize=self.normalize,
                     rng=self.rng
                 )
+                missing_fraction = (x["geo"] < -1.4).float().mean()
+                if missing_fraction > 0.95:
+                    x["geo"] = None
         else:
-            x["geo"] = torch.tensor(
-                NORMALIZER_GEO(
-                    np.nan * np.ones((11,) + (self.window_size // 2,) * 2),
-                    rng=self.rng
-                ),
-                dtype=torch.float,
-            )
+            x["geo"] = None
 
         # VISIR data
-        if self.samples[key].visir is not None:
+        if self.samples[key].visir is not None and not forecast:
             with xr.open_dataset(self.samples[key].visir) as data:
                 row_slice = slice(4 * i_start, 4 * i_end)
                 col_slice = slice(4 * j_start, 4 * j_end)
@@ -338,17 +474,14 @@ class CIMRDataset:
                     x, data[{"y": row_slice, "x": col_slice}], normalize=self.normalize,
                     rng=self.rng
                 )
+                missing_fraction = (x["visir"] < -1.4).float().mean()
+                if missing_fraction > 0.95:
+                    x["visir"] = None
         else:
-            x["visir"] = torch.tensor(
-                NORMALIZER_VISIR(
-                    np.nan * np.ones((5,) + (self.window_size,) * 2),
-                    rng=self.rng
-                ),
-                dtype=torch.float
-            )
+            x["visir"] = None
 
         # Microwave data
-        if self.samples[key].mw is not None:
+        if self.samples[key].mw is not None and not forecast:
             with xr.open_dataset(self.samples[key].mw) as data:
                 row_slice = slice(i_start, i_end)
                 col_slice = slice(j_start, j_end)
@@ -356,28 +489,38 @@ class CIMRDataset:
                     x, data[{"y": row_slice, "x": col_slice}], normalize=self.normalize,
                     rng=self.rng
                 )
+                missing_fraction = (
+                    (x["mw_90"] < -1.4).float().mean() +
+                    (x["mw_160"] < -1.4).float().mean() +
+                    (x["mw_183"] < -1.4).float().mean()
+                ) / 3.0
+                if missing_fraction > 0.95:
+                    x["mw_90"] = None
+                    x["mw_160"] = None
+                    x["mw_183"] = None
         else:
-            x["mw_90"] = torch.tensor(
-                NORMALIZER_MW_90(
-                    np.nan * np.ones((2,) + (self.window_size // 4,) * 2),
-                    rng=self.rng
-                ),
-                dtype=torch.float,
-            )
-            x["mw_160"] = torch.tensor(
-                NORMALIZER_MW_160(
-                    np.nan * np.ones((2,) + (self.window_size // 4,) * 2),
-                    rng=self.rng
-                ),
-                dtype=torch.float,
-            )
-            x["mw_183"] = torch.tensor(
-                NORMALIZER_MW_183(
-                    np.nan * np.ones((5,) + (self.window_size // 4,) * 2),
-                    rng=self.rng
-                ),
-                dtype=torch.float,
-            )
+            x["mw_90"] = None
+            x["mw_160"] = None
+            x["mw_183"] = None
+
+        if flip_v:
+            x = {
+                k: torch.flip(x_k, (-2,)) if x_k is not None else x_k
+                for k, x_k in x.items()
+            }
+            y = torch.flip(y, (-2,))
+        if flip_h:
+            x = {
+                k: torch.flip(x_k, (-1,)) if x_k is not None else x_k
+                for k, x_k in x.items()
+            }
+            y = torch.flip(y, (-1,))
+        if transpose:
+            x = {
+                k: torch.transpose(x_k, -2, -1) if x_k is not None else x_k
+                for k, x_k in x.items()
+            }
+            y = torch.transpose(y, -2, -1)
 
         return x, y
 
@@ -415,14 +558,32 @@ class CIMRDataset:
         xs = []
         ys = []
 
+        if self.augment:
+            flip_v = self.rng.random() > 0.5
+            flip_h = self.rng.random() > 0.5
+            transpose= self.rng.random() > 0.5
+        else:
+            flip_v = False
+            flip_h = False
+            transpose = False
+
         # If not in sequence mode return data directly.
         if self.sequence_length == 1:
-            return self.load_sample(scene_index, slices=slices)
+            return self.load_sample(
+                scene_index,
+                slices=slices,
+                flip_v=flip_v,
+                flip_h=flip_h,
+                transpose=transpose
+            )
 
         # Otherwise collect samples in list.
         for i in range(self.sequence_length):
             x, y = self.load_sample(
-                self.sequence_starts[scene_index] + i, slices=slices
+                self.sequence_starts[scene_index] + i, slices=slices,
+                flip_v=flip_v,
+                flip_h=flip_h,
+                transpose=transpose
             )
             xs.append(x)
             ys.append(y)
@@ -430,49 +591,73 @@ class CIMRDataset:
 
     def plot(self, key):
 
+        sample = self.samples[key]
+
         crs = NORDIC_2.to_cartopy_crs()
         extent = NORDIC_2.area_extent
         extent = (extent[0], extent[2], extent[1], extent[3])
+        cmap = "plasma"
 
-        f = plt.figure(figsize=(10, 12))
-        gs = GridSpec(2, 2)
+        f = plt.figure(figsize=(20, 20))
+        gs = GridSpec(4, 5)
+        axs = np.array([[
+            f.add_subplot(gs[i, j], projection=crs) for j in range(5)
+            ] for i in range(4)
+        ])
+
+        radar_data = xr.load_dataset(sample.radar)
+
         ax = axs[0, 0]
         dbz = radar_data.dbz.data.copy()
         dbz[radar_data.qi < self.quality_threshold] = np.nan
-        img = ax.imshow(dbz, extent=extent, vmin=-20, vmax=20)
-        ax.coastlines(color="grey")
+        img = ax.imshow(dbz, extent=extent, vmin=-20, vmax=40, cmap=cmap)
+        ax.coastlines(color="w")
 
-        ax = axs[0, 1]
         if sample.geo is not None:
-            geo_data = xr.load_dataset(sample.geo)
-            ax.imshow(geo_data.geo_10, extent=extent)
-            ax.coastlines(color="grey")
-        else:
-            img = np.nan * np.ones((2, 2))
-            img = ax.imshow(img, extent=extent)
-            ax.coastlines(color="grey")
+            channels = [1, 4, 7, 11]
+            data_geo = xr.load_dataset(sample.geo)
+            for i, ch in enumerate(channels):
+                ax = axs[0, 1 + i]
+                ax.imshow(data_geo[f"geo_{ch:02}"].data, extent=extent, cmap=cmap)
+                ax.coastlines(color="w")
 
-        ax = axs[1, 0]
         if sample.visir is not None:
-            visir_data = xr.load_dataset(sample.visir)
-            img = ax.imshow(visir_data.visir_05, extent=extent)
-            ax.coastlines(color="grey")
-        else:
-            img = np.nan * np.ones((2, 2))
-            img = ax.imshow(img, extent=extent)
-            ax.coastlines(color="grey")
+            data_visir = xr.load_dataset(sample.visir)
+            for i in range(5):
+                ax = axs[1, i]
+                ax.imshow(data_visir[f"visir_{(i + 1):02}"].data, extent=extent, cmap=cmap)
+                ax.coastlines(color="w")
 
-        ax = axs[1, 1]
         if sample.mw is not None:
-            mw_data = xr.load_dataset(sample.mw)
-            img = ax.imshow(mw_data.mw_183.data[..., -1], extent=extent)
-            ax.coastlines(color="grey")
-        else:
-            img = np.nan * np.ones((2, 2))
-            img = ax.imshow(img, extent=extent)
-            ax.coastlines(color="grey")
+            data_mw = xr.load_dataset(sample.mw)
+            if "mw_90" in data_mw:
+                for i in range(2):
+                    ax = axs[2, i]
+                    ax.imshow(
+                        data_mw["mw_90"].data[..., i],
+                        extent=extent,
+                        cmap=cmap
+                    )
+                    ax.coastlines(color="w")
+            if "mw_160" in data_mw:
+                for i in range(2):
+                    ax = axs[2, i + 2]
+                    ax.imshow(
+                        data_mw["mw_160"].data[..., i],
+                        extent=extent,
+                        cmap=cmap
+                    )
+                    ax.coastlines(color="w")
 
-            return [img]
+            if "mw_183" in data_mw:
+                for i in range(5):
+                    ax = axs[3, i]
+                    ax.imshow(
+                        data_mw["mw_183"].data[..., i],
+                        extent=extent,
+                        cmap=cmap
+                    )
+                    ax.coastlines(color="w")
 
         return f, axs
 
@@ -555,7 +740,7 @@ class CIMRDataset:
             y = data.dbz.data.copy()
             y[data.qi < self.quality_threshold] = np.nan
 
-        y = torch.tensor(y, dtype=torch.float)
+        y = torch.as_tensor(y, dtype=torch.float)
         shape = y.shape
 
         x = {}
@@ -563,20 +748,20 @@ class CIMRDataset:
         # VISIR data
         if self.samples[key].visir is not None:
             with xr.open_dataset(self.samples[key].visir) as data:
-                load_visir_obs(x, data, normalize=self.normalize, rng=self.rng)
+                load_visir_obs(x, data, normalize=self.normalize)
         else:
-            x["visir"] = torch.tensor(
-                NORMALIZER_VISIR(np.nan * np.ones((5,) + shape), rng=self.rng),
+            x["visir"] = torch.as_tensor(
+                NORMALIZER_VISIR(np.nan * np.ones((5,) + shape)),
                 dtype=torch.float
             )
 
         shape = tuple([n // 2 for n in y.shape])
         if self.samples[key].geo is not None:
             with xr.open_dataset(self.samples[key].geo) as data:
-                load_geo_obs(x, data, normalize=self.normalize, rng=self.rng)
+                load_geo_obs(x, data, normalize=self.normalize)
         else:
-            x["geo"] = torch.tensor(
-                NORMALIZER_GEO(np.nan * np.ones((11,) + shape), rng=self.rng),
+            x["geo"] = torch.as_tensor(
+                NORMALIZER_GEO(np.nan * np.ones((11,) + shape)),
                 dtype=torch.float
             )
 
@@ -584,19 +769,19 @@ class CIMRDataset:
         # Microwave data
         if self.samples[key].mw is not None:
             with xr.open_dataset(self.samples[key].mw) as data:
-                load_microwave_obs(x, data, normalize=self.normalize, rng=self.rng
+                load_microwave_obs(x, data, normalize=self.normalize
                 )
         else:
-            x["mw_90"] = torch.tensor(
-                NORMALIZER_MW_90(np.nan * np.ones((2,) + shape), rng=self.rng),
+            x["mw_90"] = torch.as_tensor(
+                NORMALIZER_MW_90(np.nan * np.ones((2,) + shape)),
                 dtype=torch.float,
             )
-            x["mw_160"] = torch.tensor(
-                NORMALIZER_MW_160(np.nan * np.ones((2,) + shape), rng=self.rng),
+            x["mw_160"] = torch.as_tensor(
+                NORMALIZER_MW_160(np.nan * np.ones((2,) + shape)),
                 dtype=torch.float,
             )
-            x["mw_183"] = torch.tensor(
-                NORMALIZER_MW_183(MISSING * np.ones((5,) + shape), rng=self.rng),
+            x["mw_183"] = torch.as_tensor(
+                NORMALIZER_MW_183(np.nan * np.ones((5,) + shape)),
                 dtype=torch.float,
             )
 
@@ -700,28 +885,45 @@ class CIMRDataset:
 
 class CIMRSequenceDataset(CIMRDataset):
     """
-    Dataset class for the CIMR training data.
+    Dataset class for temporal merging of satellite observations.
     """
-
     def __init__(
         self,
         folder,
-        sample_rate=4,
+        sample_rate=2,
         normalize=True,
         window_size=128,
         sequence_length=32,
         start_time=None,
         end_time=None,
         quality_threshold=0.8,
+        augment=True,
+        forecast=None
     ):
+        """
+        Args:
+            folder: The path to the training data.
+            sample_rate: Rate for oversampling of training scenes.
+            normalize: Whether to normalize the data.
+            window_size: The size of the input data.
+            sequence_length: The length of the training sequences.
+            start_time: Optional start time to limit the samples.
+            end_time: Optional end time to limit the available samples.
+            quality_threshold: Quality threshold to use for masking the
+                radar data.
+            augment: Whether to apply random flipping to the data.
+            forecast: The number of samples in the sequence without input
+                observations.
+        """
         super().__init__(
             folder,
-            sample_rate=sample_rate,
+            sample_rate=2,
             normalize=normalize,
             window_size=window_size,
             start_time=start_time,
             end_time=end_time,
             quality_threshold=quality_threshold,
+            augment=augment
         )
 
         self.sequence_length = sequence_length
@@ -731,13 +933,16 @@ class CIMRSequenceDataset(CIMRDataset):
             deltas.astype("timedelta64[s]")
             <= np.timedelta64(self.sequence_length * 15 * 60, "s")
         )[0]
-        self.sequence_starts = starts
+        step = max(sequence_length // sample_rate, 1)
+        self.sequence_starts = starts[::step]
+        self.forecast = forecast
 
     def __len__(self):
+        """Number of samples in an epoch."""
         return len(self.sequence_starts)
 
     def __getitem__(self, index):
-
+        """Return training sample."""
         key = self.keys[self.sequence_starts[index]]
         with xr.open_dataset(self.samples[key].radar) as data:
 
@@ -766,8 +971,31 @@ class CIMRSequenceDataset(CIMRDataset):
 
         xs = []
         ys = []
+
+        if self.augment:
+            flip_v = self.rng.random() > 0.5
+            flip_h = self.rng.random() > 0.5
+            transpose= self.rng.random() > 0.5
+        else:
+            flip_v = False
+            flip_h = False
+            transpose = False
+
         for i in range(self.sequence_length):
-            x, y = self.load_sample(self.sequence_starts[index] + i, slices=slices)
+
+            if self.forecast is not None:
+                forecast = i >= self.sequence_length - self.forecast
+            else:
+                forecast = False
+
+            x, y = self.load_sample(
+                self.sequence_starts[index] + i,
+                slices=slices,
+                forecast=forecast,
+                flip_v=flip_v,
+                flip_h=flip_h,
+                transpose=transpose
+            )
             xs.append(x)
             ys.append(y)
         return xs, ys
@@ -876,6 +1104,145 @@ def plot_date_distribution(
     return ax
 
 
+def make_wave_x(size, w, theta, t=0.0):
+    """
+    Create a 2D image of a wave with given angular velocity and
+    phase shift propagating along the last image dimension.
+    """
+    x = np.linspace(0, 2 * np.pi, size)
+    x, y = np.meshgrid(x, x)
+    return np.sin(w * x + theta + 2 * np.pi * t / 20.0)
+
+def make_wave_y(size, w, theta, t=0.0):
+    """
+    Create a 2D image of a wave with given angular velocity and
+    phase shift propagating along the last image dimension.
+    """
+    x = np.linspace(0, 2 * np.pi, size)
+    x, y = np.meshgrid(x, x)
+    return np.sin(w * y + theta + 2 * np.pi * t / 20.0)
+
+
+class StreamData:
+    """
+    A synthetic dataset that requires the network to merge information
+    from different streams.
+    """
+    def __init__(
+            self,
+            size=(128, 128),
+            availability=(0.1, 0.1, 0.1),
+            n_samples=5_000,
+            sequence_length=1
+    ):
+        self.size = size
+        self.init_function(0)
+        if isinstance(availability, float):
+            availability = [availability] * 3
+        self.availability = availability
+        self.n_samples = n_samples
+        self.sequence_length = sequence_length
+
+
+    def init_function(self, w_id):
+        """
+        Worker initialization function for multi-process data generation.
+        Seeds the workers random generator.
+
+        Args:
+            w_id: Id of the worker.
+        """
+        seed = int.from_bytes(os.urandom(4), "big") + w_id
+        self.rng = np.random.default_rng(seed)
+
+    def __len__(self):
+        return self.n_samples
+
+
+    def make_sample(self, w_x, theta_x, w_y, theta_y, t=0.0):
+
+        base_size = self.size[0]
+        med_size = base_size // 2
+        small_size = med_size // 2
+
+        y_1 = make_wave_x(base_size, w_x, theta_x, t=t)
+        w = self.rng.uniform(1, 3)
+        theta = self.rng.uniform(0, np.pi)
+        y_2 = make_wave_y(base_size, w_y, theta_y, t=t)
+
+        y = y_1 + y_2
+
+        x_visir = y_1 + 0.3 * self.rng.normal(size=y_1.shape)
+        x_visir = np.tile(x_visir[np.newaxis], (5, 1, 1))
+        r = self.rng.random()
+        if r > self.availability[0]:
+            x_visir = None
+
+        y_2 = y_2[::2, ::2]
+        x_geo = y_2 + 0.3 * self.rng.normal(size=y_2.shape)
+        x_geo = np.tile(x_geo[np.newaxis], (11, 1, 1))
+
+        r = self.rng.random()
+        if r > self.availability[1]:
+            x_geo = None
+
+        y_2 = y_2[::2, ::2]
+        x_mw_90 = np.tile(y_2[np.newaxis], (2, 1, 1))
+        x_mw_160 = np.tile(y_2[np.newaxis], (2, 1, 1))
+        y_1 = y_1[::4, ::4]
+        x_mw_183 = np.tile(y_1[np.newaxis], (5, 1, 1))
+        for i in range(2):
+            i = self.rng.integers(0, 4)
+            x_mw_183[i] = -3#self.rng.normal(size=x_mw_183.shape[1:])
+
+        r = self.rng.random()
+        if r > self.availability[2]:
+            x_mw_90 = None
+            x_mw_160 = None
+            x_mw_183 = None
+
+        def to_tensor(x):
+            """
+            Convert data to tensor or do nothing if it is None.
+            """
+            if x is not None:
+                return torch.as_tensor(x).to(torch.float32)
+            return x
+
+        x = {
+            "visir": to_tensor(x_visir),
+            "geo": to_tensor(x_geo),
+            "mw_90": to_tensor(x_mw_90),
+            "mw_160": to_tensor(x_mw_160),
+            "mw_183": to_tensor(x_mw_183)
+        }
+        return x, y
+
+
+    def __getitem__(self, index):
+
+        w_x = self.rng.uniform(1, 5)
+        theta_x = self.rng.uniform(0, np.pi)
+        w_y = self.rng.uniform(1, 5)
+        theta_y = self.rng.uniform(0, np.pi)
+        v = self.rng.uniform(-1.5, 1.5)
+        if self.rng.random() > 0.5:
+            v *= -1
+
+        if self.sequence_length == 1:
+            return self.make_sample(w_x, theta_x, w_y, theta_y)
+
+        x = []
+        y = []
+        for i in range(self.sequence_length):
+            x_i, y_i = self.make_sample(w_x, theta_x, w_y, theta_y, t=v*i)
+            x.append(x_i)
+            y.append(y_i)
+        return x, y
+
+
+
+
 class TestDataset:
     """
     A synthetic dataset that calculates a running average over the inputs
@@ -949,34 +1316,34 @@ class TestDataset:
         y[1:] += y[:-1]
         y[1:] *= 0.5
 
-        y = [torch.tensor(y_i, dtype=torch.float32) for y_i in y]
+        y = [torch.as_tensor(y_i, dtype=torch.float32) for y_i in y]
 
         xs = []
         for visir, geo, mw_90, mw_160, mw_183 in zip(x_visir, x_geo, x_mw_90, x_mw_160, x_mw_183):
             visir = (
-                torch.tensor(visir, dtype=torch.float32) +
-                torch.tensor(self.rng.uniform(-0.05, 0.05, size=visir.shape),
+                torch.as_tensor(visir, dtype=torch.float32) +
+                torch.as_tensor(self.rng.uniform(-0.05, 0.05, size=visir.shape),
                              dtype=torch.float32)
             )
             geo = (
-                torch.tensor(geo, dtype=torch.float32) +
-                torch.tensor(self.rng.uniform(-0.05, 0.05, size=geo.shape),
+                torch.as_tensor(geo, dtype=torch.float32) +
+                torch.as_tensor(self.rng.uniform(-0.05, 0.05, size=geo.shape),
                              dtype=torch.float32)
             )
             geo[:5] = visir[..., ::2, ::2]
             mw_90 = (
-                torch.tensor(mw_90, dtype=torch.float32) +
-                torch.tensor(self.rng.uniform(-0.05, 0.05, size=mw_90.shape),
+                torch.as_tensor(mw_90, dtype=torch.float32) +
+                torch.as_tensor(self.rng.uniform(-0.05, 0.05, size=mw_90.shape),
                              dtype=torch.float32)
             )
             mw_160 = (
-                torch.tensor(mw_160, dtype=torch.float32) +
-                torch.tensor(self.rng.uniform(-0.05, 0.05, size=mw_160.shape),
+                torch.as_tensor(mw_160, dtype=torch.float32) +
+                torch.as_tensor(self.rng.uniform(-0.05, 0.05, size=mw_160.shape),
                              dtype=torch.float32)
             )
             mw_183 = (
-                torch.tensor(mw_183, dtype=torch.float32) +
-                torch.tensor(self.rng.uniform(-0.05, 0.05, size=mw_183.shape),
+                torch.as_tensor(mw_183, dtype=torch.float32) +
+                torch.as_tensor(self.rng.uniform(-0.05, 0.05, size=mw_183.shape),
                              dtype=torch.float32)
             )
 
@@ -988,3 +1355,223 @@ class TestDataset:
                 "mw_183": mw_183
             })
         return xs, y
+
+
+def random_spectral_field(rng, n, lower, upper, energy):
+    """
+    Create a 2D random field with a banded spectral signature.
+
+    Args:
+        n: The size of the field.
+        lower: The lower wavelength bound of the spectral band
+            with non-zero energy.
+        upper: The upper wavelength bound of the spectral band
+            with non-zero energy.
+
+    Return:
+        A 2D array containing the random field.
+    """
+    v = np.zeros((n, n), dtype=np.float32)
+    l = np.arange(n)
+    l = 1.0 / np.sqrt(l.reshape(-1, 1) ** 2 + l.reshape(1, -1) ** 2)
+
+    mask = (l >= lower) * (l < upper)
+    v[mask] = rng.uniform(-1, 1, size=mask.sum()).astype(np.float32)
+    e = sum(v[mask] ** 2)
+    v[mask] *= np.sqrt(energy / e)
+    v = v * np.sqrt(n ** 2)
+    return v
+
+def normalize_field(v, energy):
+    n = v.shape[0]
+    e = sum(v ** 2)
+    nothing = e < 1e-9
+    e[nothing] = 1.0
+    v[nothing] = 0.0
+    return v * np.sqrt(energy / e) * np.sqrt(n ** 2)
+
+
+
+class SuperpositionDataset:
+    """
+    Synthetic dataset mapping band-filtered and corrupted views of a random
+    field to the full random field.
+    """
+    def __init__(
+            self,
+            size,
+            n_samples=1000,
+            availability=None,
+            sparse=False,
+            n_steps=1,
+            snr=0.0
+    ):
+        """
+        Args:
+            size: The size of the random field.
+            n_samples: The number of training samples in the dataset.
+            availability: The availability of the three inputs.
+            sparse: Whether the input should be returned as packed
+                tensor.
+            n_steps: The number of frames per sample. If this is larger
+                than one, each sample is a sequence of inputs and corresponding
+                outputs.
+            snr: The signal to noise ratio (SNR) determining the strength of
+                the noise in the input observations.
+        """
+        self.size = size
+        self.n_samples = n_samples
+        self.n_steps = n_steps
+        self.snr = snr
+        if availability is None:
+            availability = [0.3, 0.3, 0.3]
+        elif isinstance(availability, float):
+            availability = [availability] * 3
+        self.availability = availability
+        self.sparse = sparse
+        self.init_rng()
+
+    def init_rng(self, w_id=0):
+        """
+        Initialize random number generator.
+
+        Args:
+            w_id: The worker ID which of the worker process..
+        """
+        seed = int.from_bytes(os.urandom(4), "big") + w_id
+        self.rng = np.random.default_rng(seed)
+
+    def __len__(self):
+        return self.n_samples
+
+    def __getitem__(self, i):
+        return self.make_sample(n_steps=self.n_steps)
+
+    def make_sample(self, n_steps=1):
+        """
+        Creates a pair of input and output fields.
+        """
+        xs = []
+        ys = []
+
+        low_s = random_spectral_field(self.rng, self.size, 0.3, 1.0, 1.0)
+        med_s = random_spectral_field(self.rng, self.size, 0.2, 0.3, 1.0)
+        hi_s = random_spectral_field(self.rng, self.size, 0.05, 0.2, 1.0)
+        low_e = random_spectral_field(self.rng, self.size, 0.3, 1.0, 1.0)
+        med_e = random_spectral_field(self.rng, self.size, 0.2, 0.3, 1.0)
+        hi_e = random_spectral_field(self.rng, self.size, 0.05, 0.2, 1.0)
+
+        t =  random_spectral_field(self.rng, self.size, 0.1, 0.2, 1.0)
+
+        for i in range(n_steps):
+
+            l = i / n_steps
+            r = 1.0 - l
+            low = fft.idctn(l * low_s + r * low_e, norm="ortho")
+            med = fft.idctn(l * med_s + r * med_e, norm="ortho")
+            hi = fft.idctn(l * hi_s + r * hi_e, norm="ortho")
+            y = low + med + hi
+
+            x_visir = (
+                hi[None] +
+                self.snr * self.rng.normal(size=(5,) + (self.size,) * 2)
+            )
+            x_geo = (
+                med[None, ::2, ::2] +
+                self.snr * self.rng.normal(size=(11,) + (self.size // 2,) * 2)
+            )
+            x_mw_90 = (
+                low[None, ::4, ::4] +
+                self.snr * self.rng.normal(size=(2,) + (self.size // 4,) * 2)
+            )
+            x_mw_160 = (
+                low[None, ::4, ::4] +
+                self.snr * self.rng.normal(size=(2,) + (self.size // 4,) * 2)
+            )
+            x_mw_183 = (
+                low[None, ::4, ::4] +
+                self.snr * self.rng.normal(size=(5,) + (self.size // 4,) * 2)
+            )
+
+            if (self.rng.random() > self.availability[0]):
+                if self.sparse:
+                    x_visir = None
+                else:
+                    x_visir[:] = -3
+            if (self.rng.random() > self.availability[1]):
+                if self.sparse:
+                    x_geo = None
+                else:
+                    x_geo[:] = -3
+            if (self.rng.random() > self.availability[2]):
+                if self.sparse:
+                    x_mw_90 = None
+                    x_mw_160 = None
+                    x_mw_183 = None
+                else:
+                    x_mw_90[:] = -3
+                    x_mw_160[:] = -3
+                    x_mw_183[:] = -3
+            x = {
+                "visir": x_visir.astype(np.float32),
+                "geo": x_geo.astype(np.float32),
+                "mw_90": x_mw_90.astype(np.float32),
+                "mw_160": x_mw_160.astype(np.float32),
+                "mw_183": x_mw_183.astype(np.float32),
+            }
+            xs.append(x)
+            ys.append(y)
+        if n_steps == 1:
+            return xs[0], ys[0]
+        return xs, ys
+
+    def plot_sample(self, x, y):
+        norm = Normalize(-3, 3)
+        f = plt.figure(figsize=(22, 5))
+        axs = np.array([f.add_subplot(1, 4, i + 1) for i in range(4)])
+
+        if self.n_steps == 1:
+            ind =  -1
+            ax = axs[0]
+            ax.imshow(x["visir"][0], norm=norm)
+            ax.set_title("(a) VISIR", loc="left")
+
+            ax = axs[1]
+            ax.imshow(x["geo"][0], norm=norm)
+            ax.set_title("(b) GEO", loc="left")
+
+            ax = axs[2]
+            ax.imshow(x["mw_183"][1], norm=norm)
+            ax.set_title("(c) MW", loc="left")
+
+            ax = axs[3]
+            ax = f.add_subplot(1, 4, 3)
+            ax.set_title("(d) Output", loc="left")
+            ax.imshow(y, norm=norm)
+
+            return f
+        else:
+            def draw_frame(index):
+                x_i = x[index]
+                y_i = y[index]
+
+                ax = axs[0]
+                ax.imshow(x_i["visir"][0], norm=norm)
+                ax.set_title("(a) VISIR", loc="left")
+
+                ax = axs[1]
+                ax.imshow(x_i["geo"][0], norm=norm)
+                ax.set_title("(b) GEO", loc="left")
+
+                ax = axs[2]
+                ax.imshow(x_i["mw_183"][1], norm=norm)
+                ax.set_title("(c) MW", loc="left")
+
+                ax = axs[3]
+                ax.set_title("(d) Output", loc="left")
+                ax.imshow(y_i, norm=norm)
+
+            return FuncAnimation(
+                f, draw_frame, range(len(x))
+            )
+

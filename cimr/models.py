@@ -10,12 +10,21 @@ import numpy as np
 import torch
 from torch import nn
 from torch.nn.modules.batchnorm import _NormBase
+from quantnn.models.pytorch import aggregators
+import quantnn.models.pytorch.torchvision as blocks
+from quantnn.models.pytorch.encoders import (
+    SpatialEncoder,
+    MultiInputSpatialEncoder
+)
+from quantnn.models.pytorch.decoders import SpatialDecoder
+
 
 from cimr.utils import MISSING, MASK
 from quantnn.packed_tensor import PackedTensor
 
 
 LOGGER = logging.getLogger(__name__)
+
 
 
 class SymmetricPadding(nn.Module):
@@ -248,162 +257,88 @@ class UpsamplingStage(nn.Module):
         return self.block(x_merged)
 
 
-class CIMRModel(nn.Module):
-    def __init__(self, n_outputs):
+class CIMRNaive(nn.Module):
+    def __init__(
+            self,
+            n_stages,
+            stage_depths,
+            block_type="resnet",
+            aggregation="linear"
+    ):
         super().__init__()
+        self.n_stages = n_stages
+        self.stage_depths = stage_depths
 
-        self.head_visir = nn.Sequential(
-            nn.Conv2d(5, 2 * 16, kernel_size=1),
-            nn.GELU(),
-            nn.Conv2d(2 * 16, 16, kernel_size=1),
-            DownsamplingBlock(16, 16),
-            ConvNextBlock(16),
+        block_type = block_type.lower()
+        if block_type == "resnet":
+            block_factory = blocks.ResNetBlockFactory()
+            norm_factory = block_factory.norm_factory
+        elif block_type == "convnext":
+            block_factory = blocks.ConvNextBlockFactory()
+            norm_factory = block_factory.layer_norm_with_permute
+        else:
+            raise ValueError(
+                "'block_type' should be one of 'resnet' or 'convenext'."
+            )
+
+
+        aggregation = aggregation.lower()
+        if aggregation == "linear":
+            aggregator = aggregators.SparseAggregatorFactory(
+                aggregators.LinearAggregatorFactory()
+            )
+        elif aggregation == "average":
+            aggregator = aggregators.SparseAggregatorFactory(
+                aggregators.AverageAggregatorFactory()
+            )
+        elif aggregation == "sum":
+            aggregator = aggregators.SparseAggregatorFactory(
+                aggregators.SumAggregatorFactory()
+            )
+        elif aggregation == "block":
+            aggregator = aggregators.SparseAggregatorFactory(
+                aggregators.SumAggregatorFactory()
+            )
+        else:
+            raise ValueError(
+                "'aggregation' argument should be one of 'linear', 'average', "
+                "'sum' or 'block'."
+            )
+
+
+
+        self.encoder = MultiInputSpatialEncoder(
+            input_channels={
+                0: 5,
+                1: 11,
+                2: 9
+            },
+            base_channels=64,
+            stages=[stage_depths] * n_stages,
+            block_factory=block_factory,
+            aggregator_factory=aggregator
         )
-
-        self.head_geo = nn.Sequential(
-            nn.Conv2d(11, 2 * 16, kernel_size=1),
-            nn.GELU(),
-            nn.Conv2d(2 * 16, 16, kernel_size=1),
-            ConvNextBlock(16),
+        self.decoder = SpatialDecoder(
+            output_channels=64,
+            stages=[1] * n_stages,
+            block_factory=block_factory,
+            skip_connections=True
         )
-
-        #
-        # MW heads
-        #
-        self.head_mw_90 = nn.Sequential(
-            nn.Conv2d(2, 2 * 16, kernel_size=1),
-            nn.GELU(),
-            nn.Conv2d(2 * 16, 16, kernel_size=1),
-            ConvNextBlock(16),
-            ConvNextBlock(16),
+        self.head = MLP(
+            features_in=64,
+            n_features=128,
+            features_out=64,
+            activation_factory=nn.GELU,
+            norm_factory=norm_factory
         )
-        self.head_mw_160 = nn.Sequential(
-            nn.Conv2d(2, 2 * 16, kernel_size=1),
-            nn.GELU(),
-            nn.Conv2d(2 * 16, 16, kernel_size=1),
-            ConvNextBlock(16),
-            ConvNextBlock(16),
-        )
-        self.head_mw_183 = nn.Sequential(
-            nn.Conv2d(5, 2 * 16, kernel_size=1),
-            nn.GELU(),
-            nn.Conv2d(2 * 16, 16, kernel_size=1),
-            ConvNextBlock(16),
-            ConvNextBlock(16),
-        )
-        self.merge_mw = nn.Sequential(
-            nn.Conv2d(48 + 96, 2 * 96, kernel_size=1),
-            nn.GELU(),
-            nn.Conv2d(2 * 96, 96, kernel_size=1),
-        )
-
-        #
-        # Downsampling stages
-        #
-
-        self.down_stage_4 = nn.Sequential(
-            nn.Conv2d(32, 2 * 32, kernel_size=1),
-            nn.GELU(),
-            nn.Conv2d(2 * 32, 48, kernel_size=1),
-            DownsamplingBlock(48, 2 * 48),
-            ConvNextBlock(2 * 48),
-            ConvNextBlock(2 * 48),
-        )
-
-        self.down_stage_8 = nn.Sequential(
-            DownsamplingBlock(96, 2 * 96),
-            ConvNextBlock(2 * 96),
-            ConvNextBlock(2 * 96),
-            ConvNextBlock(2 * 96),
-        )
-
-        self.down_stage_16 = nn.Sequential(
-            DownsamplingBlock(2 * 96, 4 * 96),
-            ConvNextBlock(4 * 96),
-            ConvNextBlock(4 * 96),
-            ConvNextBlock(4 * 96),
-        )
-
-        #self.down_stage_32 = nn.Sequential(
-        #    DownsamplingBlock(4 * 96, 8 * 96),
-        #    ConvNextBlock(8 * 96),
-        #    ConvNextBlock(8 * 96),
-        #    ConvNextBlock(8 * 96),
-        #    ConvNextBlock(8 * 96),
-        #    ConvNextBlock(8 * 96),
-        #    ConvNextBlock(8 * 96),
-        #)
-
-        #self.up_stage_32 = UpsamplingStage(
-        #    8 * 96,
-        #    4 * 96,
-        #    4 * 96
-        #)
-
-        self.up_stage_16 = UpsamplingStage(
-            4 * 96,
-            2 * 96,
-            2 * 96
-        )
-
-        self.up_stage_8 = UpsamplingStage(
-            2 * 96,
-            96,
-            1 * 96
-        )
-
-        self.up_stage_4 = UpsamplingStage(
-            96,
-            32,
-            1 * 96
-        )
-
-        self.up_stage_2 = UpsamplingStage(
-            96,
-            5,
-            96
-        )
-
-        self.head = nn.Sequential(
-            nn.Conv2d(96, 96, 1),
-            nn.BatchNorm2d(96),
-            nn.GELU(),
-            nn.Conv2d(96, 96, 1),
-            nn.BatchNorm2d(96),
-            nn.GELU(),
-            nn.Conv2d(96, n_outputs, 1),
-        )
-
 
     def forward(self, x):
-
-        in_geo = x["geo"]        # n_chans = 11
-        in_visir = x["visir"]    # n_chans = 5
-        in_mw_90 = x["mw_90"]    # n_chans = 2
-        in_mw_160 = x["mw_160"]  # n_chans = 2
-        in_mw_183 = x["mw_183"]  # n_chans = 5
-
-        x_visir = self.head_visir(in_visir)
-        x_geo = self.head_geo(in_geo)
-        x_mw_90 = self.head_mw_90(in_mw_90)
-        x_mw_160 = self.head_mw_160(in_mw_160)
-        x_mw_183 = self.head_mw_183(in_mw_183)
-
-        x_4 = torch.cat([x_visir, x_geo], 1)       # n_chans = 32
-        x_8 = self.down_stage_4(x_4)   # n_chans = 96
-
-        x_8 = self.merge_mw(torch.cat([x_8, x_mw_90, x_mw_160, x_mw_183], 1))
-
-        x_16 = self.down_stage_8(x_8)
-        x_32 = self.down_stage_16(x_16)
-        #x_64 = self.down_stage_32(x_32)
-        #x_32_u = self.up_stage_32(x_64, x_32)
-        x_16_u = self.up_stage_16(x_32, x_16)
-        x_8_u = self.up_stage_8(x_16_u, x_8)
-        x_4_u = self.up_stage_4(x_8_u, x_4)
-        x_2_u = self.up_stage_2(x_4_u, in_visir)
-
-        return self.head(x_2_u)
+        x_visir = x["visir"]
+        x_geo = x["geo"]
+        x_mw = torch.cat([x["mw_90"], x["mw_160"], x["mw_183"]], 1)
+        y = self.encoder([x_visir, x_geo, x_mw], return_skips=True)
+        y = self.decoder(y)
+        return self.head(y)
 
 
 class CIMRSmol(nn.Module):
@@ -1571,7 +1506,7 @@ class FPHead(nn.Module):
     """
     Feature-pyramid head.
     """
-    def __init__(self, n_features, n_scales, n_outputs, n_layers):
+    def __init__(self, n_scales, n_features, n_outputs, n_layers):
         super().__init__()
         self.layers = nn.ModuleList()
         n_inputs = n_features * n_scales
@@ -1760,7 +1695,6 @@ class Merger(nn.Module):
                 results.append(no_merge)
                 continue
 
-
             merged = block(torch.cat([other_comb, main_comb], 1))
             if no_merge is None:
                 results.append(merged)
@@ -1805,12 +1739,12 @@ class CIMRX(nn.Module):
                 n_blocks=n_blocks
             )
 
-        self.mergers = nn.ModuleList([
-            Merger(n_scales, base_features) for _ in sources[1:]
-        ])
+        self.mergers = nn.ModuleDict({
+            source: Merger(n_scales, base_features) for source in sources[1:]
+        })
         self.head = FPHead(n_scales, base_features, n_outputs, 4)
 
-    def forward(self, x):
+    def forward(self, x, state=None, return_state=False):
 
         batch_size = x["visir"].shape[0]
 
@@ -1820,16 +1754,194 @@ class CIMRX(nn.Module):
                 x_s = torch.cat([x["mw_90"], x["mw_160"], x["mw_183"]], 1)
             else:
                 x_s = x[source]
-            batch_size = x_s.shape[0]
-            mask = get_invalid_mask(x_s)
-            indices = torch.where(mask)[0]
-            x_s = PackedTensor(x_s[indices], batch_size, indices)
-            y_enc[source] = self.encoders[source](x_s)
+            if not isinstance(x_s, PackedTensor):
+                batch_size = x_s.shape[0]
+                mask = get_invalid_mask(x_s)
+                indices = torch.where(mask)[0]
+                x_s = PackedTensor(x_s[indices], batch_size, indices)
+            if x_s.not_empty:
+                y_enc[source] = self.encoders[source](x_s)
 
-        keys = iter(y_enc.keys())
-        key = next(keys)
-        y = y_enc[key]
-        for merger, key in zip(self.mergers, keys):
-            y = merger(y, y_enc[key])
+        if len(y_enc) == 0:
+            if return_state:
+                return PackedTensor(torch.zeros(1,), x_s.batch_size, []), None
+            return PackedTensor(torch.zeros(1,), x_s.batch_size, [])
 
+        y = None
+        for source in self.sources:
+            if source in y_enc:
+                if y is None:
+                    y = y_enc[source]
+                else:
+                    merger = self.mergers[source]
+                    y = merger(y, y_enc[source])
+
+        result = self.head(y)
+        if return_state:
+            return result, None
         return self.head(y)
+
+class TimeStepper(nn.Module):
+    """
+    An encoder that uses top-down and down-top pathways to create
+    a hierarchical representation of its input.
+    """
+    def __init__(
+            self,
+            n_scales,
+            base_features,
+    ):
+        """
+        Args:
+            input_channels: The number of input channels of the encoder.
+            max_scale: The maximum scale of the representation.
+            base_features: The number of features at all levels of the feature pyramid.
+            n_blocks: The number of blocks per stage.
+        """
+        from quantnn.models.pytorch.xception import (
+            DownsamplingBlock,
+            UpsamplingBlock,
+            XceptionBlock,
+            SymmetricPadding,
+        )
+        super().__init__()
+
+        down_stages = []
+        features_in = base_features
+        self.in_block = XceptionBlock(base_features, 2 * base_features)
+        for i in range(n_scales - 1):
+            down_stages.append(
+                nn.Sequential(
+                    XceptionBlock(2 * base_features, base_features),
+                    DownsamplingBlock(base_features, 1)
+                )
+            )
+        self.down_stages = nn.ModuleList(
+            down_stages
+        )
+
+        up_stages = []
+        for i in range(n_scales - 1):
+            up_stages.append(
+                UpsamplingBlock(base_features)
+            )
+        self.up_stages = nn.ModuleList(
+            up_stages
+        )
+
+        self.projections = nn.ModuleList([
+            nn.Conv2d(2 * base_features, base_features, 1) for i in range(n_scales - 1)
+        ])
+
+    def forward(self, x):
+        """
+        Propagate input through network.
+
+        Args:
+            x: The input to encode.
+        """
+        skips = [x[0]]
+        y = self.in_block(x[0])
+        for i, (x_s, stage) in enumerate(zip(x, self.down_stages)):
+            if i == 0:
+                y = stage(self.in_block(x_s))
+            else:
+                y = stage(torch.cat([x_s, y], 1))
+            skips.append(y)
+
+        skips.pop()
+        skips.reverse()
+        outputs = [y]
+        for stage, skip in zip(self.up_stages, skips):
+            y = stage(y, skip)
+            outputs.append(y)
+
+        outputs.reverse()
+        return outputs
+
+
+class CIMRXSeq(nn.Module):
+    """
+    CIMR multi-satellite retrieval model based on Xception blocks.
+    """
+    def __init__(
+            self,
+            max_scale,
+            base_features,
+            n_outputs,
+            n_blocks=2,
+            sources=None,
+            scene_size=256
+    ):
+        super().__init__()
+
+        self.scene_size = scene_size
+        n_scales = int(np.log2(max_scale) + 1)
+        self.n_scales = n_scales
+        if isinstance(sources, str):
+            sources = [sources]
+        if sources is None:
+            sources = ["geo", "visir", "mw"]
+        self.sources = sources
+        self.encoders = nn.ModuleDict()
+        for source in sources:
+            channels, base_scale = SOURCES[source]
+            self.encoders[source] =  Encoder(
+                channels,
+                base_scale,
+                max_scale,
+                base_features,
+                n_blocks=n_blocks
+            )
+
+        self.stepper = TimeStepper(n_scales, base_features)
+        self.mergers = nn.ModuleDict({
+            source: Merger(n_scales, base_features) for source in sources
+        })
+        self.head = FPHead(n_scales, base_features, n_outputs, 4)
+
+
+    def forward_step(self, x, y_prev=None):
+
+        y_enc = {}
+        for source in self.sources:
+            if source == "mw":
+                x_s = torch.cat([x["mw_90"], x["mw_160"], x["mw_183"]], 1)
+            else:
+                x_s = x[source]
+            if not isinstance(x_s, PackedTensor):
+                batch_size = x_s.shape[0]
+                mask = get_invalid_mask(x_s)
+                indices = torch.where(mask)[0]
+                x_s = PackedTensor(x_s[indices], batch_size, indices)
+            if x_s.not_empty:
+                y_enc[source] = self.encoders[source](x_s)
+
+
+        y = None
+        if y_prev is not None:
+            y = self.stepper(y_prev)
+
+        for source in self.sources:
+            if source in y_enc:
+                if y is None:
+                    y = y_enc[source]
+                else:
+                    merger = self.mergers[source]
+                    y = merger(y, y_enc[source])
+
+        return y
+
+    def forward(self, x):
+
+        results = []
+        y = None
+        for x_s in x:
+            y = self.forward_step(x_s, y_prev=y)
+
+            if y is None:
+                result = PackedTensor(torch.zeros(1,), x_s["geo"].batch_size, [])
+            else:
+                result = self.head(y)
+            results.append(result)
+        return results
