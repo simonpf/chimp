@@ -1512,12 +1512,24 @@ class SuperpositionDataset:
                     x_mw_90[:] = -3
                     x_mw_160[:] = -3
                     x_mw_183[:] = -3
+
+            if x_visir is not None:
+                x_visir = x_visir.astype(np.float32)
+            if x_geo is not None:
+                x_geo = x_geo.astype(np.float32)
+            if x_mw_90 is not None:
+                x_mw_90 = x_mw_90.astype(np.float32)
+            if x_mw_160 is not None:
+                x_mw_160 = x_mw_160.astype(np.float32)
+            if x_mw_183 is not None:
+                x_mw_183 = x_mw_183.astype(np.float32)
+
             x = {
-                "visir": x_visir.astype(np.float32),
-                "geo": x_geo.astype(np.float32),
-                "mw_90": x_mw_90.astype(np.float32),
-                "mw_160": x_mw_160.astype(np.float32),
-                "mw_183": x_mw_183.astype(np.float32),
+                "visir": x_visir,
+                "geo": x_geo,
+                "mw_90": x_mw_90,
+                "mw_160": x_mw_160,
+                "mw_183": x_mw_183
             }
             xs.append(x)
             ys.append(y)

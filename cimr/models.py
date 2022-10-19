@@ -16,7 +16,7 @@ from quantnn.models.pytorch.encoders import (
     SpatialEncoder,
     MultiInputSpatialEncoder
 )
-from quantnn.models.pytorch.decoders import SpatialDecoder
+from quantnn.models.pytorch.decoders import SparseSpatialDecoder
 from quantnn.models.pytorch.fully_connected import MLP
 
 
@@ -320,11 +320,11 @@ class CIMRNaive(nn.Module):
             block_factory=block_factory,
             aggregator_factory=aggregator
         )
-        self.decoder = SpatialDecoder(
+        self.decoder = SparseSpatialDecoder(
             output_channels=64,
             stages=[1] * n_stages,
             block_factory=block_factory,
-            skip_connections=True
+            aggregator_factory=aggregator
         )
         self.head = MLP(
             features_in=64,
@@ -350,7 +350,7 @@ class CIMRSmol(nn.Module):
         super().__init__()
 
         self.head_visir = nn.Sequential(
-            nn.Conv2d(5, 2 * 4, kernel_size=1),
+           nn.Conv2d(5, 2 * 4, kernel_size=1),
             nn.GELU(),
             nn.Conv2d(2 * 4, 4, kernel_size=1),
             DownsamplingBlock(4, 4),
