@@ -264,11 +264,114 @@ class CIMRNaive(nn.Module):
             n_stages,
             stage_depths,
             block_type="resnet",
-            aggregation="linear"
+            aggregation="linear",
+            sources=None
     ):
         super().__init__()
         self.n_stages = n_stages
         self.stage_depths = stage_depths
+
+        if sources is None:
+            sources = ["visir", "geo", "mw"]
+        self.sources = sources
+
+        block_type = block_type.lower()
+        if block_type == "resnet":
+            block_factory = blocks.ResNetBlockFactory()
+            norm_factory = block_factory.norm_factory
+            norm_factory_head = nn.BatchNorm1d
+        elif block_type == "convnext":
+            block_factory = blocks.ConvNextBlockFactory()
+            norm_factory = block_factory.layer_norm_with_permute
+            norm_factory_head = block_factory.layer_norm
+        else:
+            raise ValueError(
+                "'block_type' should be one of 'resnet' or 'convnext'."
+            )
+
+        aggregation = aggregation.lower()
+        if aggregation == "linear":
+            aggregator = aggregators.SparseAggregatorFactory(
+                aggregators.LinearAggregatorFactory()
+            )
+        elif aggregation == "average":
+            aggregator = aggregators.SparseAggregatorFactory(
+                aggregators.AverageAggregatorFactory()
+            )
+        elif aggregation == "sum":
+            aggregator = aggregators.SparseAggregatorFactory(
+                aggregators.SumAggregatorFactory()
+            )
+        elif aggregation == "block":
+            aggregator = aggregators.SparseAggregatorFactory(
+                aggregators.BlockAggregatorFactory(
+                    block_factory
+                )
+            )
+        else:
+            raise ValueError(
+                "'aggregation' argument should be one of 'linear', 'average', "
+                "'sum' or 'block'."
+            )
+
+        input_channels = {
+            ind: SOURCES[source][0] for ind, source in enumerate(sources)
+        }
+        # Number of stages in decoder with skip connections.
+        skip_connections = n_stages - min(list(input_channels.keys()))
+
+        self.encoder = MultiInputSpatialEncoder(
+            input_channels=input_channels,
+            base_channels=16,
+            stages=[stage_depths] * n_stages,
+            block_factory=block_factory,
+            aggregator_factory=aggregator
+        )
+        self.decoder = SparseSpatialDecoder(
+            output_channels=16,
+            stages=[1] * n_stages,
+            block_factory=block_factory,
+            aggregator_factory=aggregator,
+            skip_connections=skip_connections,
+            multi_scale_output=16
+        )
+        self.head = MLP(
+            features_in=16 * n_stages,
+            n_features=128,
+            features_out=64,
+            n_layers=4,
+            activation_factory=nn.GELU,
+            norm_factory=norm_factory_head,
+            residuals="hyper"
+        )
+
+    def forward(self, x):
+        x_in = []
+        for source in self.sources:
+            if source == "mw":
+                x_in.append(torch.cat([x["mw_90"], x["mw_160"], x["mw_183"]], 1))
+            else:
+                x_in.append(x[source])
+        y = self.encoder(x_in, return_skips=True)
+        y = self.decoder(y)
+        return self.head(torch.cat(y, 1))
+
+
+class CIMRSeqNaive(nn.Module):
+    def __init__(
+            self,
+            n_stages,
+            stage_depths,
+            block_type="resnet",
+            aggregation="linear",
+            sources=None
+    ):
+        super().__init__()
+        self.n_stages = n_stages
+        self.stage_depths = stage_depths
+
+        if sources is None:
+            sources = ["visir", "geo", "mw"]
 
         block_type = block_type.lower()
         if block_type == "resnet":
@@ -343,7 +446,6 @@ class CIMRNaive(nn.Module):
         y = self.encoder([x_visir, x_geo, x_mw], return_skips=True)
         y = self.decoder(y)
         return self.head(y)
-
 
 class CIMRSmol(nn.Module):
     def __init__(self, n_outputs):
