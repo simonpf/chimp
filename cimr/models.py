@@ -17,6 +17,7 @@ from quantnn.models.pytorch.encoders import (
     MultiInputSpatialEncoder
 )
 from quantnn.models.pytorch.decoders import SpatialDecoder
+from quantnn.models.pytorch.fully_connected import MLP
 
 
 from cimr.utils import MISSING, MASK
@@ -273,12 +274,14 @@ class CIMRNaive(nn.Module):
         if block_type == "resnet":
             block_factory = blocks.ResNetBlockFactory()
             norm_factory = block_factory.norm_factory
+            norm_factory_head = nn.BatchNorm1d
         elif block_type == "convnext":
             block_factory = blocks.ConvNextBlockFactory()
             norm_factory = block_factory.layer_norm_with_permute
+            norm_factory_head = block_factory.layer_norm
         else:
             raise ValueError(
-                "'block_type' should be one of 'resnet' or 'convenext'."
+                "'block_type' should be one of 'resnet' or 'convnext'."
             )
 
 
@@ -297,16 +300,15 @@ class CIMRNaive(nn.Module):
             )
         elif aggregation == "block":
             aggregator = aggregators.SparseAggregatorFactory(
-                aggregators.SumAggregatorFactory()
+                aggregators.BlockAggregatorFactory(
+                    block_factory
+                )
             )
         else:
             raise ValueError(
                 "'aggregation' argument should be one of 'linear', 'average', "
                 "'sum' or 'block'."
             )
-
-
-
         self.encoder = MultiInputSpatialEncoder(
             input_channels={
                 0: 5,
@@ -328,8 +330,10 @@ class CIMRNaive(nn.Module):
             features_in=64,
             n_features=128,
             features_out=64,
+            n_layers=4,
             activation_factory=nn.GELU,
-            norm_factory=norm_factory
+            norm_factory=norm_factory_head,
+            residuals="hyper"
         )
 
     def forward(self, x):
