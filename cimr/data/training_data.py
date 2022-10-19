@@ -280,6 +280,24 @@ class SampleRecord:
     mw: Path = None
     visir: Path = None
 
+    def has_input(self, sources):
+        """
+        Determine if sample has input from any of the given sources.
+
+        Args:
+            sources: A list of sources to require.
+
+        Return:
+            Bool if the sample has corresponding input data from any of
+            the given sources.
+        """
+        has_input = False
+        for source in sources:
+            if getattr(self, source) is not None:
+                has_input = True
+        return has_input
+
+
 
 def get_date(filename):
     """
@@ -308,6 +326,7 @@ class CIMRDataset:
     def __init__(
         self,
         folder,
+        sources=None,
         sample_rate=1,
         sequence_length=1,
         normalize=True,
@@ -331,6 +350,9 @@ class CIMRDataset:
                 the radar measurements.
         """
         self.folder = Path(folder)
+        if sources is None:
+            sources = ["visir", "geo", "mw"]
+        self.sources = sources
         self.sample_rate = sample_rate
         self.normalize = normalize
         self.quality_threshold = quality_threshold
@@ -343,44 +365,51 @@ class CIMRDataset:
             times = times[indices]
             radar_files = [radar_files[i] for i in np.where(indices)[0]]
 
-        self.samples = {
+        samples = {
             time: SampleRecord(b_file) for time, b_file in zip(times, radar_files)
         }
-
-        geo_files = sorted(list((self.folder / "geo").glob("*.nc")))
-        times = np.array(list(map(get_date, geo_files)))
-        for time, geo_file in zip(times, geo_files):
-            sample = self.samples.get(time)
-            if sample is not None:
-                sample.geo = geo_file
-
-        mw_files = sorted(list((self.folder / "microwave").glob("*.nc")))
-        times = np.array(list(map(get_date, mw_files)))
-        for time, mw_file in zip(times, mw_files):
-            sample = self.samples.get(time)
-            if sample is not None:
-                sample.mw = mw_file
-
-        visir_files = sorted(list((self.folder / "visir").glob("*.nc")))
-        times = np.array(list(map(get_date, visir_files)))
-        for time, visir_file in zip(times, visir_files):
-            sample = self.samples.get(time)
-            if sample is not None:
-                sample.visir = visir_file
+        if "geo" in self.sources:
+            geo_files = sorted(list((self.folder / "geo").glob("*.nc")))
+            times = np.array(list(map(get_date, geo_files)))
+            for time, geo_file in zip(times, geo_files):
+                sample = samples.get(time)
+                if sample is not None:
+                    sample.geo = geo_file
+        if "mw" in self.sources:
+            mw_files = sorted(list((self.folder / "microwave").glob("*.nc")))
+            times = np.array(list(map(get_date, mw_files)))
+            for time, mw_file in zip(times, mw_files):
+                sample = samples.get(time)
+                if sample is not None:
+                    sample.mw = mw_file
+        if "visir" in self.sources:
+            visir_files = sorted(list((self.folder / "visir").glob("*.nc")))
+            times = np.array(list(map(get_date, visir_files)))
+            for time, visir_file in zip(times, visir_files):
+                sample = samples.get(time)
+                if sample is not None:
+                    sample.visir = visir_file
+        self.samples = samples
 
         self.keys = np.array(list(self.samples.keys()))
-
         self.window_size = window_size
 
         # Determine valid start point for input samples.
         self.sequence_length = sequence_length
         times = np.array(list(self.samples.keys()))
-        deltas = times[self.sequence_length :] - times[: -self.sequence_length]
+        times_start = times[self.sequence_length - 1:]
+        times_end = times[: len(times) - self.sequence_length + 1]
+        deltas = times_end - times_start
         starts = np.where(
             deltas.astype("timedelta64[s]")
             <= np.timedelta64(self.sequence_length * 15 * 60, "s")
         )[0]
-        self.sequence_starts = starts
+
+        self.sequence_starts = []
+        for index in starts:
+            sample = self.samples[times[index]]
+            if sample.has_input(self.sources):
+                self.sequence_starts.append(index)
 
         self.init_rng()
 
@@ -1476,7 +1505,7 @@ class SuperpositionDataset:
             if self.composition == "sum":
                 y = low + med + hi
             else:
-                y = low * med * hi
+                y = np.abs(low) * np.abs(med) + np.abs(med) * np.abs(hi)
 
             x_visir = (
                 hi[None] +
