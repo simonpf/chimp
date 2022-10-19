@@ -1404,7 +1404,8 @@ class SuperpositionDataset:
             availability=None,
             sparse=False,
             n_steps=1,
-            snr=0.0
+            snr=0.0,
+            composition="sum"
     ):
         """
         Args:
@@ -1429,6 +1430,7 @@ class SuperpositionDataset:
             availability = [availability] * 3
         self.availability = availability
         self.sparse = sparse
+        self.composition = composition
         self.init_rng()
 
     def init_rng(self, w_id=0):
@@ -1470,7 +1472,11 @@ class SuperpositionDataset:
             low = fft.idctn(l * low_s + r * low_e, norm="ortho")
             med = fft.idctn(l * med_s + r * med_e, norm="ortho")
             hi = fft.idctn(l * hi_s + r * hi_e, norm="ortho")
-            y = low + med + hi
+
+            if self.composition == "sum":
+                y = low + med + hi
+            else:
+                y = low * med * hi
 
             x_visir = (
                 hi[None] +
