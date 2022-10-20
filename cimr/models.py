@@ -21,7 +21,7 @@ from quantnn.models.pytorch.fully_connected import MLP
 
 
 from cimr.utils import MISSING, MASK
-from quantnn.packed_tensor import PackedTensor
+from quantnn.packed_tensor import PackedTensor, forward
 
 
 LOGGER = logging.getLogger(__name__)
@@ -354,7 +354,7 @@ class CIMRNaive(nn.Module):
                 x_in.append(x[source])
         y = self.encoder(x_in, return_skips=True)
         y = self.decoder(y)
-        return self.head(torch.cat(y, 1))
+        return forward(self.head, torch.cat(y, 1))
 
 
 class CIMRSeqNaive(nn.Module):
