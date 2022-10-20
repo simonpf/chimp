@@ -327,6 +327,10 @@ class CIMRNaive(nn.Module):
             block_factory=block_factory,
             aggregator_factory=aggregator
         )
+
+        if "visir" in self.sources and "geo" in self.sources:
+            self.encoder.aggregators["1"].aggregator.residual = 1
+
         self.decoder = SparseSpatialDecoder(
             output_channels=16,
             stages=[1] * n_stages,
@@ -335,6 +339,7 @@ class CIMRNaive(nn.Module):
             skip_connections=skip_connections,
             multi_scale_output=16
         )
+
         self.head = MLP(
             features_in=16 * n_stages,
             n_features=128,
@@ -357,7 +362,78 @@ class CIMRNaive(nn.Module):
         return forward(self.head, torch.cat(y, 1))
 
 
-class CIMRSeqNaive(nn.Module):
+class TimeStepperNaive(nn.Module):
+    """
+    An encoder that uses top-down and down-top pathways to create
+    a hierarchical representation of its input.
+    """
+    def __init__(
+            self,
+            n_scales,
+            base_features,
+    ):
+        """
+        Args:
+            input_channels: The number of input channels of the encoder.
+            max_scale: The maximum scale of the representation.
+            base_features: The number of features at all levels of the feature pyramid.
+            n_blocks: The number of blocks per stage.
+        """
+
+        down_stages = []
+        features_in = base_features
+        self.in_block = XceptionBlock(base_features, 2 * base_features)
+        for i in range(n_scales - 1):
+            down_stages.append(
+                nn.Sequential(
+                    XceptionBlock(2 * base_features, base_features),
+                    DownsamplingBlock(base_features, 1)
+                )
+            )
+        self.down_stages = nn.ModuleList(
+            down_stages
+        )
+
+        up_stages = []
+        for i in range(n_scales - 1):
+            up_stages.append(
+                UpsamplingBlock(base_features)
+            )
+        self.up_stages = nn.ModuleList(
+            up_stages
+        )
+
+        self.projections = nn.ModuleList([
+            nn.Conv2d(2 * base_features, base_features, 1) for i in range(n_scales - 1)
+        ])
+
+    def forward(self, x):
+        """
+        Propagate input through network.
+
+        Args:
+            x: The input to encode.
+        """
+        skips = [x[0]]
+        y = self.in_block(x[0])
+        for i, (x_s, stage) in enumerate(zip(x, self.down_stages)):
+            if i == 0:
+                y = stage(self.in_block(x_s))
+            else:
+                y = stage(torch.cat([x_s, y], 1))
+            skips.append(y)
+
+        skips.pop()
+        skips.reverse()
+        outputs = [y]
+        for stage, skip in zip(self.up_stages, skips):
+            y = stage(y, skip)
+            outputs.append(y)
+
+        outputs.reverse()
+        return outputs
+
+class CIMRSeqNaive(CIMRNaive):
     def __init__(
             self,
             n_stages,
@@ -366,7 +442,13 @@ class CIMRSeqNaive(nn.Module):
             aggregation="linear",
             sources=None
     ):
-        super().__init__()
+        super().__init__(
+            n_stages,
+            stage_depths,
+            block_type=block_type,
+            aggregation=aggregation,
+            sources=sources
+        )
         self.n_stages = n_stages
         self.stage_depths = stage_depths
 
@@ -386,7 +468,6 @@ class CIMRSeqNaive(nn.Module):
             raise ValueError(
                 "'block_type' should be one of 'resnet' or 'convnext'."
             )
-
 
         aggregation = aggregation.lower()
         if aggregation == "linear":
@@ -412,31 +493,13 @@ class CIMRSeqNaive(nn.Module):
                 "'aggregation' argument should be one of 'linear', 'average', "
                 "'sum' or 'block'."
             )
-        self.encoder = MultiInputSpatialEncoder(
-            input_channels={
-                0: 5,
-                1: 11,
-                2: 9
-            },
-            base_channels=64,
-            stages=[stage_depths] * n_stages,
+        inputs = {i: 16}
+        self.time_stepper = MultiInputSpatialEncoder(
+            input_chanels,
+            base_channels=16,
+            stages=[2] * n_stages,
             block_factory=block_factory,
-            aggregator_factory=aggregator
-        )
-        self.decoder = SparseSpatialDecoder(
-            output_channels=64,
-            stages=[1] * n_stages,
-            block_factory=block_factory,
-            aggregator_factory=aggregator
-        )
-        self.head = MLP(
-            features_in=64,
-            n_features=128,
-            features_out=64,
-            n_layers=4,
-            activation_factory=nn.GELU,
-            norm_factory=norm_factory_head,
-            residuals="hyper"
+            aggregator=aggregator_factory
         )
 
     def forward(self, x):
