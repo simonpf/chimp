@@ -334,7 +334,8 @@ class CIMRDataset:
         start_time=None,
         end_time=None,
         quality_threshold=0.8,
-        augment=True
+        augment=True,
+        sparse=True
     ):
         """
         Args:
@@ -357,6 +358,7 @@ class CIMRDataset:
         self.normalize = normalize
         self.quality_threshold = quality_threshold
         self.augment = augment
+        self.sparse = sparse
 
         radar_files = sorted(list((self.folder / "radar").glob("radar*.nc")))
         times = np.array(list(map(get_date, radar_files)))
@@ -476,6 +478,8 @@ class CIMRDataset:
 
         y_s = np.nan_to_num(y_s, nan=-100)
         y = torch.as_tensor(y_s, dtype=torch.float)
+        n_rows = y.shape[-2]
+        n_cols = y.shape[-1]
 
         x = {}
 
@@ -488,11 +492,15 @@ class CIMRDataset:
                     x, data[{"y": row_slice, "x": col_slice}], normalize=self.normalize,
                     rng=self.rng
                 )
-                missing_fraction = (x["geo"] < -1.4).float().mean()
-                if missing_fraction > 0.95:
-                    x["geo"] = None
+                if self.sparse:
+                    missing_fraction = (x["geo"] < -1.4).float().mean()
+                    if missing_fraction > 0.95:
+                        x["geo"] = None
         else:
-            x["geo"] = None
+            if self.sparse:
+                x["geo"] = None
+            else:
+                x["geo"] = -1.5 * torch.ones((11, n_rows, n_cols), dtype=torch.float)
 
         # VISIR data
         if self.samples[key].visir is not None and not forecast:
@@ -503,11 +511,15 @@ class CIMRDataset:
                     x, data[{"y": row_slice, "x": col_slice}], normalize=self.normalize,
                     rng=self.rng
                 )
-                missing_fraction = (x["visir"] < -1.4).float().mean()
-                if missing_fraction > 0.95:
-                    x["visir"] = None
+                if self.sparse:
+                    missing_fraction = (x["visir"] < -1.4).float().mean()
+                    if missing_fraction > 0.95:
+                        x["visir"] = None
         else:
-            x["visir"] = None
+            if self.sparse:
+                x["visir"] = None
+            else:
+                x["visir"] = -1.5 * torch.ones((5, n_rows, n_cols), dtype=torch.float)
 
         # Microwave data
         if self.samples[key].mw is not None and not forecast:
@@ -518,19 +530,20 @@ class CIMRDataset:
                     x, data[{"y": row_slice, "x": col_slice}], normalize=self.normalize,
                     rng=self.rng
                 )
-                missing_fraction = (
-                    (x["mw_90"] < -1.4).float().mean() +
-                    (x["mw_160"] < -1.4).float().mean() +
-                    (x["mw_183"] < -1.4).float().mean()
-                ) / 3.0
-                if missing_fraction > 0.95:
-                    x["mw_90"] = None
-                    x["mw_160"] = None
-                    x["mw_183"] = None
+                if self.sparse:
+                    for key in ["mw_90", "mw_160", "mw_183"]:
+                        missing_fraction = (x[key] < -1.4).float().mean()
+                        if missing_fraction > 0.95:
+                            x[key] = None
         else:
-            x["mw_90"] = None
-            x["mw_160"] = None
-            x["mw_183"] = None
+            if self.sparse:
+                x["mw_90"] = None
+                x["mw_160"] = None
+                x["mw_183"] = None
+            else:
+                x["mw_90"] = -1.5 * torch.ones((2, n_rows, n_cols), dtype=torch.float)
+                x["mw_160"] = -1.5 * torch.ones((2, n_rows, n_cols), dtype=torch.float)
+                x["mw_183"] = -1.5 * torch.ones((5, n_rows, n_cols), dtype=torch.float)
 
         if flip_v:
             x = {
@@ -1592,7 +1605,6 @@ class SuperpositionDataset:
             ax.set_title("(c) MW", loc="left")
 
             ax = axs[3]
-            ax = f.add_subplot(1, 4, 3)
             ax.set_title("(d) Output", loc="left")
             ax.imshow(y, norm=norm)
 
