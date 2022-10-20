@@ -16,7 +16,7 @@ from quantnn.models.pytorch.encoders import (
     SpatialEncoder,
     MultiInputSpatialEncoder
 )
-from quantnn.models.pytorch.decoders import SparseSpatialDecoder
+from quantnn.models.pytorch.decoders import SparseSpatialDecoder, Bilinear
 from quantnn.models.pytorch.fully_connected import MLP
 
 
@@ -258,13 +258,88 @@ class UpsamplingStage(nn.Module):
         return self.block(x_merged)
 
 
+def get_block_factory(block_type_str):
+    """
+    Get block factory from 'block_type' string.
+
+    Args:
+        block_type_str: A string specifying the block type.
+
+    Return:
+        A tuple ``block_factory, norm_factory, norm_factory_head`` containing
+        the factory functionals for blocks, norms inside block and norms inside
+        the MLP head.
+
+    Raises:
+        ValueError is the block type is not supported.
+    """
+    block_type_str = block_type_str.lower()
+    if block_type_str == "resnet":
+        block_factory = blocks.ResNetBlockFactory()
+        norm_factory = block_factory.norm_factory
+        norm_factory_head = nn.BatchNorm1d
+    elif block_type_str == "convnext":
+        block_factory = blocks.ConvNextBlockFactory()
+        norm_factory = block_factory.layer_norm_with_permute
+        norm_factory_head = block_factory.layer_norm
+    else:
+        raise ValueError(
+            "'block_type' should be one of 'resnet' or 'convnext'."
+        )
+    return block_factory, norm_factory, norm_factory_head
+
+
+def get_aggregator_factory(
+        aggregator_type_str,
+        block_factory,
+        norm_factory
+):
+    """
+    Get aggregator factory from 'aggregator_type' string.
+
+    Args:
+        aggregator_type_str: A string specifying the aggregator type.
+
+    Return:
+        The factory functionals for aggregation blocks.
+
+    Raises:
+        ValueError is the aggregation type is not supported.
+    """
+    aggregator_type_str = aggregator_type_str.lower()
+    if aggregator_type_str == "linear":
+        aggregator = aggregators.SparseAggregatorFactory(
+            aggregators.LinearAggregatorFactory(norm_factory)
+        )
+    elif aggregator_type_str == "average":
+        aggregator = aggregators.SparseAggregatorFactory(
+            aggregators.AverageAggregatorFactory()
+        )
+    elif aggregator_type_str == "sum":
+        aggregator = aggregators.SparseAggregatorFactory(
+            aggregators.SumAggregatorFactory()
+        )
+    elif aggregator_type_str == "block":
+        aggregator = aggregators.SparseAggregatorFactory(
+            aggregators.BlockAggregatorFactory(
+                block_factory
+            )
+        )
+    else:
+        raise ValueError(
+            "'aggregator_type' argument should be one of 'linear', 'average', "
+            "'sum' or 'block'."
+        )
+    return aggregator
+
+
 class CIMRNaive(nn.Module):
     def __init__(
             self,
             n_stages,
             stage_depths,
             block_type="resnet",
-            aggregation="linear",
+            aggregator_type="linear",
             sources=None
     ):
         super().__init__()
@@ -275,44 +350,11 @@ class CIMRNaive(nn.Module):
             sources = ["visir", "geo", "mw"]
         self.sources = sources
 
-        block_type = block_type.lower()
-        if block_type == "resnet":
-            block_factory = blocks.ResNetBlockFactory()
-            norm_factory = block_factory.norm_factory
-            norm_factory_head = nn.BatchNorm1d
-        elif block_type == "convnext":
-            block_factory = blocks.ConvNextBlockFactory()
-            norm_factory = block_factory.layer_norm_with_permute
-            norm_factory_head = block_factory.layer_norm
-        else:
-            raise ValueError(
-                "'block_type' should be one of 'resnet' or 'convnext'."
-            )
+        block_factory, norm_factory, norm_factory_head = get_block_factory(
+            block_type
+        )
+        aggregator = get_aggregator_factory(aggregator_type, block_factory, norm_factory)
 
-        aggregation = aggregation.lower()
-        if aggregation == "linear":
-            aggregator = aggregators.SparseAggregatorFactory(
-                aggregators.LinearAggregatorFactory()
-            )
-        elif aggregation == "average":
-            aggregator = aggregators.SparseAggregatorFactory(
-                aggregators.AverageAggregatorFactory()
-            )
-        elif aggregation == "sum":
-            aggregator = aggregators.SparseAggregatorFactory(
-                aggregators.SumAggregatorFactory()
-            )
-        elif aggregation == "block":
-            aggregator = aggregators.SparseAggregatorFactory(
-                aggregators.BlockAggregatorFactory(
-                    block_factory
-                )
-            )
-        else:
-            raise ValueError(
-                "'aggregation' argument should be one of 'linear', 'average', "
-                "'sum' or 'block'."
-            )
 
         input_channels = {
             ind: SOURCES[source][0] for ind, source in enumerate(sources)
@@ -339,6 +381,11 @@ class CIMRNaive(nn.Module):
             skip_connections=skip_connections,
             multi_scale_output=16
         )
+        upsampler_factory = Bilinear()
+        self.upsamplers = nn.ModuleList([
+            upsampler_factory(2 ** (n_stages - i - 1)) for i in range(n_stages - 1)
+        ])
+        self.upsamplers.append(nn.Identity())
 
         self.head = MLP(
             features_in=16 * n_stages,
@@ -359,6 +406,7 @@ class CIMRNaive(nn.Module):
                 x_in.append(x[source])
         y = self.encoder(x_in, return_skips=True)
         y = self.decoder(y)
+        y = [up(y_i) for up, y_i in zip(self.upsamplers, y)]
         return forward(self.head, torch.cat(y, 1))
 
 
@@ -369,69 +417,46 @@ class TimeStepperNaive(nn.Module):
     """
     def __init__(
             self,
-            n_scales,
-            base_features,
+            n_stages,
+            stage_depths,
+            block_type="resnet",
+            aggregator_type="linear",
     ):
-        """
-        Args:
-            input_channels: The number of input channels of the encoder.
-            max_scale: The maximum scale of the representation.
-            base_features: The number of features at all levels of the feature pyramid.
-            n_blocks: The number of blocks per stage.
-        """
+        super().__init__()
+        self.n_stages = n_stages
+        self.stage_depths = stage_depths
 
-        down_stages = []
-        features_in = base_features
-        self.in_block = XceptionBlock(base_features, 2 * base_features)
-        for i in range(n_scales - 1):
-            down_stages.append(
-                nn.Sequential(
-                    XceptionBlock(2 * base_features, base_features),
-                    DownsamplingBlock(base_features, 1)
-                )
-            )
-        self.down_stages = nn.ModuleList(
-            down_stages
+
+        block_factory, norm_factory, norm_factory_head = get_block_factory(
+            block_type
+        )
+        aggregator = get_aggregator_factory(aggregator_type, block_factory, norm_factory)
+
+        input_channels = {
+            ind: 16 for ind in range(n_stages)
+        }
+        skip_connections = -1
+
+        self.encoder = MultiInputSpatialEncoder(
+            input_channels=input_channels,
+            base_channels=16,
+            stages=[stage_depths] * n_stages,
+            block_factory=block_factory,
+            aggregator_factory=aggregator
         )
 
-        up_stages = []
-        for i in range(n_scales - 1):
-            up_stages.append(
-                UpsamplingBlock(base_features)
-            )
-        self.up_stages = nn.ModuleList(
-            up_stages
+        self.decoder = SparseSpatialDecoder(
+            output_channels=16,
+            stages=[1] * n_stages,
+            block_factory=block_factory,
+            aggregator_factory=aggregator,
+            skip_connections=skip_connections,
+            multi_scale_output=16
         )
-
-        self.projections = nn.ModuleList([
-            nn.Conv2d(2 * base_features, base_features, 1) for i in range(n_scales - 1)
-        ])
 
     def forward(self, x):
-        """
-        Propagate input through network.
+        return self.decoder(self.encoder(x, return_skips=True))
 
-        Args:
-            x: The input to encode.
-        """
-        skips = [x[0]]
-        y = self.in_block(x[0])
-        for i, (x_s, stage) in enumerate(zip(x, self.down_stages)):
-            if i == 0:
-                y = stage(self.in_block(x_s))
-            else:
-                y = stage(torch.cat([x_s, y], 1))
-            skips.append(y)
-
-        skips.pop()
-        skips.reverse()
-        outputs = [y]
-        for stage, skip in zip(self.up_stages, skips):
-            y = stage(y, skip)
-            outputs.append(y)
-
-        outputs.reverse()
-        return outputs
 
 class CIMRSeqNaive(CIMRNaive):
     def __init__(
@@ -439,76 +464,67 @@ class CIMRSeqNaive(CIMRNaive):
             n_stages,
             stage_depths,
             block_type="resnet",
-            aggregation="linear",
+            aggregator_type="linear",
             sources=None
     ):
         super().__init__(
             n_stages,
             stage_depths,
             block_type=block_type,
-            aggregation=aggregation,
+            aggregator_type=aggregator_type,
             sources=sources
+        )
+        self.time_stepper = TimeStepperNaive(
+            n_stages,
+            stage_depths,
+            block_type=block_type,
+            aggregator_type=aggregator_type,
         )
         self.n_stages = n_stages
         self.stage_depths = stage_depths
 
-        if sources is None:
-            sources = ["visir", "geo", "mw"]
-
-        block_type = block_type.lower()
-        if block_type == "resnet":
-            block_factory = blocks.ResNetBlockFactory()
-            norm_factory = block_factory.norm_factory
-            norm_factory_head = nn.BatchNorm1d
-        elif block_type == "convnext":
-            block_factory = blocks.ConvNextBlockFactory()
-            norm_factory = block_factory.layer_norm_with_permute
-            norm_factory_head = block_factory.layer_norm
-        else:
-            raise ValueError(
-                "'block_type' should be one of 'resnet' or 'convnext'."
-            )
-
-        aggregation = aggregation.lower()
-        if aggregation == "linear":
-            aggregator = aggregators.SparseAggregatorFactory(
-                aggregators.LinearAggregatorFactory()
-            )
-        elif aggregation == "average":
-            aggregator = aggregators.SparseAggregatorFactory(
-                aggregators.AverageAggregatorFactory()
-            )
-        elif aggregation == "sum":
-            aggregator = aggregators.SparseAggregatorFactory(
-                aggregators.SumAggregatorFactory()
-            )
-        elif aggregation == "block":
-            aggregator = aggregators.SparseAggregatorFactory(
-                aggregators.BlockAggregatorFactory(
-                    block_factory
-                )
-            )
-        else:
-            raise ValueError(
-                "'aggregation' argument should be one of 'linear', 'average', "
-                "'sum' or 'block'."
-            )
-        inputs = {i: 16}
-        self.time_stepper = MultiInputSpatialEncoder(
-            input_chanels,
-            base_channels=16,
-            stages=[2] * n_stages,
-            block_factory=block_factory,
-            aggregator=aggregator_factory
+        block_factory,norm_factory ,_ = get_block_factory(block_type)
+        aggregator = get_aggregator_factory(
+            aggregator_type,
+            block_factory,
+            norm_factory
         )
+        self.aggregators = nn.ModuleList([
+                aggregator(16, 2, 16) for i in range(n_stages)
+            ])
+
+
+    def forward_step(self, x, state=None):
+        x_in = []
+        for source in self.sources:
+            if source == "mw":
+                x_in.append(torch.cat([x["mw_90"], x["mw_160"], x["mw_183"]], 1))
+            else:
+                x_in.append(x[source])
+        y = self.encoder(x_in, return_skips=True)
+        obs_state = self.decoder(y)
+        if state is None:
+            return obs_state
+
+        new_state = forward(self.time_stepper, state[::-1])
+        state = [
+            agg(x_1, x_2) for agg, x_1, x_2 in zip(
+                self.aggregators,
+                state,
+                obs_state
+            )
+        ]
+        return state
 
     def forward(self, x):
-        x_visir = x["visir"]
-        x_geo = x["geo"]
-        x_mw = torch.cat([x["mw_90"], x["mw_160"], x["mw_183"]], 1)
-        y = self.encoder([x_visir, x_geo, x_mw], return_skips=True)
-        y = self.decoder(y)
-        return self.head(y)
+        results = []
+        y = None
+        for x_s in x:
+            y = self.forward_step(x_s, state=y)
+            y_up = [up(y_i) for up, y_i in zip(self.upsamplers, y)]
+            result = forward(self.head, torch.cat(y_up, 1))
+            results.append(result)
+        return results
 
 class CIMRSmol(nn.Module):
     def __init__(self, n_outputs):
