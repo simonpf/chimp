@@ -2091,7 +2091,12 @@ class CIMRXSeq(nn.Module):
         y_enc = {}
         for source in self.sources:
             if source == "mw":
-                x_s = torch.cat([x["mw_90"], x["mw_160"], x["mw_183"]], 1)
+                tensors = [x["mw_90"], x["mw_160"], x["mw_183"]]
+                tensors = [
+                    t for t in tensors
+                    if not isinstance(t, PackedTensor) or t.not_empty
+                ]
+                x_s = torch.cat(tensors, 1)
             else:
                 x_s = x[source]
             if not isinstance(x_s, PackedTensor):

@@ -500,7 +500,10 @@ class CIMRDataset:
             if self.sparse:
                 x["geo"] = None
             else:
-                x["geo"] = -1.5 * torch.ones((11, n_rows, n_cols), dtype=torch.float)
+                x["geo"] = -1.5 * torch.ones(
+                    (11, n_rows // 2, n_cols // 2),
+                    dtype=torch.float
+                )
 
         # VISIR data
         if self.samples[key].visir is not None and not forecast:
@@ -531,9 +534,12 @@ class CIMRDataset:
                     rng=self.rng
                 )
                 if self.sparse:
-                    for key in ["mw_90", "mw_160", "mw_183"]:
-                        missing_fraction = (x[key] < -1.4).float().mean()
-                        if missing_fraction > 0.95:
+                    missing_fraction = 0
+                    keys = ["mw_90", "mw_160", "mw_183"]
+                    for key in keys:
+                        missing_fraction += (x[key] < -1.4).float().mean()
+                    if missing_fraction / 3 > 0.95:
+                        for key in keys:
                             x[key] = None
         else:
             if self.sparse:
@@ -541,9 +547,18 @@ class CIMRDataset:
                 x["mw_160"] = None
                 x["mw_183"] = None
             else:
-                x["mw_90"] = -1.5 * torch.ones((2, n_rows, n_cols), dtype=torch.float)
-                x["mw_160"] = -1.5 * torch.ones((2, n_rows, n_cols), dtype=torch.float)
-                x["mw_183"] = -1.5 * torch.ones((5, n_rows, n_cols), dtype=torch.float)
+                x["mw_90"] = -1.5 * torch.ones(
+                    (2, n_rows // 4, n_cols // 4),
+                    dtype=torch.float
+                )
+                x["mw_160"] = -1.5 * torch.ones(
+                    (2, n_rows // 4, n_cols // 4),
+                    dtype=torch.float
+                )
+                x["mw_183"] = -1.5 * torch.ones(
+                    (5, n_rows // 4, n_cols // 4),
+                    dtype=torch.float
+                )
 
         if flip_v:
             x = {
