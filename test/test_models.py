@@ -7,7 +7,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from cimr.data.training_data import SuperpositionDataset
-from cimr.models import CIMRNaive, CIMRSeq, Encoder, FPHead, Merger, TimeStepper
+from cimr.models import CIMRNaive, CIMRSeqNaive, TimeStepper
 
 
 def test_cimr_model():
@@ -32,8 +32,10 @@ def test_cimr_model():
 
     # Test with subset of inputs.
     for source in ["geo", "visir", "mw"]:
-        cimr = CIMRNaive(n_stages=3, sources=[source], stage_depths=2)
+        cimr = CIMRNaive(n_stages=4, sources=[source], stage_depths=2)
         y = cimr(x)
+        assert y.shape[-2] == 128
+        assert y.shape[-1] == 128
 
 
 def test_cimr_sequence_model():
@@ -41,50 +43,16 @@ def test_cimr_sequence_model():
     Test propagation of inputs through CIMR model to ensure that the
     architecture is sound.
     """
-    dataset = TestDataset(
-        sequence_length=2
+    dataset = SuperpositionDataset(
+        size=128,
+        n_steps=2
     )
     data_loader = DataLoader(
         dataset,
         batch_size = 2
     )
-
     it = iter(data_loader)
     x, y = next(it)
 
-    cimr = CIMRSeq(n_stages=3, n_features=32, n_outputs=64, n_blocks=2)
+    cimr = CIMRSeqNaive(n_stages=5, stage_depths=1, aggregator_type="block")
     y = cimr(x)
-
-
-def test_cimr_encoder():
-    encoder = Encoder(8, 1, 16, 8)
-    x = torch.normal(0, 1, ((1, 8, 32, 32)))
-
-    y = encoder(x)
-    assert len(y) == 5
-    assert y[0].shape[-1] == 32
-    assert y[-1].shape[-1] == 2
-
-
-def test_fp_head():
-    encoder = Encoder(8, 1, 16, 8)
-    x = torch.normal(0, 1, ((1, 8, 32, 32)))
-    y = encoder(x)
-
-    head = FPHead(8, 5, 16, 4)
-    y = head(y)
-
-
-def test_cimr_time_stepper():
-    stepper = TimeStepper(3, 16)
-
-    x = [
-        torch.normal(0, 1, ((1, 16, 32, 32))),
-        torch.normal(0, 1, ((1, 16, 16, 16))),
-        torch.normal(0, 1, ((1, 16, 8, 8))),
-    ]
-
-    y = stepper(x)
-    assert len(y) == 3
-    assert y[0].shape[-1] == 32
-    assert y[-1].shape[-1] == 8
