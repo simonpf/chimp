@@ -20,11 +20,7 @@ import torch
 from torch import nn
 from quantnn import QRNN
 from quantnn.packed_tensor import PackedTensor
-from quantnn.quantiles import (
-    posterior_mean,
-    sample_posterior,
-    probability_larger_than
-)
+from quantnn.quantiles import posterior_mean, sample_posterior, probability_larger_than
 import xarray as xr
 
 from cimr.models import not_empty
@@ -85,7 +81,7 @@ def add_parser(subparsers):
         metavar="n",
         type=int,
         help="The number of forecast steps to perform.",
-        default=0
+        default=0,
     )
     parser.set_defaults(func=run)
 
@@ -136,32 +132,29 @@ def make_forecasts(qrnn, state, quantiles, steps):
     probs = []
     for i in range(steps):
 
-        y_pred, f_state = qrnn.model(
-            None, state=f_state, return_state=True
-        )
+        y_pred, f_state = qrnn.model(None, state=f_state, return_state=True)
 
         # Posterior mean.
-        y_mean = posterior_mean(
-            y_pred=y_pred,
-            quantile_axis=1,
-            quantiles=quantiles
-        ).cpu().numpy()[0]
+        y_mean = (
+            posterior_mean(y_pred=y_pred, quantile_axis=1, quantiles=quantiles)
+            .cpu()
+            .numpy()[0]
+        )
         results.append(y_mean)
 
         # P(dbz >= 0)
-        prob = probability_larger_than(
-            y_pred=y_pred,
-            y=0.0,
-            quantile_axis=1,
-            quantiles=quantiles
-        ).cpu().numpy()[0]
+        prob = (
+            probability_larger_than(
+                y_pred=y_pred, y=0.0, quantile_axis=1, quantiles=quantiles
+            )
+            .cpu()
+            .numpy()[0]
+        )
         probs.append(prob)
 
         # Sample from posterior
         y_pred_r = sample_posterior(
-            y_pred=y_pred,
-            quantile_axis=1,
-            quantiles=quantiles
+            y_pred=y_pred, quantile_axis=1, quantiles=quantiles
         )[0, 0]
         results_sampled.append(y_pred_r)
     return np.stack(results), np.stack(probs), np.stack(results_sampled)
@@ -190,9 +183,6 @@ def process(model, dataset, output_path):
 
     for model_input, output, y_slice, x_slice, date in input_iterator:
 
-        if state is None and empty_input(model, model_input):
-            continue
-
         if previous_time is None:
             time_delta = np.timedelta64(0, "s")
         else:
@@ -202,23 +192,16 @@ def process(model, dataset, output_path):
             input_queue = Queue()
         previous_time = date
 
+        if state is None and empty_input(model, model_input):
+            continue
+
         if state is None:
             while input_queue.qsize() > 0:
                 _, state = retrieval_step(
-                    model,
-                    input_queue.get(),
-                    y_slice,
-                    x_slice,
-                    state
+                    model, input_queue.get(), y_slice, x_slice, state
                 )
 
-        results, state = retrieval_step(
-            model,
-            model_input,
-            y_slice,
-            x_slice,
-            state
-        )
+        results, state = retrieval_step(model, model_input, y_slice, x_slice, state)
 
         # Check age of state
         if age == MAX_AGE:
@@ -253,26 +236,17 @@ def run(args):
 
     model = Path(args.model)
     if not model.exists():
-        LOGGER.error(
-            "Provided model '%s' does not exist.",
-            args.model
-        )
+        LOGGER.error("Provided model '%s' does not exist.", args.model)
         return 1
 
     input_path = Path(args.input)
     if not input_path.exists() or not input_path.is_dir():
-        LOGGER.error(
-            "Input '%s' does not exist or is not a directory.",
-            args.input
-        )
+        LOGGER.error("Input '%s' does not exist or is not a directory.", args.input)
         return 1
 
     output_path = Path(args.output)
     if not output_path.exists() or not output_path.is_dir():
-        LOGGER.error(
-            "Input '%s' does not exist or is not a directory.",
-            args.output
-        )
+        LOGGER.error("Input '%s' does not exist or is not a directory.", args.output)
         return 1
 
     qrnn = QRNN.load(model)
@@ -286,9 +260,5 @@ def run(args):
     if end_time is not None:
         end_time = np.datetime64(end_time)
 
-    test_data = CIMRDataset(
-        input_path,
-        start_time=start_time,
-        end_time=end_time
-    )
+    test_data = CIMRDataset(input_path, start_time=start_time, end_time=end_time)
     process(qrnn, test_data, output_path)
