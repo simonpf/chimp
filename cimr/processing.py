@@ -97,18 +97,18 @@ def retrieval_step(model, model_input, y_slice, x_slice, state):
         mask_visir = get_observation_mask(model_input["visir"], upsample=1)[
             ..., y_slice, x_slice
         ]
-        if mask_visir.shape[1:] != y_pred.shape:
+        if mask_visir.shape != y_pred.shape:
             mask_visir = torch.zeros_like(y_pred)
         mask_geo = get_observation_mask(model_input["geo"], upsample=2)[
             ..., y_slice, x_slice
         ]
-        if mask_geo.shape[1:] != y_pred.shape:
+        if mask_geo.shape != y_pred.shape:
             mask_geo = torch.zeros_like(y_pred)
         x_mw = torch.cat(
             [model_input["mw_90"], model_input["mw_160"], model_input["mw_183"]], 1
         )
         mask_mw = get_observation_mask(x_mw, upsample=4)[..., y_slice, x_slice]
-        if mask_mw.shape[1:] != y_pred.shape:
+        if mask_mw.shape != y_pred.shape:
             mask_mw = torch.zeros_like(y_pred)
 
     results = xr.Dataset(
@@ -120,4 +120,4 @@ def retrieval_step(model, model_input, y_slice, x_slice, state):
             "mask_mw": (("y", "x"), mask_mw[0]),
         }
     )
-    return results
+    return results, state
