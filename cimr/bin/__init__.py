@@ -21,6 +21,7 @@ def cimr():
     from cimr.bin import extract_data
     from cimr.bin import train
     from cimr.bin import test
+    from cimr.bin import forecast
 
     warnings.filterwarnings("ignore", category=RuntimeWarning)
 
@@ -32,7 +33,7 @@ def cimr():
     extract_data.add_parser(subparsers)
     train.add_parser(subparsers)
     test.add_parser(subparsers)
-
+    forecast.add_parser(subparsers)
 
     if len(sys.argv) == 1:
         parser.print_help(sys.stderr)

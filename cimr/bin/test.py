@@ -6,24 +6,15 @@ cimr.bin.test
 This sub-module implements the cimr CLI to run CIMR models on
 test data.
 """
-from calendar import monthrange
 import logging
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
-import importlib
-import multiprocessing as mp
 from pathlib import Path
 from queue import Queue
 
 import numpy as np
 import pandas as pd
-import torch
 from torch import nn
 from quantnn import QRNN
 from quantnn.packed_tensor import PackedTensor
-from quantnn.quantiles import posterior_mean, sample_posterior, probability_larger_than
-import xarray as xr
-
-from cimr.models import not_empty
 from cimr.processing import empty_input, retrieval_step
 
 LOGGER = logging.getLogger(__name__)
@@ -76,13 +67,6 @@ def add_parser(subparsers):
         type=str,
         help="Optional end date to limit the testing period.",
     )
-    parser.add_argument(
-        "--forecasts",
-        metavar="n",
-        type=int,
-        help="The number of forecast steps to perform.",
-        default=0,
-    )
     parser.set_defaults(func=run)
 
 
@@ -107,57 +91,6 @@ def get_observation_mask(x, upsample=1):
         upsample = upsample // 2
 
     return (x > -1.3).any(1)
-
-
-def make_forecasts(qrnn, state, quantiles, steps):
-    """
-    Make forecasts from a given hidden state.
-
-    Args:
-        qrnn: The QRNN instance to make the forecast with.
-        state: The current hidden state.
-        quantiles: A torch.Tensor containing the quantiles predicted with
-            the QRNN.
-        steps: The number of forecast steps to perform.
-
-    Return:
-        A tuple ``(y_pred, probs, y_pred_sampled)`` containing the predicted
-        mean dBZ values in ``y_pred``, the estimated probability of observing
-        a reflectivity higher than 0 in ``probs`` and independent samples from
-        the posterior distribution in ``y_pred_sampled``.
-    """
-    f_state = state
-    results = []
-    results_sampled = []
-    probs = []
-    for i in range(steps):
-
-        y_pred, f_state = qrnn.model(None, state=f_state, return_state=True)
-
-        # Posterior mean.
-        y_mean = (
-            posterior_mean(y_pred=y_pred, quantile_axis=1, quantiles=quantiles)
-            .cpu()
-            .numpy()[0]
-        )
-        results.append(y_mean)
-
-        # P(dbz >= 0)
-        prob = (
-            probability_larger_than(
-                y_pred=y_pred, y=0.0, quantile_axis=1, quantiles=quantiles
-            )
-            .cpu()
-            .numpy()[0]
-        )
-        probs.append(prob)
-
-        # Sample from posterior
-        y_pred_r = sample_posterior(
-            y_pred=y_pred, quantile_axis=1, quantiles=quantiles
-        )[0, 0]
-        results_sampled.append(y_pred_r)
-    return np.stack(results), np.stack(probs), np.stack(results_sampled)
 
 
 MAX_AGE = 16
@@ -223,7 +156,7 @@ def process(model, dataset, output_path):
 
 def run(args):
     """
-    Extract data.
+    Run the retrieval.
 
     Args:
         args: The namespace object provided by the top-level parser.
@@ -262,3 +195,5 @@ def run(args):
 
     test_data = CIMRDataset(input_path, start_time=start_time, end_time=end_time)
     process(qrnn, test_data, output_path)
+
+    return 0

@@ -87,6 +87,7 @@ def run(args):
     Args:
         args: The namespace object provided by the top-level parser.
     """
+    from cimr.areas import NORDIC
 
     #
     # Check and load inputs.
@@ -132,7 +133,7 @@ def run(args):
     tasks = []
     for day in days:
         print(day)
-        args = [year, month, day, output]
+        args = [NORDIC, year, month, day, output]
         kwargs = {"path": path}
         tasks.append(pool.submit(module.process_day, *args, **kwargs))
 
