@@ -166,6 +166,11 @@ def add_parser(subparsers):
         type=int,
         default=1
     )
+    parser.add_argument(
+        "--precision",
+        type=int,
+        default=16
+    )
 
     parser.set_defaults(func=run)
 
@@ -351,7 +356,7 @@ def run(args):
         max_epochs=args.n_epochs,
         accelerator=args.accelerator,
         devices=devices,
-        precision=16,
+        precision=args.precision,
         logger=lm.tensorboard,
         callbacks=callbacks,
         strategy="ddp",

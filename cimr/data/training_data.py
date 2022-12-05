@@ -246,7 +246,7 @@ def load_microwave_obs(sample, dataset, normalize=True, rng=None):
     if "mw_90" in dataset:
         x = np.transpose(dataset.mw_90.data, (2, 0, 1))
     else:
-        x = np.nan * torch.ones((2,) + shape)
+        x = np.nan * np.ones((2,) + shape, dtype=np.float32)
     if normalize:
         x = NORMALIZER_MW_90(x)
     sample["mw_90"] = torch.as_tensor(x)
@@ -255,7 +255,7 @@ def load_microwave_obs(sample, dataset, normalize=True, rng=None):
     if "mw_160" in dataset:
         x = np.transpose(dataset.mw_160.data, (2, 0, 1))
     else:
-        x = np.nan * torch.ones((2,) + shape)
+        x = np.nan * np.ones((2,) + shape, dtype=np.float32)
     if normalize:
         x = NORMALIZER_MW_160(x)
     sample["mw_160"] = torch.as_tensor(x)
@@ -263,7 +263,7 @@ def load_microwave_obs(sample, dataset, normalize=True, rng=None):
     if "mw_183" in dataset:
         x = np.transpose(dataset.mw_183.data, (2, 0, 1))
     else:
-        x =  np.nan * torch.ones((5,) + shape)
+        x =  np.nan * np.ones((5,) + shape, dtype=np.float32)
     if normalize:
         x = NORMALIZER_MW_183(x)
     sample["mw_183"] = torch.as_tensor(x)
