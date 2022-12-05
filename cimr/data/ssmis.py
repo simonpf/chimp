@@ -12,10 +12,7 @@ import numpy as np
 from pansat.roi import find_overpasses
 from pansat.metadata import parse_swath
 from pansat.download.providers import GesdiscProvider
-from pansat.products.satellite.gpm import (
-    l1c_f17_ssmis,
-    l1c_f18_ssmis
-)
+from pansat.products.satellite.gpm import l1c_f17_ssmis, l1c_f18_ssmis
 from pyresample import geometry, kd_tree
 import xarray as xr
 
@@ -31,31 +28,26 @@ SSMIS_PRODUCTS = [
 
 # Maps CIMR low-frequency band-indices  to the variables and channel
 # indices of the SSMIS L1C data.
-BANDS_LOW = {
-}
+BANDS_LOW = {}
 
 # Maps CIMR hi-frequency band-indices to the variables and channel
 # indices of the SSMIS L1C data.
 BANDS = {
     "mw_low": {
-        2: ("tbs_s1", 1), # 19 H
-        3: ("tbs_s1", 0), # 19 V
-        4: ("tbs_s1", 2), # 22.2 V
-        5: ("tbs_s2", 1), # 37 V
-        6: ("tbs_s2", 0), # 37 H
+        2: ("tbs_s1", 1),  # 19 H
+        3: ("tbs_s1", 0),  # 19 V
+        4: ("tbs_s1", 2),  # 22.2 V
+        5: ("tbs_s2", 1),  # 37 V
+        6: ("tbs_s2", 0),  # 37 H
     },
     "mw_90": {
-        0: ("tbs_s4", 1), # 90 H
-        1: ("tbs_s4", 0), # 90 V
+        0: ("tbs_s4", 1),  # 90 H
+        1: ("tbs_s4", 0),  # 90 V
     },
     "mw_160": {
-        0: ("tbs_s3", 0), # 150 GHz
+        0: ("tbs_s3", 0),  # 150 GHz
     },
-    "mw_183": {
-        0: ("tbs_s3", 1),
-        2: ("tbs_s3", 2),
-        4: ("tbs_s3", 3)
-    }
+    "mw_183": {0: ("tbs_s3", 1), 2: ("tbs_s3", 2), 4: ("tbs_s3", 3)},
 }
 
 
@@ -80,9 +72,7 @@ def make_band_array(domain, band):
         shape = domain[8].shape
     shape = shape + (n_chans,)
 
-    return xr.DataArray(
-        np.nan * np.ones(shape, dtype=np.float32)
-    )
+    return xr.DataArray(np.nan * np.ones(shape, dtype=np.float32))
 
 
 def resample_swaths(domain, scene):

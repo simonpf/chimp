@@ -6,8 +6,9 @@ Interface classes for loading the CIMR training data.
 """
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
+from math import ceil
 import os
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
@@ -19,12 +20,13 @@ from quantnn.normalizer import MinMaxNormalizer
 from quantnn.packed_tensor import PackedTensor
 import torch
 from torch import nn
+from torch.utils.data import IterableDataset
+import torch.distributed as dist
 import xarray as xr
 import pandas as pd
 
 
 from cimr.areas import NORDIC_2
-from cimr.data.mhs import MHS
 from cimr.utils import MISSING
 
 ###############################################################################
@@ -155,6 +157,7 @@ def is_tensor(x):
     """
     return isinstance(x, torch.Tensor)
 
+
 def stack(batch):
     """
     Stack collected samples into sparse tensors.
@@ -202,9 +205,6 @@ def sparse_collate(samples):
     for sample in samples:
         batch = collate_recursive(sample, batch)
     return stack(batch)
-
-
-
 
 
 def load_geo_obs(sample, dataset, normalize=True, rng=None):
@@ -349,6 +349,11 @@ class CIMRDataset:
                 training data.
             quality_threshold: Threshold for radar quality index used to mask
                 the radar measurements.
+            augment: Whether to apply random transformations to the training
+                inputs.
+            sparse: Whether to return ``None`` for inputs that are empty. This
+                this can be used together with 'PackedTensors' to handle missing
+                inputs.
         """
         self.folder = Path(folder)
         if sources is None:
@@ -398,7 +403,7 @@ class CIMRDataset:
 
         # Determine valid start point for input samples.
         self.sequence_length = sequence_length
-        times = np.array(list(self.samples.keys()))
+        times = self.keys
         times_start = times[self.sequence_length - 1:]
         times_end = times[: len(times) - self.sequence_length + 1]
         deltas = times_end - times_start
@@ -450,7 +455,7 @@ class CIMRDataset:
         with xr.open_dataset(self.samples[key].radar) as data:
 
             y = data.dbz.data.copy()
-            y[data.qi < self.quality_threshold] = np.nan
+            y[data.qi.data < self.quality_threshold] = np.nan
 
             if slices is None:
 
@@ -467,7 +472,7 @@ class CIMRDataset:
 
                     y_s = y[row_slice, col_slice]
 
-                    if (y_s >= -100).mean() > 0.2:
+                    if (y_s >= -100).mean() > 0.1:
                         found = True
 
             else:
@@ -484,81 +489,93 @@ class CIMRDataset:
         x = {}
 
         # GEO data
-        if self.samples[key].geo is not None and not forecast:
-            with xr.open_dataset(self.samples[key].geo) as data:
-                row_slice = slice(i_start * 2, i_end * 2)
-                col_slice = slice(j_start * 2, j_end * 2)
-                load_geo_obs(
-                    x, data[{"y": row_slice, "x": col_slice}], normalize=self.normalize,
-                    rng=self.rng
-                )
-                if self.sparse:
-                    missing_fraction = (x["geo"] < -1.4).float().mean()
-                    if missing_fraction > 0.95:
-                        x["geo"] = None
-        else:
-            if self.sparse:
-                x["geo"] = None
+        if "geo" in self.sources:
+            if self.samples[key].geo is not None and not forecast:
+                with xr.open_dataset(self.samples[key].geo) as data:
+                    row_slice = slice(i_start * 2, i_end * 2)
+                    col_slice = slice(j_start * 2, j_end * 2)
+                    load_geo_obs(
+                        x,
+                        data[{"y": row_slice, "x": col_slice}],
+                        normalize=self.normalize,
+                        rng=self.rng
+                    )
+                    if self.sparse:
+                        missing_fraction = (x["geo"] < -1.4).float().mean()
+                        if missing_fraction > 0.95:
+                            x["geo"] = None
             else:
-                x["geo"] = -1.5 * torch.ones(
-                    (11, n_rows // 2, n_cols // 2),
-                    dtype=torch.float
-                )
+                if self.sparse:
+                    x["geo"] = None
+                else:
+                    x["geo"] = -1.5 * torch.ones(
+                        (11, n_rows // 2, n_cols // 2),
+                        dtype=torch.float
+                    )
 
         # VISIR data
-        if self.samples[key].visir is not None and not forecast:
-            with xr.open_dataset(self.samples[key].visir) as data:
-                row_slice = slice(4 * i_start, 4 * i_end)
-                col_slice = slice(4 * j_start, 4 * j_end)
-                load_visir_obs(
-                    x, data[{"y": row_slice, "x": col_slice}], normalize=self.normalize,
-                    rng=self.rng
-                )
-                if self.sparse:
-                    missing_fraction = (x["visir"] < -1.4).float().mean()
-                    if missing_fraction > 0.95:
-                        x["visir"] = None
-        else:
-            if self.sparse:
-                x["visir"] = None
+        if "visir" in self.sources:
+            if self.samples[key].visir is not None and not forecast:
+                with xr.open_dataset(self.samples[key].visir) as data:
+                    row_slice = slice(4 * i_start, 4 * i_end)
+                    col_slice = slice(4 * j_start, 4 * j_end)
+                    load_visir_obs(
+                        x,
+                        data[{"y": row_slice, "x": col_slice}],
+                        normalize=self.normalize,
+                        rng=self.rng
+                    )
+                    if self.sparse:
+                        missing_fraction = (x["visir"] < -1.4).float().mean()
+                        if missing_fraction > 0.95:
+                            x["visir"] = None
             else:
-                x["visir"] = -1.5 * torch.ones((5, n_rows, n_cols), dtype=torch.float)
+                if self.sparse:
+                    x["visir"] = None
+                else:
+                    x["visir"] = -1.5 * torch.ones(
+                        (5, n_rows, n_cols),
+                        dtype=torch.float
+                    )
 
         # Microwave data
-        if self.samples[key].mw is not None and not forecast:
-            with xr.open_dataset(self.samples[key].mw) as data:
-                row_slice = slice(i_start, i_end)
-                col_slice = slice(j_start, j_end)
-                load_microwave_obs(
-                    x, data[{"y": row_slice, "x": col_slice}], normalize=self.normalize,
-                    rng=self.rng
-                )
-                if self.sparse:
-                    missing_fraction = 0
-                    keys = ["mw_90", "mw_160", "mw_183"]
-                    for key in keys:
-                        missing_fraction += (x[key] < -1.4).float().mean()
-                    if missing_fraction / 3 > 0.95:
+        if "mw" in self.sources:
+            if self.samples[key].mw is not None and not forecast:
+                with xr.open_dataset(self.samples[key].mw) as data:
+                    row_slice = slice(i_start, i_end)
+                    col_slice = slice(j_start, j_end)
+                    load_microwave_obs(
+                        x,
+                        data[{"y": row_slice, "x": col_slice}],
+                        normalize=self.normalize,
+                        rng=self.rng
+                    )
+                    if self.sparse:
+                        missing_fraction = 0
+                        keys = ["mw_90", "mw_160", "mw_183"]
                         for key in keys:
-                            x[key] = None
-        else:
-            if self.sparse:
-                x["mw_90"] = None
-                x["mw_160"] = None
-                x["mw_183"] = None
+                            missing_fraction += (x[key] < -1.4).float().mean()
+                        if missing_fraction / 3 > 0.95:
+                            for key in keys:
+                                x[key] = None
             else:
-                x["mw_90"] = -1.5 * torch.ones(
-                    (2, n_rows // 4, n_cols // 4),
-                    dtype=torch.float
-                )
-                x["mw_160"] = -1.5 * torch.ones(
-                    (2, n_rows // 4, n_cols // 4),
-                    dtype=torch.float
-                )
-                x["mw_183"] = -1.5 * torch.ones(
-                    (5, n_rows // 4, n_cols // 4),
-                    dtype=torch.float
-                )
+                if self.sparse:
+                    x["mw_90"] = None
+                    x["mw_160"] = None
+                    x["mw_183"] = None
+                else:
+                    x["mw_90"] = -1.5 * torch.ones(
+                        (2, n_rows // 4, n_cols // 4),
+                        dtype=torch.float
+                    )
+                    x["mw_160"] = -1.5 * torch.ones(
+                        (2, n_rows // 4, n_cols // 4),
+                        dtype=torch.float
+                    )
+                    x["mw_183"] = -1.5 * torch.ones(
+                        (5, n_rows // 4, n_cols // 4),
+                        dtype=torch.float
+                    )
 
         if flip_v:
             x = {
@@ -584,15 +601,17 @@ class CIMRDataset:
     def __getitem__(self, index):
         """Return ith training sample."""
 
-        scene_index = index // self.sample_rate
-        key = self.keys[self.sequence_starts[scene_index]]
+        scene_index = self.sequence_starts[index // self.sample_rate]
+        key = self.keys[scene_index]
 
         with xr.open_dataset(self.samples[key].radar) as data:
 
             y = data.dbz.data.copy()
-            y[data.qi < self.quality_threshold] = np.nan
+            y[data.qi.data < self.quality_threshold] = np.nan
 
             found = False
+            tries = 0
+
             while not found:
 
                 n_rows, n_cols = y.shape
@@ -609,6 +628,12 @@ class CIMRDataset:
 
                 if (y_s >= -100).mean() > 0.2:
                     found = True
+                else:
+                    tries += 1
+
+                if tries > 10:
+                    new_index = self.rng.integers(0, len(self))
+                    return self[new_index]
 
         slices = (i_start, i_end, j_start, j_end)
 
@@ -626,25 +651,25 @@ class CIMRDataset:
 
         # If not in sequence mode return data directly.
         if self.sequence_length == 1:
-            return self.load_sample(
+            x, y = self.load_sample(
                 scene_index,
                 slices=slices,
                 flip_v=flip_v,
                 flip_h=flip_h,
                 transpose=transpose
             )
+            has_input = False
+            for source in self.sources:
+                if source == "mw":
+                    source = "mw_90"
+                if x[source] is not None:
+                    has_input = True
+            if has_input:
+                return x, y
 
-        # Otherwise collect samples in list.
-        for i in range(self.sequence_length):
-            x, y = self.load_sample(
-                self.sequence_starts[scene_index] + i, slices=slices,
-                flip_v=flip_v,
-                flip_h=flip_h,
-                transpose=transpose
-            )
-            xs.append(x)
-            ys.append(y)
-        return xs, ys
+        new_index = self.rng.integers(0, len(self))
+        return self[new_index]
+
 
     def plot(self, key):
 
@@ -666,7 +691,7 @@ class CIMRDataset:
 
         ax = axs[0, 0]
         dbz = radar_data.dbz.data.copy()
-        dbz[radar_data.qi < self.quality_threshold] = np.nan
+        dbz[radar_data.qi.data < self.quality_threshold] = np.nan
         img = ax.imshow(dbz, extent=extent, vmin=-20, vmax=40, cmap=cmap)
         ax.coastlines(color="w")
 
@@ -754,7 +779,7 @@ class CIMRDataset:
             radar_data = xr.load_dataset(sample.radar)
             ax = axs[0, 0]
             dbz = radar_data.dbz.data.copy()
-            dbz[radar_data.qi < self.quality_threshold] = np.nan
+            dbz[radar_data.qi.data < self.quality_threshold] = np.nan
             img = ax.imshow(dbz, extent=extent, vmin=-20, vmax=20)
             ax.coastlines(color="grey")
 
@@ -794,8 +819,9 @@ class CIMRDataset:
 
     def load_full_data(self, key):
         with xr.open_dataset(self.samples[key].radar) as data:
+            shape = data.dbz.data.shape
             y = data.dbz.data.copy()
-            y[data.qi < self.quality_threshold] = np.nan
+            y[data.qi.data < self.quality_threshold] = np.nan
 
         y = torch.as_tensor(y, dtype=torch.float)
         shape = y.shape
@@ -807,8 +833,8 @@ class CIMRDataset:
             with xr.open_dataset(self.samples[key].visir) as data:
                 load_visir_obs(x, data, normalize=self.normalize)
         else:
-            x["visir"] = torch.as_tensor(
-                NORMALIZER_VISIR(np.nan * np.ones((5,) + shape)),
+            x["visir"] = -1.5 * torch.ones(
+                (5,) + shape,
                 dtype=torch.float
             )
 
@@ -818,7 +844,7 @@ class CIMRDataset:
                 load_geo_obs(x, data, normalize=self.normalize)
         else:
             x["geo"] = torch.as_tensor(
-                NORMALIZER_GEO(np.nan * np.ones((11,) + shape)),
+                -1.5 * np.ones((11,) + shape),
                 dtype=torch.float
             )
 
@@ -830,15 +856,15 @@ class CIMRDataset:
                 )
         else:
             x["mw_90"] = torch.as_tensor(
-                NORMALIZER_MW_90(np.nan * np.ones((2,) + shape)),
+                -1.5 * np.ones((2,) + shape),
                 dtype=torch.float,
             )
             x["mw_160"] = torch.as_tensor(
-                NORMALIZER_MW_160(np.nan * np.ones((2,) + shape)),
+                -1.5 * np.ones((2,) + shape),
                 dtype=torch.float,
             )
             x["mw_183"] = torch.as_tensor(
-                NORMALIZER_MW_183(np.nan * np.ones((5,) + shape)),
+                -1.5 * np.ones((5,) + shape),
                 dtype=torch.float,
             )
 
@@ -881,7 +907,7 @@ class CIMRDataset:
         slice_x = slice(int(padding_x_l), int(-padding_x_r))
         slice_y = slice(int(padding_y_l), int(-padding_y_r))
 
-        input_visir = nn.functional.pad(input_visir, padding, "replicate")
+        input_visir = nn.functional.pad(input_visir, padding, mode="constant")
         x["visir"] = input_visir
 
         padding_y = padding_y // 2
@@ -896,7 +922,7 @@ class CIMRDataset:
             int(padding_y_l),
             int(padding_y_r),
         )
-        input_geo = nn.functional.pad(input_geo, padding, "replicate")
+        input_geo = nn.functional.pad(input_geo, padding, mode="constant")
         x["geo"] = input_geo
 
         padding_y = padding_y // 2
@@ -912,11 +938,11 @@ class CIMRDataset:
             int(padding_y_r),
         )
 
-        input_mw_90 = nn.functional.pad(input_mw_90, padding, "replicate")
+        input_mw_90 = nn.functional.pad(input_mw_90, padding, mode="constant")
         x["mw_90"] = input_mw_90
-        input_mw_160 = nn.functional.pad(input_mw_160, padding, "replicate")
+        input_mw_160 = nn.functional.pad(input_mw_160, padding, mode="constant")
         x["mw_160"] = input_mw_160
-        input_mw_183 = nn.functional.pad(input_mw_183, padding, "replicate")
+        input_mw_183 = nn.functional.pad(input_mw_183, padding, mode="constant")
         x["mw_183"] = input_mw_183
 
         return x, slice_y, slice_x
@@ -932,12 +958,83 @@ class CIMRDataset:
 
         for key in keys:
             x, y = self.load_full_data(key)
-            x, slice_y, slice_x = self.pad_input(x)
+            x, slice_y, slice_x = self.pad_input(x, multiple=64)
 
-            for k, v in x.items():
-                x[k] = v.unsqueeze(0)
+            missing_fraction = (x["geo"] < -1.4).float().mean()
+            if missing_fraction > 0.95:
+                x["geo"] = None
+            missing_fraction = (x["visir"] < -1.4).float().mean()
+            if missing_fraction > 0.95:
+                x["visir"] = None
+            missing_fraction = 0
+            keys_mw = ["mw_90", "mw_160", "mw_183"]
+            for mw in keys_mw:
+                missing_fraction += (x[mw] < -1.4).float().mean()
+            if missing_fraction / 3 > 0.95:
+                for mw in keys_mw:
+                    x[mw] = None
+
+            x = sparse_collate([x])
 
             yield x, y, slice_y, slice_x, key
+
+
+    def get_forecast_input(self, forecast_time, n_obs):
+        """
+        Get input for a forecast.
+
+        Args:
+            forecast_time: The time a which the forecast should
+                be initiated.
+            n_obs: The number of observations previous to the
+                forecast.
+        """
+        input_indices = self.keys <= forecast_time
+        input_keys = self.keys[input_indices][-n_obs:]
+
+        if len(input_keys) < n_obs:
+            return None
+        if np.any(np.diff(input_keys) > np.timedelta64(20, "m")):
+            return None
+        if input_keys[-1] != forecast_time:
+            return None
+
+        inputs = []
+
+        for key in input_keys:
+            x, y = self.load_full_data(key)
+            x, slice_y, slice_x = self.pad_input(x, multiple=64)
+
+            has_input = False
+
+            missing_fraction = (x["geo"] < -1.4).float().mean()
+            if missing_fraction > 0.95:
+                x["geo"] = None
+            else:
+                has_input = True
+
+            missing_fraction = (x["visir"] < -1.4).float().mean()
+            if missing_fraction > 0.95:
+                x["visir"] = None
+            else:
+                has_input = True
+
+            missing_fraction = 0
+            keys_mw = ["mw_90", "mw_160", "mw_183"]
+            for mw in keys_mw:
+                missing_fraction += (x[mw] < -1.4).float().mean()
+            if missing_fraction / 3 > 0.95:
+                for mw in keys_mw:
+                    x[mw] = None
+            else:
+                has_input = True
+
+            if not has_input:
+                return None
+
+            x = sparse_collate([x])
+            inputs.append((x, y, slice_y, slice_x, key))
+        return inputs
 
 
 class CIMRSequenceDataset(CIMRDataset):
@@ -955,7 +1052,8 @@ class CIMRSequenceDataset(CIMRDataset):
         end_time=None,
         quality_threshold=0.8,
         augment=True,
-        forecast=None
+        forecast=None,
+        sources=None
     ):
         """
         Args:
@@ -980,18 +1078,27 @@ class CIMRSequenceDataset(CIMRDataset):
             start_time=start_time,
             end_time=end_time,
             quality_threshold=quality_threshold,
-            augment=augment
+            augment=augment,
+            sources=sources
         )
 
         self.sequence_length = sequence_length
-        times = np.array(list(self.samples.keys()))
+        times = self.keys
         deltas = times[self.sequence_length :] - times[: -self.sequence_length]
         starts = np.where(
             deltas.astype("timedelta64[s]")
             <= np.timedelta64(self.sequence_length * 15 * 60, "s")
         )[0]
+
+        self.sequence_starts = []
+        for index in starts:
+            sample = self.samples[times[index]]
+            if sample.has_input(self.sources):
+                self.sequence_starts.append(index)
+
         step = max(sequence_length // sample_rate, 1)
-        self.sequence_starts = starts[::step]
+        self.sequence_starts = self.sequence_starts[::step][:-1]
+
         self.forecast = forecast
 
     def __len__(self):
@@ -1004,9 +1111,10 @@ class CIMRSequenceDataset(CIMRDataset):
         with xr.open_dataset(self.samples[key].radar) as data:
 
             y = data.dbz.data.copy()
-            y[data.qi < self.quality_threshold] = np.nan
+            y[data.qi.data < self.quality_threshold] = np.nan
 
             found = False
+            tries = 0
             while not found:
 
                 n_rows, n_cols = y.shape
@@ -1023,6 +1131,12 @@ class CIMRSequenceDataset(CIMRDataset):
 
                 if (y_s >= -100).mean() > 0.2:
                     found = True
+                else:
+                    tries += 1
+
+                if tries > 10:
+                    new_index = self.rng.integers(0, len(self))
+                    return self[new_index]
 
         slices = (i_start, i_end, j_start, j_end)
 
@@ -1053,6 +1167,16 @@ class CIMRSequenceDataset(CIMRDataset):
                 flip_h=flip_h,
                 transpose=transpose
             )
+            has_input = False or forecast or i > 0
+            for source in self.sources:
+                if source == "mw":
+                    source = "mw_90"
+                if x[source] is not None:
+                    has_input = True
+            if not has_input:
+                new_index = self.rng.integers(0, len(self))
+                return self[new_index]
+
             xs.append(x)
             ys.append(y)
         return xs, ys
