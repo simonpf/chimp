@@ -511,7 +511,10 @@ class CIMRBaselineV2(nn.Module):
     """
     def __init__(
             self,
-            *args,
+            n_stages,
+            stage_depths,
+            block_type="convnext",
+            aggregator_type="linear",
             sources=None,
             **karwgs
     ):
@@ -626,6 +629,10 @@ class CIMRSeqV2(CIMRBaselineV2):
     """
     def __init__(
             self,
+            n_stages,
+            stage_depths,
+            block_type="convnext",
+            aggregator_type="linear",
             sources=None
     ):
         """
