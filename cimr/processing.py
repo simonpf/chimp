@@ -4,15 +4,23 @@ cimr.processing
 
 Routines for the processing of retrievals and forecasts.
 """
+import logging
 
 import numpy as np
 from quantnn.packed_tensor import PackedTensor
-from quantnn.quantiles import posterior_mean
+from quantnn.quantiles import (
+    posterior_mean,
+    sample_posterior,
+    probability_larger_than
+)
 import torch
 from torch import nn
 import xarray as xr
 
 from cimr.models import not_empty
+
+
+LOGGER = logging.getLogger(__file__)
 
 
 def get_observation_mask(model_input, upsample=1):
@@ -121,3 +129,92 @@ def retrieval_step(model, model_input, y_slice, x_slice, state):
         }
     )
     return results, state
+
+
+def make_forecast(
+        qrnn,
+        dataset,
+        forecast_time,
+        obs_steps,
+        forecast_steps,
+):
+    """
+    Make a precipitation forecasts for a given start time.
+
+    Args:
+        qrnn: The QRNN to use to make the forecast.
+        dataset: The CIMRDataset providing the input data.
+        forecast_time: The time for which to perform the forecast.
+        obs_steps: Number of observations to ingest prior to making the
+            forecast.
+        forecast_steps: The number of steps to forecast.
+
+    Return:
+        A dataset containing the forecast.
+    """
+    state = None
+
+    inputs = dataset.get_forecast_input(forecast_time, obs_steps)
+    if inputs is None:
+        return None
+
+    LOGGER.info("Processing %s observations.", len(inputs))
+
+    with torch.no_grad():
+        for x, y, *_ in inputs:
+            _, state = qrnn.model.forward(x, state=state, return_state=True)
+
+    slice_y = inputs[0][2]
+    slice_x = inputs[0][3]
+    quantiles = torch.tensor(qrnn.quantiles)
+
+    f_state = state
+    y_pred_mean = []
+    y_pred_sampled = []
+    y_pred_prob = []
+
+    LOGGER.info("Running forecast.")
+
+    with torch.no_grad():
+
+        for _ in range(forecast_steps):
+
+            y_pred, f_state = qrnn.model(
+                None, state=f_state, return_state=True
+            )
+
+            # Posterior mean.
+            y_mean = posterior_mean(
+                y_pred=y_pred,
+                quantile_axis=1,
+                quantiles=quantiles
+            ).cpu().numpy()[0, slice_y, slice_x]
+            y_pred_mean.append(y_mean)
+
+            # P(dbz >= -5)
+            prob = probability_larger_than(
+                y_pred=y_pred,
+                y=-5,
+                quantile_axis=1,
+                quantiles=quantiles
+            ).cpu().numpy()[0, slice_y, slice_x]
+            y_pred_prob.append(prob)
+
+            # Sample from posterior
+            sampled = sample_posterior(
+                y_pred=y_pred,
+                quantile_axis=1,
+                quantiles=quantiles
+            ).cpu().numpy()[0,  0, slice_y, slice_x]
+            y_pred_sampled.append(sampled)
+
+    y_pred_mean = np.stack(y_pred_mean)
+    y_pred_sampled = np.stack(y_pred_sampled)
+    y_pred_prob = np.stack(y_pred_prob)
+
+    results = xr.Dataset({
+        "dbz_mean": (("steps", "y", "x"), y_pred_mean),
+        "dbz_prob": (("steps", "y", "x"), y_pred_prob),
+        "dbz_sampled": (("steps", "y", "x"), y_pred_sampled)
+    })
+    return results
