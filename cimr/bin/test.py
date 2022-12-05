@@ -122,6 +122,7 @@ def process(model, dataset, output_path):
             time_delta = date - previous_time
         if time_delta > np.timedelta64(20 * 60, "s"):
             state = None
+            age = 0
             input_queue = Queue()
         previous_time = date
 
@@ -129,16 +130,25 @@ def process(model, dataset, output_path):
             continue
 
         if state is None:
+            initialized = False
             while input_queue.qsize() > 0:
+                inpt = input_queue.get()
+                if not initialized and empty_input(model, inpt):
+                    continue
                 _, state = retrieval_step(
-                    model, input_queue.get(), y_slice, x_slice, state
+                    model, inpt, y_slice, x_slice, state
                 )
+                initialized = True
+                age += 1
 
         results, state = retrieval_step(model, model_input, y_slice, x_slice, state)
+        age += 1
 
         # Check age of state
-        if age == MAX_AGE:
+        if age >= MAX_AGE:
             state = None
+            age = 0
+
         input_queue.put(model_input)
         if input_queue.qsize() > OVERLAP:
             input_queue.get()

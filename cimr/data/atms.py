@@ -62,7 +62,7 @@ def resample_swaths(domain, scene):
             resample.
 
     Return:
-        A tuple ``tbs_r`` containing the ``tbs_s1`` observations
+        A dict ``tbs_r`` containing the ``tbs_s1`` observations
          resampled to 16-km resolution  and the ``tbs_s3`` and
         ``tbs_s4`` observations resampled to 8-km resolution.
     """

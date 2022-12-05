@@ -104,7 +104,7 @@ class SEVIRI:
 
             args = ["unzip", self.filename]
             subprocess.run(args, cwd=tmp)
-            filename = (Path(tmp) / self.filename.name).with_suffix(".nat")
+            filename = str((Path(tmp) / self.filename.name).with_suffix(".nat"))
             scene = Scene([filename], reader="seviri_l1b_native")
 
             datasets = scene.available_dataset_names()
