@@ -6,15 +6,23 @@ The neural-network models used by CIMR.
 """
 import logging
 
+import numpy as np
 import torch
 from torch import nn
 from quantnn.models.pytorch import aggregators
 import quantnn.models.pytorch.torchvision as blocks
 from quantnn.models.pytorch.encoders import (
-    MultiInputSpatialEncoder
+    MultiInputSpatialEncoder,
+    ParallelEncoder
 )
-from quantnn.models.pytorch.decoders import SparseSpatialDecoder, Bilinear
+from quantnn.models.pytorch.decoders import (
+    SparseSpatialDecoder,
+    DLADecoder
+)
+from quantnn.models.pytorch.upsampling import BilinearFactory
 from quantnn.models.pytorch.fully_connected import MLP
+from quantnn.models.pytorch.blocks import ConvBlockFactory
+from quantnn.models.pytorch.stages import AggregationTreeFactory
 from quantnn.packed_tensor import PackedTensor, forward
 
 
@@ -95,6 +103,19 @@ def get_aggregator_factory(
                 block_factory
             )
         )
+    elif aggregator_type_str == "dla":
+
+        stage_factory = AggregationTreeFactory(
+            ConvBlockFactory(1, norm_factory, nn.GELU)
+        )
+        def factory(ch_in, ch_out):
+            return stage_factory(ch_in, ch_out, 2, block_factory)
+
+        aggregator = aggregators.SparseAggregatorFactory(
+            aggregators.BlockAggregatorFactory(
+                factory
+            )
+        )
     else:
         raise ValueError(
             "'aggregator_type' argument should be one of 'linear', 'average', "
@@ -153,7 +174,7 @@ class CIMRBaseline(nn.Module):
 
         self.encoder = MultiInputSpatialEncoder(
             input_channels=input_channels,
-            base_channels=16,
+            channels=16,
             stages=[stage_depths] * n_stages,
             block_factory=block_factory,
             aggregator_factory=aggregator
@@ -163,14 +184,14 @@ class CIMRBaseline(nn.Module):
             self.encoder.aggregators["1"].aggregator.residual = 1
 
         self.decoder = SparseSpatialDecoder(
-            output_channels=16,
+            channels=16,
             stages=[1] * n_stages,
             block_factory=block_factory,
             aggregator_factory=aggregator,
             skip_connections=skip_connections,
             multi_scale_output=16
         )
-        upsampler_factory = Bilinear()
+        upsampler_factory = BilinearFactory()
         self.upsamplers = nn.ModuleList([
             upsampler_factory(2 ** (n_stages - i - 1)) for i in range(n_stages - 1)
         ])
@@ -255,7 +276,7 @@ class TimeStepper(nn.Module):
 
         self.encoder = MultiInputSpatialEncoder(
             input_channels=input_channels,
-            base_channels=16,
+            channels=16,
             stages=[stage_depths] * n_stages,
             block_factory=block_factory,
             aggregator_factory=aggregator
@@ -293,7 +314,7 @@ def not_empty(tensor):
     return tensor.not_empty
 
 
-class CIMRSeq(CIMRNaive):
+class CIMRSeq(CIMRBaseline):
     """
     The CNN model for sequential retrievals.
 
@@ -426,3 +447,383 @@ class CIMRSeq(CIMRNaive):
 
 
 CIMRSeqNaive = CIMRSeq
+
+
+class TimeStepperV2(nn.Module):
+    """
+    The TimeStepper module implements a time-propagation transformation
+    for the hidden state of the CIMR model.
+
+    The module consists of a multi-input encoder and decoder with skip
+    connections.
+    """
+    def __init__(
+            self,
+    ):
+        """
+        n_stages: The number of stages in en- and decoder.
+        stage_depths: The number of blocks in each encoder stage.
+        block_type: The block type to use.
+        aggregator_type: The aggregator type to use to combine inputs with
+            the encoder stream.
+        """
+        super().__init__()
+        channels = [64] * 8
+        stages = [2, 2, 2, 2, 2, 2, 2]
+        self.n_stages = len(channels) - 1
+
+        block_factory, norm_factory, norm_factory_head = get_block_factory(
+            "convnext"
+        )
+        aggregator = get_aggregator_factory("block", block_factory, norm_factory)
+
+        input_channels = {
+            ind: 16 for ind in range(self.n_stages)
+        }
+        skip_connections = -1
+
+        self.encoder = MultiInputSpatialEncoder(
+            input_channels=input_channels,
+            channels=channels,
+            stages=stages,
+            block_factory=block_factory,
+            aggregator_factory=aggregator
+        )
+
+        self.decoder = SparseSpatialDecoder(
+            channels=channels[::-1],
+            stages=stages,
+            block_factory=block_factory,
+            aggregator_factory=aggregator,
+            skip_connections=skip_connections,
+            multi_scale_output=16
+        )
+
+    def forward(self, x):
+        """Propagate inputs through module."""
+        y = self.decoder(self.encoder(x, return_skips=True))
+        return [x_i + y_i for x_i, y_i in zip(x[::-1], y)]
+
+
+class CIMRBaselineV2(nn.Module):
+    """
+    Improved version of the CIMRBaseline model.
+    """
+    def __init__(
+            self,
+            sources=None
+    ):
+        """
+        Args:
+            sources: Which sources are used by the model. Must be a subset
+                of ['visir', 'geo', 'mw']
+        """
+        super().__init__()
+        channels = [16, 32, 64, 96, 96]
+        stages = [2, 2, 2, 2]
+        downsampling_factors = [2, 2, 4, 4]
+        self.n_stages = len(channels) - 1
+
+        if sources is None:
+            sources = ["visir", "geo", "mw"]
+        self.sources = sources
+
+        block_factory, norm_factory, norm_factory_head = get_block_factory(
+            "convnext"
+        )
+        aggregator = get_aggregator_factory("block", block_factory, norm_factory)
+
+        input_channels = {
+            ind: SOURCES[source][0] for ind, source in enumerate(SOURCES.keys())
+            if source in sources
+        }
+        # Number of stages in decoder with skip connections.
+        skip_connections = self.n_stages - min(list(input_channels.keys()))
+
+        stage_factory = AggregationTreeFactory(
+            ConvBlockFactory(
+                norm_factory=norm_factory,
+                activation_factory=nn.GELU
+            )
+        )
+
+        self.encoder = MultiInputSpatialEncoder(
+            input_channels=input_channels,
+            channels=channels,
+            stages=stages,
+            block_factory=block_factory,
+            aggregator_factory=aggregator,
+            stage_factory=stage_factory,
+            downsampling_factors=downsampling_factors
+        )
+
+        self.decoder = SparseSpatialDecoder(
+            channels=channels[::-1],
+            stages=[1] * len(stages),
+            block_factory=block_factory,
+            aggregator_factory=aggregator,
+            skip_connections=skip_connections,
+            multi_scale_output=16,
+            upsampling_factors=downsampling_factors[::-1]
+        )
+
+        if "visir" in self.sources and "geo" in self.sources:
+            self.encoder.aggregators["1"].aggregator.residual = 1
+
+        upsampler_factory = BilinearFactory()
+        scales = np.cumprod(downsampling_factors)[::-1]
+        self.upsamplers = nn.ModuleList([
+            upsampler_factory(scale) for scale in scales[1:]
+        ])
+        self.upsamplers.append(nn.Identity())
+
+        n_stages = 4
+        self.head = MLP(
+            features_in=16 * n_stages,
+            n_features=64,
+            features_out=32,
+            n_layers=4,
+            activation_factory=nn.GELU,
+            norm_factory=norm_factory_head,
+            residuals="hyper"
+        )
+
+
+    def forward(self, x, state=None, return_state=False):
+        """
+        Propagate input through model.
+
+        Args:
+            state: Ignored. Included only for compatibility with processing
+                interface.
+            return_state: Whether to return a tuple containing the network
+                outputs and None.
+        """
+        x_in = []
+        for source in self.sources:
+            if source == "mw":
+                x_in.append(torch.cat([x["mw_90"], x["mw_160"], x["mw_183"]], 1))
+            else:
+                x_in.append(x[source])
+        y = self.encoder(x_in, return_skips=True)
+        y = self.decoder(y)
+        y = [up(y_i) for up, y_i in zip(self.upsamplers, y)]
+        result = forward(self.head, torch.cat(y, 1))
+        if return_state:
+            return result, None
+        return result
+
+
+class CIMRSeqV2(CIMRBaselineV2):
+    """
+    The CNN model for sequential retrievals.
+
+    The neural-network model consists of two U-Net-type encoder-decoder
+    branches; one for the observations and one to propagate the internal
+    state to the next time-step.
+    """
+    def __init__(
+            self,
+            sources=None
+    ):
+        """
+        Args:
+            n_stages: The number of stages in the encoder and decoder.
+            stage_depths: The number of blocks in each stage of the
+                encoder.
+            block_type: The type of convolutional blocks to use inside
+                the model.
+            aggergator_type: The type of aggregator modules to use.
+            sources: Which sources are used by the model. Must be a subset
+                of ['visir', 'geo', 'mw']
+        """
+
+        super().__init__(
+            sources=sources
+        )
+        self.time_stepper = TimeStepperV2()
+
+        block_factory, norm_factory ,_ = get_block_factory("convnext")
+        aggregator = get_aggregator_factory(
+            "dla",
+            block_factory,
+            norm_factory
+        )
+        self.aggregators = nn.ModuleList([
+                aggregator(16, 2, 16) for i in range(7)
+            ])
+
+
+    def forward_step(self, x, state=None):
+        """
+        Propagate input from a single step.
+
+        Args:
+           x: The network input.
+           state: The previous hidden state.
+
+        Return:
+           The new hidden-state resulting from propagating the
+           inputs x and the previous hidden state through the network
+           and combining the results.
+        """
+        obs_state = None
+        if x is not None:
+            x_in = []
+            for source in self.sources:
+                if source == "mw":
+                    x_in.append(torch.cat([x["mw_90"], x["mw_160"], x["mw_183"]], 1))
+                else:
+                    x_in.append(x[source])
+            if any([not_empty(x_i) for x_i in x_in]):
+                y = self.encoder(x_in, return_skips=True)
+                obs_state = self.decoder(y)
+                if state is None:
+                    return obs_state
+
+        new_state = forward(self.time_stepper, state[::-1])
+        if obs_state is None:
+            state = new_state
+        else:
+            state = [
+                agg(x_1, x_2) for agg, x_1, x_2 in zip(
+                    self.aggregators,
+                    state,
+                    obs_state
+                )
+            ]
+        return state
+
+    def forward(self, x, state=None, return_state=False):
+        """
+        Propagate a sequence of inputs through the network and return
+        a list of outputs.
+
+        Args:
+            x: A list of inputs.
+            state: The hidden state for the first element in x.
+            return_state: Whether or to return the hidden state
+            corresponding to the last element in ``x``.
+
+
+        Return:
+            If True, this method returns a tuple ``(results, state)``
+            containing the list of results in ``results`` and the hidden
+            state corresponding to the last element in ``x` in ``state``.`
+        """
+        results = []
+        y = state
+
+        single_step = False
+        if not isinstance(x, list):
+            x = [x]
+            single_step = True
+
+        for x_s in x:
+            y = self.forward_step(x_s, state=y)
+            y_up = [up(y_i) for up, y_i in zip(self.upsamplers, y)]
+            result = forward(self.head, torch.cat(y_up, 1))
+            results.append(result)
+
+        if single_step:
+            results = results[0]
+        if return_state:
+            return results, y
+        return results
+
+
+class CIMRBaselineV3(nn.Module):
+    """
+    Improved version of the CIMRBaseline model.
+    """
+    def __init__(
+            self,
+            sources=None
+    ):
+        """
+        Args:
+            sources: Which sources are used by the model. Must be a subset
+                of ['visir', 'geo', 'mw']
+        """
+        super().__init__()
+        channels = [16, 32, 64, 96, 96]
+        stages = [2, 2, 2, 2]
+        downsampling_factors = [2, 2, 4, 4]
+        scales = [1, 2, 4, 16, 64]
+        self.n_stages = len(channels) - 1
+
+        if sources is None:
+            sources = ["visir", "geo", "mw"]
+        self.sources = sources
+
+        block_factory, norm_factory, norm_factory_head = get_block_factory(
+            "convnext"
+        )
+        aggregator = get_aggregator_factory("block", block_factory, norm_factory)
+        aggregator_enc = aggregators.SparseAggregatorFactory(
+            aggregators.BlockAggregatorFactory(
+                ConvBlockFactory(
+                    norm_factory=norm_factory,
+                    activation_factory=nn.GELU
+                )
+            )
+        )
+        aggregator_dec = aggregators.SparseAggregatorFactory(
+            aggregators.BlockAggregatorFactory(
+                blocks.ResNetBlockFactory(
+                    norm_factory=norm_factory,
+                )
+            )
+        )
+        def downsampler(ch_in, factor):
+            return nn.Sequential(
+                norm_factory(ch_in),
+                nn.Conv2d(ch_in, ch_in, kernel_size=factor, stride=factor)
+            )
+
+        input_channels = {
+            ind: SOURCES[source][0] for ind, source in enumerate(SOURCES.keys())
+            if source in sources
+        }
+
+        self.encoder = ParallelEncoder(
+            channels=channels,
+            scales=[1, 2, 4, 16, 64],
+            inputs=input_channels,
+            depth=4,
+            block_factory=block_factory,
+            aggregator_factory=aggregator_enc,
+            input_aggregator_factory=aggregator,
+            downsampler_factory=downsampler
+        )
+        if "visir" in self.sources and "geo" in self.sources:
+            self.encoder.aggregators["aggregator_1"].aggregator.residual = 1
+
+        upsampler_factory = BilinearFactory()
+        self.decoder = DLADecoder(
+            channels=channels[::-1],
+            scales=scales[::-1],
+            aggregator_factory=aggregator_dec,
+            upsampler_factory=upsampler_factory
+        )
+
+
+    def forward(self, x, state=None, return_state=False):
+        """
+        Propagate input through model.
+
+        Args:
+            state: Ignored. Included only for compatibility with processing
+                interface.
+            return_state: Whether to return a tuple containing the network
+                outputs and None.
+        """
+        x_in = []
+        for source in self.sources:
+            if source == "mw":
+                x_in.append(torch.cat([x["mw_90"], x["mw_160"], x["mw_183"]], 1))
+            else:
+                x_in.append(x[source])
+        y = self.encoder(x_in)
+        y = self.decoder(y[::-1])
+        return y
