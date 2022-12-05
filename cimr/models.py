@@ -200,7 +200,7 @@ class CIMRBaseline(nn.Module):
         self.head = MLP(
             features_in=16 * n_stages,
             n_features=128,
-            features_out=64,
+            features_out=32,
             n_layers=4,
             activation_factory=nn.GELU,
             norm_factory=norm_factory_head,
@@ -511,7 +511,9 @@ class CIMRBaselineV2(nn.Module):
     """
     def __init__(
             self,
-            sources=None
+            *args,
+            sources=None,
+            **karwgs
     ):
         """
         Args:
@@ -580,7 +582,7 @@ class CIMRBaselineV2(nn.Module):
         n_stages = 4
         self.head = MLP(
             features_in=16 * n_stages,
-            n_features=64,
+            n_features=32,
             features_out=32,
             n_layers=4,
             activation_factory=nn.GELU,

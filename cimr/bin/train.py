@@ -171,6 +171,11 @@ def add_parser(subparsers):
         type=int,
         default=16
     )
+    parser.add_argument(
+        "--model_type",
+        type=str,
+        default=None
+    )
 
     parser.set_defaults(func=run)
 
@@ -189,7 +194,7 @@ def run(args):
     from quantnn.qrnn import QRNN
     from quantnn import metrics
     from quantnn import transformations
-    from cimr.models import CIMRBaselineV2, CIMRSeqV2
+    from cimr import models
 
     #
     # Prepare training and validation data.
@@ -290,17 +295,21 @@ def run(args):
         qrnn = QRNN.load(model_path)
         model = qrnn.model
     else:
-        if model_path.is_dir():
-            model_path = model_path / f"cimr_{n_stages}_{n_blocks}_{n_features}.pckl"
-
-        if args.sequence_length == 1:
-            model = CIMRBaselineV2(
-                sources=args.sources,
-            )
+        if args.model_type is None:
+            if args.sequence_length == 1:
+                model_type = "CIMRBaseline"
+            else:
+                model_type = "CIMRSeq"
         else:
-            model = CIMRSeqV2(
-                sources=args.sources
-            )
+            model_type = args.model_type
+        model_type = getattr(models, model_type)
+        model = model_type(
+            n_stages=args.n_stages,
+            stage_depths=args.n_blocks,
+            block_type="convnext",
+            aggregator_type="block",
+            sources=args.sources,
+        )
 
         quantiles = np.linspace(0, 1, 32)
         quantiles[0] = 1e-3
