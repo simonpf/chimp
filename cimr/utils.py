@@ -14,7 +14,7 @@ import xarray as xr
 MISSING = -1.5
 MASK = -100
 
-def round_time(time):
+def round_time(time, minutes=15):
     """
     Round time to closest 15 minutes.
 
@@ -33,10 +33,10 @@ def round_time(time):
     hour = time.hour
     minute = time.minute
 
-    minute_15 = 15 * np.round(minute / 15)
-    time_15 = datetime(year, month, day, hour) + timedelta(minutes=minute_15)
+    minute_r = minutes * np.round(minute / minutes)
+    time_r = datetime(year, month, day, hour) + timedelta(minutes=minute_r)
 
-    return time_15
+    return time_r
 
 
 def extract_tbs_mw(path):
