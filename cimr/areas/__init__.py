@@ -44,5 +44,33 @@ NORDIC = {
     "roi_poly": ROI_POLY_NORDIC
 }
 
+###############################################################################
+# CONUS
+###############################################################################
 
+CONUS_4 = pyresample.load_area(Path(__file__).parent / "cimr_conus.yml")
+CONUS_8 = CONUS_4[(slice(0, None, 2), slice(0, None, 2))]
+CONUS_16 = CONUS_8[(slice(0, None, 2), slice(0, None, 2))]
+ROI_CONUS = ROI(
+    -129.995,
+    20.005,
+    -60.005,
+    54.995
+)
+_lons, _lats = CONUS_8.get_lonlats()
+ROI_POLY_CONUS =  PolygonROI(np.array([
+    [_lons[0, 0], _lats[0, 0]],
+    [_lons[0, -1], _lats[0, -1]],
+    [_lons[-1, -1], _lats[-1, -1]],
+    [_lons[-1, 0], _lats[-1, 0]],
+]))
 
+CONUS = {
+    4: CONUS_4,
+    8: CONUS_8,
+    16: CONUS_16,
+    "roi": ROI_CONUS,
+    "roi_poly": ROI_POLY_CONUS
+}
+
+MRMS = pyresample.load_area(Path(__file__).parent / "mrms.yml")
