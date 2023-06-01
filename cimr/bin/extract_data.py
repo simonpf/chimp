@@ -6,12 +6,14 @@ cimr.bin.extract_data
 This sub-module implements the cimr CLI to extract training data.
 """
 from calendar import monthrange
+from datetime import timedelta
 import logging
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 import importlib
 import multiprocessing as mp
 from pathlib import Path
 
+from cimr import areas
 
 LOGGER = logging.getLogger(__name__)
 
@@ -68,6 +70,20 @@ def add_parser(subparsers):
         help="Destination to store the extracted data. ",
     )
     parser.add_argument(
+        "--time_step",
+        metavar="minutes",
+        type=int,
+        default=15,
+        help="The time difference between consecutive retrieval steps.",
+    )
+    parser.add_argument(
+        "--domain",
+        metavar="name",
+        type=str,
+        default="CONUS",
+        help="The name of the domain for which to extract data.",
+    )
+    parser.add_argument(
         "--path", metavar="path", type=str, help="Location of local input data."
     )
     parser.add_argument(
@@ -108,6 +124,17 @@ def run(args):
         n_days = monthrange(year, month)[1]
         days = list(range(1, n_days + 1))
 
+    try:
+        domain = getattr(areas, args.domain.upper())
+    except AttributeError:
+        LOGGER.error(
+            "Provided domain '%s' is not a known domain.",
+            domain
+        )
+        return 1
+
+    time_step = timedelta(minutes=args.time_step)
+
     output = Path(args.output)
     if not output.exists():
         LOGGER.error("Destination must be an existing path!")
@@ -132,9 +159,8 @@ def run(args):
 
     tasks = []
     for day in days:
-        print(day)
-        args = [NORDIC, year, month, day, output]
-        kwargs = {"path": path}
+        args = [domain, year, month, day, output]
+        kwargs = {"path": path, "time_step": time_step}
         tasks.append(pool.submit(module.process_day, *args, **kwargs))
 
     for task, day in zip(tasks, days):
