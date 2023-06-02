@@ -1,0 +1,14 @@
+*.ipynb
+*.pckl
+*.png
+*.pdf
+*.egg-info/
+*.aux
+*.bbl
+*.blg
+*.out
+*.log
+wget-log*
+
+notebooks/
+__pycache__/
