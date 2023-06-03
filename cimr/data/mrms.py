@@ -17,6 +17,7 @@ from pyresample.geometry import AreaDefinition
 from scipy.stats import binned_statistic_2d
 from pansat.download.providers import IowaStateProvider
 from pansat.products.ground_based.mrms import mrms_precip_rate, mrms_radar_quality_index
+from pansat.time import to_datetime64
 import xarray as xr
 
 from cimr.utils import round_time
@@ -73,6 +74,27 @@ def resample_mrms_data(dataset):
     return dataset_r
 
 
+def get_output_filename(time):
+    """
+    Get filename of training data file for given time.
+
+    Args:
+        time: The time of the reference data
+
+    Return:
+        A string containing the filename of the output file.
+
+    """
+    time_15 = round_time(time)
+    year = time_15.year
+    month = time_15.month
+    day = time_15.day
+    hour = time_15.hour
+    minute = time_15.minute
+    filename = f"radar_{year}{month:02}{day:02}_{hour:02}_{minute:02}.nc"
+    return filename
+
+
 def save_file(dataset, output_folder):
     """
     Save file to training data.
@@ -82,14 +104,8 @@ def save_file(dataset, output_folder):
         output_folder: The folder to which to write the training data.
 
     """
-    time_15 = round_time(dataset.time.data.item())
-    year = time_15.year
-    month = time_15.month
-    day = time_15.day
-    hour = time_15.hour
-    minute = time_15.minute
 
-    filename = f"radar_{year}{month:02}{day:02}_{hour:02}_{minute:02}.nc"
+    filename = get_output_filename(dataset.time.data.item())
     output_filename = Path(output_folder) / filename
 
     comp = {"zlib": True}
@@ -136,7 +152,7 @@ def process_day(
         time_step: Time step defining the temporal resolution at which to extract
             training samples.
     """
-    output_folder = Path(output_folder) / "radar"
+    output_folder = Path(output_folder) / "mrms"
     if not output_folder.exists():
         output_folder.mkdir(parents=True, exist_ok=True)
 
@@ -149,10 +165,13 @@ def process_day(
     time = start_time
     files = []
     while time < end_time:
-        files += zip(
-            precip_rate_provider.get_files_in_range(time, time, start_inclusive=False),
-            rqi_provider.get_files_in_range(time, time, start_inclusive=False)
-        )
+        output_filename = get_output_filename(to_datetime64(time))
+        if not (output_folder / output_filename).exists():
+            files += zip(
+                precip_rate_provider.get_files_in_range(time, time, start_inclusive=True)[-1:],
+                rqi_provider.get_files_in_range(time, time, start_inclusive=True)[-1:]
+            )
+        print(files, time)
         time = time + time_step
 
     for precip_rate_file, rqi_file in files:
