@@ -123,7 +123,7 @@ def add_parser(subparsers):
         metavar="n",
         type=int,
         default=256,
-        help="Size of the input scenes at 4 km resolution."
+        help="Size of the input scenes at 2 km resolution."
     )
     parser.add_argument(
         "--quality_threshold",
@@ -156,10 +156,15 @@ def add_parser(subparsers):
         help="Threshold value for gradient clipping."
     )
     parser.add_argument(
-        "--sources",
+        "--inputs",
         type=str,
         nargs="+",
-        default=["visir", "geo", "mw"]
+        default=["cpcir", "gmi"]
+    )
+    parser.add_argument(
+        "--reference_data",
+        type=str,
+        default="mrms"
     )
     parser.add_argument(
         "--sample_rate",
@@ -176,6 +181,7 @@ def add_parser(subparsers):
         type=str,
         default=None
     )
+    parser.add_argument("--pretrain", action="store_true")
 
     parser.set_defaults(func=run)
 
@@ -191,6 +197,7 @@ def run(args):
     from torch.optim.lr_scheduler import CosineAnnealingLR
     import pytorch_lightning as pl
     from pytorch_lightning.callbacks import LearningRateMonitor, Callback
+    from pytorch_lightning.strategies import DDPStrategy
     from quantnn.qrnn import QRNN
     from quantnn import metrics
     from quantnn import transformations
@@ -202,6 +209,7 @@ def run(args):
 
     from cimr.data.training_data import (CIMRSequenceDataset,
                                          CIMRDataset,
+                                         CIMRPretrainDataset,
                                          sparse_collate)
 
     from torch.utils.data import DataLoader
@@ -218,7 +226,17 @@ def run(args):
             training_data,
             window_size=args.input_size,
             quality_threshold=args.quality_threshold,
-            sources=args.sources,
+            inputs=args.inputs,
+            reference_data=args.reference_data,
+            sample_rate=args.sample_rate
+        )
+    elif args.pretrain:
+        training_data = CIMRPretrainDataset(
+            training_data,
+            window_size=args.input_size,
+            quality_threshold=args.quality_threshold,
+            inputs=args.inputs,
+            reference_data=args.reference_data,
             sample_rate=args.sample_rate
         )
     else:
@@ -228,7 +246,7 @@ def run(args):
             window_size=args.input_size,
             quality_threshold=args.quality_threshold,
             forecast=args.forecast,
-            sources=args.sources,
+            inputs=args.inputs,
             sample_rate=args.sample_rate
         )
 
@@ -253,14 +271,23 @@ def run(args):
             sys.exit()
         if args.sequence_length == 1:
             validation_data = CIMRDataset(
-                training_data,
+                validation_data,
                 window_size=args.input_size,
                 quality_threshold=args.quality_threshold,
-                sources=args.sources
+                reference_data=args.reference_data,
+                inputs=args.inputs
+            )
+        elif args.pretrain:
+            validation_data = CIMRPretrainDataset(
+                validation_data,
+                window_size=args.input_size,
+                quality_threshold=args.quality_threshold,
+                reference_data=args.reference_data,
+                inputs=args.inputs
             )
         else:
             validation_data = CIMRSequenceDataset(
-                training_data,
+                validation_data,
                 sequence_length=args.sequence_length,
                 window_size=args.input_size,
                 quality_threshold=args.quality_threshold
@@ -286,10 +313,6 @@ def run(args):
 
     model_path = Path(args.model_path)
 
-    transformations = {
-        "iwc": transformations.LogLinear(),
-        "iwp": transformations.LogLinear()
-    }
 
     if model_path.exists() and not model_path.is_dir():
         qrnn = QRNN.load(model_path)
@@ -297,7 +320,7 @@ def run(args):
     else:
         if args.model_type is None:
             if args.sequence_length == 1:
-                model_type = "CIMRBaseline"
+                model_type = "CIMRBaselineV3"
             else:
                 model_type = "CIMRSeq"
         else:
@@ -305,19 +328,16 @@ def run(args):
         model_type = getattr(models, model_type)
         model = model_type(
             n_stages=args.n_stages,
-            stage_depths=args.n_blocks,
-            block_type="convnext",
-            aggregator_type="block",
-            sources=args.sources,
+            n_blocks=args.n_blocks,
+            inputs=args.inputs,
+            reference_data=args.reference_data
         )
 
-        quantiles = np.linspace(0, 1, 32)
-        quantiles[0] = 1e-3
-        quantiles[-1] = 1 - 1e-3
-
+        quantiles = np.linspace(0, 1, 34)[1:-1]
         qrnn = QRNN(
             model=model,
-            quantiles=quantiles
+            quantiles=quantiles,
+            transformation=transformations.LogLinear()
         )
 
     #
@@ -341,6 +361,8 @@ def run(args):
     devices = None
     if args.accelerator in ["cuda", "gpu"]:
         devices = -1
+    else:
+        devices = 8
 
 
     class FreezeObsBranch(Callback):
@@ -368,8 +390,8 @@ def run(args):
         precision=args.precision,
         logger=lm.tensorboard,
         callbacks=callbacks,
-        strategy="ddp",
-        replace_sampler_ddp=True,
+        strategy=DDPStrategy(find_unused_parameters=True),
+        #replace_sampler_ddp=True,
         gradient_clip_val=args.gradient_clipping,
         enable_checkpointing=False,
     )
