@@ -84,6 +84,17 @@ def add_parser(subparsers):
         help="The name of the domain for which to extract data.",
     )
     parser.add_argument(
+        "--conditional",
+        metavar="name",
+        type=str,
+        default=None,
+        help=(
+            "Path containing CIMR files from a different source. If provided "
+            " only files will be extracted for which a matching file from the "
+            " other data already exists."
+        )
+    )
+    parser.add_argument(
         "--path", metavar="path", type=str, help="Location of local input data."
     )
     parser.add_argument(
@@ -135,6 +146,7 @@ def run(args):
 
     time_step = timedelta(minutes=args.time_step)
 
+
     output = Path(args.output)
     if not output.exists():
         LOGGER.error("Destination must be an existing path!")
@@ -154,6 +166,16 @@ def run(args):
     else:
         path = None
 
+    conditional = args.conditional
+    if conditional is not None:
+        conditional = Path(conditional)
+        if not conditional.exists() or not conditional.is_dir():
+            LOGGER.error(
+                "If provided, 'conditional' must point to an existing"
+                " directory."
+            )
+            return 1
+
     n_procs = args.n_processes
     pool = ThreadPoolExecutor(max_workers=n_procs)
 
@@ -161,13 +183,15 @@ def run(args):
     for day in days:
         args = [domain, year, month, day, output]
         kwargs = {"path": path, "time_step": time_step}
+        if conditional is not None:
+            kwargs["conditional"] = conditional
         tasks.append(pool.submit(module.process_day, *args, **kwargs))
 
     for task, day in zip(tasks, days):
         try:
             task.result()
         except Exception as e:
-            LOGGER.error(
+            LOGGER.exception(
                 "The following error was encountered while processing file '%s': %s %s",
                 f"{year}-{month:02}-{day:02}",
                 type(e),
