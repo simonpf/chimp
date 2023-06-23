@@ -11,8 +11,6 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-MISSING = -1.5
-MASK = -100
 
 def round_time(time, minutes=15):
     """
@@ -120,3 +118,28 @@ def extract_obs_geo(path, samples_per_file=100):
         vals[name] = np.concatenate(vals[name], axis=0)
 
     return vals
+
+
+def get_available_times(path):
+    """
+    Get times of available CIMR files within a given directory.
+
+    Args:
+        path: A string or path object identifying a folder containing
+            CIMR files.
+
+    Return:
+        A set containing the times corresponding to the CIMR files
+        in the given folder.
+    """
+    path = Path(path)
+    if not path.exists():
+        raise ValueError(
+            "'path' must to an existing directory."
+        )
+    available_files = path.glob("*????????_??_??.nc")
+    available_times = [
+        datetime.strptime(filename.name[-17:-3], "%Y%m%d_%H_%M")
+        for filename in available_files
+    ]
+    return available_times
