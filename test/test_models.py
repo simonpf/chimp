@@ -44,6 +44,14 @@ name = mhs
 stem_type = standard
 stem_depth = 1
 
+[mrms]
+type = output
+name = mrms
+loss = quantile_loss
+quantiles = np.linspace(0, 1, 34)[1:-1]
+shape = (28,)
+
+
 [encoder]
 type = encoder
 block_type = resnet

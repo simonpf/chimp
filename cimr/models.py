@@ -9,7 +9,7 @@ from math import log2
 from configparser import ConfigParser, SectionProxy
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, List, Union
+from typing import Optional, List, Union, Tuple
 
 import numpy as np
 import torch
@@ -32,6 +32,7 @@ from quantnn.packed_tensor import PackedTensor, forward
 
 from cimr.data.utils import get_input, get_inputs, get_reference_data
 from cimr.data.inputs import Input
+from cimr.data.reference import ReferenceData
 
 LOGGER = logging.getLogger(__name__)
 
@@ -55,7 +56,10 @@ def _parse_list(values, constr=int):
     Return:
         A list containing the parsed values.
     """
-    values = values.replace(",", " ").replace(";", " ").split(" ")
+    delimiters = [",", ";", "(", ")"]
+    for delim in delimiters:
+        values = values.replace(delim, " ")
+    values = values.split(" ")
     return [constr(val) for val in values]
 
 
@@ -64,11 +68,16 @@ class InputConfig:
     """
     Specification of the input handling of a CIMR model.
     """
-    input: Input
+    input_data: Input
     stem_type: str = "standard"
     stem_depth: int = 1
     stem_downsampling: Optional[int] = None
 
+    @property
+    def scale(self):
+        if self.stem_downsampling is None:
+            return self.input_data.scale
+        return self.input_data.scale * self.stem_downsampling
 
 def parse_input_config(section: SectionProxy) -> InputConfig:
     """
@@ -91,10 +100,52 @@ def parse_input_config(section: SectionProxy) -> InputConfig:
     stem_depth = section.getint("stem_depth", 1)
     stem_downsampling = section.getint("stem_downsampling", None)
     return InputConfig(
-        input=inpt,
+        input_data=inpt,
         stem_type=stem_type,
         stem_depth=stem_depth,
         stem_downsampling=stem_downsampling
+    )
+
+
+@dataclass
+class OutputConfig:
+    """
+    Specification of the outputs of  handling of a CIMR model.
+    """
+    output_data: ReferenceData
+    loss: str
+    shape: Tuple[int] = tuple()
+    quantiles: Optional[str] = None
+    bins: Optional[str] = None
+
+
+def parse_output_config(section: SectionProxy) -> OutputConfig:
+    """
+    Parses an output section from a model configuration file.
+
+    Args:
+        section: A SectionProxy object representing a section of
+            config file, whose type is 'output'
+
+    Return:
+        An 'OutputConfig' object containing the parsed output properties.
+    """
+    name = section.get("name", None)
+    if name is None:
+        raise ValueError(
+            "Each input section must have a 'name' entry."
+        )
+    output_data = get_reference_data(name)
+    loss = section.get("loss", "quantile_loss")
+    shape = eval(section.get("shape", "()"))
+    quantiles = section.get("quantiles", None)
+    bins = section.get("bins", None)
+    return OutputConfig(
+        output_data=output_data,
+        loss=loss,
+        shape=shape,
+        quantiles=quantiles,
+        bins=bins
     )
 
 
@@ -194,6 +245,7 @@ class ModelConfig:
     Configuration of a CIMR retrieval model.
     """
     input_configs: List[InputConfig]
+    output_configs: List[OutputConfig]
     encoder_config: EncoderConfig
     decoder_config: DecoderConfig
 
@@ -216,6 +268,7 @@ def parse_model_config(path: Union[str, Path]):
     parser.read(path)
 
     input_configs = []
+    output_configs = []
     encoder_config = None
     decoder_config = None
 
@@ -227,6 +280,8 @@ def parse_model_config(path: Union[str, Path]):
 
         if sec_type == "input":
             input_configs.append(parse_input_config(sec))
+        elif sec_type == "output":
+            output_configs.append(parse_output_config(sec))
         elif sec_type == "encoder":
             if encoder_config is not None:
                 raise ValueError(
@@ -247,9 +302,73 @@ def parse_model_config(path: Union[str, Path]):
 
     return ModelConfig(
         input_configs=input_configs,
+        output_configs=output_configs,
         encoder_config=encoder_config,
         decoder_config=decoder_config
     )
+
+def compile_encoder(
+        input_configs: List[InputConfig]
+        encoder_config: EncoderConfig
+) -> nn.Module:
+
+    input_scales = [
+        cfg.scale
+        for cfg in model_config.input_configs
+    ]
+
+    stage_depths = encoder_config.stage_depths
+    downsampling_factors = encoder_config.downsampling_factors
+    skip_connections = encoder_config.skip_connections
+    block_type = encoder_confi
+
+    inputs = {}
+    scale = min(input_scales)
+    for stage, f_d in enumerate(downsampling_factors):
+        for cfg in input_configs:
+            if cfg.scale = scale:
+
+                name = cfg.input_data.name
+                n_channels = cfg.input_data.n_channels
+                stem_factory = get_stem_factory(cfg)
+                inputs[name] = (stage, n_channels, stem_factory)
+
+
+
+
+
+
+
+    
+
+def compile_model(model_config: ModelConfig) -> nn.Module:
+    """
+    Compile CIMR retrieval model for a model configuration.
+
+    Args:
+        model_config: A model config object representing the
+            model configuration to compile.
+
+    Return:
+        A pytorch Module implementing the requested configuration.
+    """
+    input_scales = [
+        cfg.input_data.scale for cfg in model_config.input_configs
+    ]
+    output_scales = [
+        cfg.output_data.scale for cfg in model_config.output_configs
+    ]
+
+    min_input_scale = min(input_scales)
+    min_output_scale = min(output_scales)
+
+
+    n_stages_enc = len(model_config.stage_depths)
+
+    inputs = {}
+
+
+
 
 
 
