@@ -1,6 +1,16 @@
-import pytest
+"""
+Tests for the cimr.config module
+"""
 
-from cimr.configs import parse_model_config
+import pytest
+import torch
+from torch import nn
+
+from cimr.config import (
+    parse_model_config,
+    parse_training_config
+)
+
 
 MODEL_CONFIG = """
 [gmi]
@@ -27,13 +37,17 @@ shape = (28,)
 type = encoder
 block_type = resnet
 stage_depths = 2 3 3 2
-downsampling_factors = 2 2 2 2
+channels = 16 32 64 128
+downsampling_factors = 2 2 2
 skip_connections = False
 
 [decoder]
 type = decoder
 block_type = resnet
+channels = 64 32 16 16
 stage_depths = 1 1 1 1
+upsampling_factors = 2 2 2 2
+
 """
 
 def test_parse_model_config(tmp_path):
@@ -59,9 +73,35 @@ def test_parse_model_config(tmp_path):
     encoder_config = model_config.encoder_config
     assert encoder_config.block_type == "resnet"
     assert encoder_config.stage_depths == [2, 3, 3, 2]
-    assert encoder_config.downsampling_factors == [2, 2, 2, 2]
+    assert encoder_config.downsampling_factors == [2, 2, 2]
     assert encoder_config.skip_connections == False
 
     decoder_config = model_config.decoder_config
     assert decoder_config.block_type == "resnet"
     assert decoder_config.stage_depths == [1, 1, 1, 1]
+
+
+TRAINING_CONFIG = """
+[first_run]
+n_epochs = 20
+optimizer = SGD
+optimizer_kwargs = {"lr": 1e-3}
+"""
+
+def test_parse_training_config(tmp_path):
+    """
+    Test parsing of a training config.
+    """
+    with open(tmp_path / "training.ini", "w") as config_file:
+        config_file.write(TRAINING_CONFIG)
+
+    training_config = parse_training_config(tmp_path / "training.ini")
+
+    assert len(training_config) == 1
+    assert training_config[0].n_epochs == 20
+
+    model = nn.Conv2d(10, 10, 3)
+    opt, scheduler = training_config[0].get_optimizer_and_scheduler(model)
+
+    assert isinstance(opt, torch.optim.SGD)
+    assert scheduler is None

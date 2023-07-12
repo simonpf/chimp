@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple, List, Union
 
+import torch
+
 from cimr.data.inputs import Input
 from cimr.data.reference import ReferenceData
 from cimr.data.utils import get_input, get_reference_data
@@ -40,8 +42,9 @@ class InputConfig:
     Specification of the input handling of a CIMR model.
     """
     input_data: Input
-    stem_type: str = "standard"
+    stem_type: str = "basic"
     stem_depth: int = 1
+    stem_kernel_size: int = 3
     stem_downsampling: Optional[int] = None
 
     @property
@@ -49,6 +52,11 @@ class InputConfig:
         if self.stem_downsampling is None:
             return self.input_data.scale
         return self.input_data.scale * self.stem_downsampling
+
+    @property
+    def name(self):
+        return self.output_data.name
+
 
 def parse_input_config(section: SectionProxy) -> InputConfig:
     """
@@ -69,11 +77,13 @@ def parse_input_config(section: SectionProxy) -> InputConfig:
     inpt = get_input(name)
     stem_type = section.get("stem_type", "standard")
     stem_depth = section.getint("stem_depth", 1)
+    stem_kernel_size = section.getint("stem_kernel_size", 3)
     stem_downsampling = section.getint("stem_downsampling", None)
     return InputConfig(
         input_data=inpt,
         stem_type=stem_type,
         stem_depth=stem_depth,
+        stem_kernel_size=stem_kernel_size,
         stem_downsampling=stem_downsampling
     )
 
@@ -88,6 +98,14 @@ class OutputConfig:
     shape: Tuple[int] = tuple()
     quantiles: Optional[str] = None
     bins: Optional[str] = None
+
+    @property
+    def scale(self):
+        return self.output_data.scale
+
+    @property
+    def name(self):
+        return self.output_data.name
 
 
 def parse_output_config(section: SectionProxy) -> OutputConfig:
@@ -126,26 +144,45 @@ class EncoderConfig:
     Specification of the encoder of a CIMR model.
     """
     block_type: str
+    channels: List[int]
     stage_depths: List[int]
     downsampling_factors: List[int]
     skip_connections: bool
+    downsampling_strategy: str = "max pooling"
+    block_factory_kwargs: Optional[dict] = None
 
     def __init__(
             self,
             block_type: str,
+            channels: List[int],
             stage_depths: List[int],
             downsampling_factors: List[int],
-            skip_connections: bool
+            skip_connections: bool,
+            downsampling_strategy: str = "max pooling",
+            block_factory_kwargs: Optional[dict] = None
     ):
-        if not len(stage_depths) == len(downsampling_factors):
+        if len(stage_depths) != len(downsampling_factors) + 1:
             raise ValueError(
-                "The number of provided stage depths must match that of the"
-                " downsampling factors."
+                "The number of provided stage depths must exceed that of the"
+                " downsampling factors by one."
+            )
+        if len(stage_depths) != len(channels):
+            raise ValueError(
+                "The number of provided stage depths must match the number of"
+                "of provided channels."
             )
         self.block_type = block_type
+        self.channels = channels
         self.stage_depths = stage_depths
         self.downsampling_factors = downsampling_factors
         self.skip_connections = skip_connections
+        self.downsampling_strategy = downsampling_strategy
+        self.block_factory_kwargs = block_factory_kwargs
+
+    @property
+    def n_stages(self):
+        """ The number of stages in the encoder. """
+        return len(self.stage_depths)
 
 
 def parse_encoder_config(section: SectionProxy) -> EncoderConfig:
@@ -161,22 +198,26 @@ def parse_encoder_config(section: SectionProxy) -> EncoderConfig:
         configuration.
     """
     block_type = section.get("block_type", "convnext")
-    stage_depths = _parse_list(section.get("stage_depths", None), int)
-    if stage_depths is None:
-        raise ValueErrors(
-            "'encoder' section of model config must contain a list "
-            "of stage depths."
-        )
-    downsampling_factors = _parse_list(
-        section.get("downsampling_factors", None),
-        int
-    )
+
+    keys = ["channels", "stage_depths", "downsampling_factors"]
+    args = []
+    for key in keys:
+        conf = section.get(key, None)
+        if conf is None:
+            raise ValueError(
+                "'encoder' section of model config must contain a list "
+                f"of '{key}'.",
+            )
+        args.append(_parse_list(conf, int))
+
     skip_connections = section.getboolean("skip_connections")
+    block_factory_kwargs = section.get("block_factory_kwargs", "{}")
+
     return EncoderConfig(
-        block_type=block_type,
-        stage_depths=stage_depths,
-        downsampling_factors=downsampling_factors,
-        skip_connections=skip_connections
+        block_type,
+        *args,
+        skip_connections=skip_connections,
+        block_factory_kwargs=block_factory_kwargs
     )
 
 
@@ -186,8 +227,41 @@ class DecoderConfig:
     Specification of the decoder of a CIMR model.
     """
     block_type: str
+    channels: List[int]
     stage_depths: List[int]
+    upsampling_factors: List[int]
+    block_factory_kwargs: Optional[dict] = None
 
+    def __init__(
+            self,
+            block_type,
+            channels,
+            stage_depths,
+            upsampling_factors,
+            block_factory_kwargs : Optional[dict] = None
+    ):
+        self.block_type = block_type
+
+        if len(channels) != len(stage_depths):
+            raise ValueError(
+                "The number of provided channels in the decoder must match "
+                " that of the its stage depths."
+            )
+        self.channels = channels
+        self.stage_depths = stage_depths
+
+        if len(upsampling_factors) != len(stage_depths):
+            raise ValueError(
+                "The number of provided upsampling factors in the decoder "
+                " must match that of its stage depths."
+            )
+        self.upsampling_factors = upsampling_factors
+        self.block_factory_kwargs = block_factory_kwargs
+
+    @property
+    def n_stages(self):
+        """ The number of stages in the decoder. """
+        return len(self.stage_depths)
 
 def parse_decoder_config(section: SectionProxy) -> DecoderConfig:
     """
@@ -202,11 +276,27 @@ def parse_decoder_config(section: SectionProxy) -> DecoderConfig:
         configuration.
     """
     block_type = section.get("block_type", "convnext")
-    stage_depths = _parse_list(section.get("stage_depths", "1"))
+
+    keys = ["channels", "stage_depths", "upsampling_factors"]
+    args = []
+    for key in keys:
+        conf = section.get(key, None)
+        print(key, conf)
+        if conf is None:
+            raise ValueError(
+                "'encoder' section of model config must contain a list "
+                f"of '{key}'.",
+            )
+        args.append(_parse_list(conf, int))
+
+    block_factory_kwargs = eval(
+        section.get("block_factory_kwargs", "None")
+    )
 
     return DecoderConfig(
-        block_type=block_type,
-        stage_depths=stage_depths,
+        block_type,
+        *args,
+        block_factory_kwargs=block_factory_kwargs
     )
 
 
@@ -219,7 +309,6 @@ class ModelConfig:
     output_configs: List[OutputConfig]
     encoder_config: EncoderConfig
     decoder_config: DecoderConfig
-
 
 
 def parse_model_config(path: Union[str, Path]):
@@ -277,3 +366,74 @@ def parse_model_config(path: Union[str, Path]):
         encoder_config=encoder_config,
         decoder_config=decoder_config
     )
+
+
+@dataclass
+class TrainingConfig:
+    """
+    A description of a training regime.
+    """
+    n_epochs: int
+    optimizer: str
+    optimizer_kwargs: Optional[dict] = None
+    scheduler: str = None
+    scheduler_kwargs: Optional[dict] = None
+
+    def get_optimizer_and_scheduler(self, model):
+        """
+        Return torch optimizer and and learning-rate scheduler objects
+        corresponding to this configuration.
+
+        Args:
+            model: The model to be trained as a torch.nn.Module object.
+        """
+        optimizer = getattr(torch.optim, self.optimizer)
+        optimizer = optimizer(model.parameters(), **self.optimizer_kwargs)
+
+        if self.scheduler is None:
+            return optimizer, None
+
+        scheduler = getattr(torch.lr_scheduler, self.scheduler)
+        scheduler = scheduler(
+            optimizer=optimizer,
+            T_max=self.n_epochs,
+            **self.scheduler_kwargs,
+        )
+        return optimizer, scheduler
+
+def parse_training_config(path: Union[str, Path]):
+    """
+    Parse a training config file.
+
+    Args:
+        path: Path pointing to the training config file.
+
+    Return:
+        A list 'TrainingConfig' objects representing the training
+        passes to perform.
+    """
+    path = Path(path)
+    parser = ConfigParser()
+    parser.read(path)
+
+    training_configs = []
+
+    for section_name in parser.sections():
+
+        sec = parser[section_name]
+
+        n_epochs = sec.getint("n_epochs", 1)
+        optimizer = sec.get("optimizer", "SGD")
+        optimizer_kwargs = eval(sec.get("optimizer_kwargs", "{}"))
+        scheduler = sec.get("scheduler", None)
+        scheduler_kwargs = eval(sec.get("scheduler_kwargs", "None"))
+
+        training_configs.append(TrainingConfig(
+            n_epochs=n_epochs,
+            optimizer=optimizer,
+            optimizer_kwargs=optimizer_kwargs,
+            scheduler=scheduler,
+            scheduler_kwargs=scheduler_kwargs
+        ))
+
+    return training_configs
