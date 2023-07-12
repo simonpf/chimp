@@ -5,6 +5,7 @@ sub-module.
 import os
 from pathlib import Path
 
+import numpy as np
 import pytest
 import torch
 from torch.utils.data import DataLoader
@@ -12,8 +13,18 @@ from torch.utils.data import DataLoader
 from cimr.data.training_data import (CIMRDataset,
                                      SuperpositionDataset,
                                      sparse_collate)
+from cimr.config import (
+    InputConfig,
+    OutputConfig,
+    EncoderConfig,
+    DecoderConfig,
+    ModelConfig
+)
+from cimr.data import inputs, reference
 from cimr.models import (
-    parse_model_config,
+    compile_encoder,
+    compile_decoder,
+    compile_model,
     CIMRBaseline,
     CIMRSeq,
     TimeStepper,
@@ -30,65 +41,190 @@ NEEDS_TEST_DATA = pytest.mark.skipif(
 )
 
 
-MODEL_CONFIG = """
-[gmi]
-type = input
-name = gmi
-stem_type = patchify
-stem_depth = 2
-stem_downsampling = 3
-
-[mhs]
-type = input
-name = mhs
-stem_type = standard
-stem_depth = 1
-
-[mrms]
-type = output
-name = mrms
-loss = quantile_loss
-quantiles = np.linspace(0, 1, 34)[1:-1]
-shape = (28,)
-
-
-[encoder]
-type = encoder
-block_type = resnet
-stage_depths = 2 3 3 2
-downsampling_factors = 2 2 2 2
-skip_connections = False
-
-[decoder]
-type = decoder
-block_type = resnet
-stage_depths = 1 1 1 1
-"""
-
-def test_parse_model_config(tmp_path):
+def test_compile_encoder():
     """
-    Test parsing of the model config.
+    Test the compilation of the encoder.
     """
-    with open(tmp_path / "cimr_model.ini", "w") as config_file:
-        config_file.write(MODEL_CONFIG)
+    input_configs = [
+        InputConfig(
+            inputs.GMI,
+            stem_depth=2,
+            stem_kernel_size=7,
+            stem_downsampling=2
+        ),
+        InputConfig(
+            inputs.SSMIS,
+            stem_depth=2,
+            stem_kernel_size=7,
+            stem_downsampling=1
+        )
+    ]
 
-    model_config = parse_model_config(tmp_path / "cimr_model.ini")
+    encoder_config = EncoderConfig(
+        "convnet",
+        channels=[16, 32, 64, 128],
+        stage_depths=[2, 2, 4, 4],
+        downsampling_factors=[2, 2, 2],
+        skip_connections=True
+    )
 
-    assert len(model_config.input_configs) == 2
-    input_config = model_config.input_configs[0]
-    assert input_config.stem_depth == 2
-    assert input_config.stem_type == "patchify"
-    assert input_config.stem_downsampling == 3
+    encoder = compile_encoder(
+        input_configs=input_configs,
+        encoder_config=encoder_config
+    )
 
-    encoder_config = model_config.encoder_config
-    assert encoder_config.block_type == "resnet"
-    assert encoder_config.stage_depths == [2, 3, 3, 2]
-    assert encoder_config.downsampling_factors == [2, 2, 2, 2]
-    assert encoder_config.skip_connections == False
+    x = {
+        "gmi": torch.zeros(
+            (1, 13, 64, 64),
+            dtype=torch.float32
+        ),
+        "ssmis": torch.zeros(
+            (1, 11, 64, 64),
+            dtype=torch.float32
+        )
+    }
 
-    decoder_config = model_config.decoder_config
-    assert decoder_config.block_type == "resnet"
-    assert decoder_config.stage_depths == [1, 1, 1, 1]
+    y = encoder(x, return_skips=True)
+    assert len(y) == 4
+    assert y[-1].shape == (1, 128, 8, 8)
+
+
+def test_compile_decoder():
+    """
+    Test the compilation of the decoder.
+    """
+    input_configs = [
+        InputConfig(
+            inputs.GMI,
+            stem_depth=2,
+            stem_kernel_size=7,
+            stem_downsampling=2
+        ),
+        InputConfig(
+            inputs.SSMIS,
+            stem_depth=2,
+            stem_kernel_size=7,
+            stem_downsampling=1
+        )
+    ]
+    output_configs = [
+        OutputConfig(
+            reference.MRMS,
+            "quantile_loss",
+        ),
+    ]
+
+    encoder_config = EncoderConfig(
+        "convnet",
+        channels=[16, 32, 64, 128],
+        stage_depths=[2, 2, 4, 4],
+        downsampling_factors=[2, 2, 2],
+        skip_connections=True
+    )
+
+    decoder_config = DecoderConfig(
+        "convnet",
+        channels=[64, 32, 16, 16, 16],
+        stage_depths=[1, 1, 1, 1, 1],
+        upsampling_factors=[2, 2, 2, 2, 2],
+    )
+
+    encoder = compile_encoder(
+        input_configs=input_configs,
+        encoder_config=encoder_config
+    )
+    decoder = compile_decoder(
+        input_configs=input_configs,
+        output_configs=output_configs,
+        encoder_config=encoder_config,
+        decoder_config=decoder_config
+    )
+
+    x = {
+        "gmi": torch.zeros(
+            (1, 13, 64, 64),
+            dtype=torch.float32
+        ),
+        "ssmis": torch.zeros(
+            (1, 11, 64, 64),
+            dtype=torch.float32
+        )
+    }
+
+    y = encoder(x, return_skips=True)
+    print("SC :", decoder.skip_connections)
+    for tensor in y:
+        print(tensor.shape)
+    y = decoder(y)
+    assert y.shape == (1, 16, 128, 128)
+
+
+def test_compile_model():
+    """
+    Test the compilation of the full CIMRModel.
+    """
+    input_configs = [
+        InputConfig(
+            inputs.GMI,
+            stem_depth=2,
+            stem_kernel_size=7,
+            stem_downsampling=2
+        ),
+        InputConfig(
+            inputs.SSMIS,
+            stem_depth=2,
+            stem_kernel_size=7,
+            stem_downsampling=1
+        )
+    ]
+    output_configs = [
+        OutputConfig(
+            reference.MRMS,
+            "quantile_loss",
+            quantiles=np.linspace(0, 1, 34)[1:-1]
+        ),
+    ]
+
+    encoder_config = EncoderConfig(
+        "convnet",
+        channels=[16, 32, 64, 128],
+        stage_depths=[2, 2, 4, 4],
+        downsampling_factors=[2, 2, 2],
+        skip_connections=True
+    )
+
+    decoder_config = DecoderConfig(
+        "convnet",
+        channels=[64, 32, 16, 16],
+        stage_depths=[1, 1, 1, 1],
+        upsampling_factors=[2, 2, 2, 2],
+    )
+    model_config = ModelConfig(
+        input_configs,
+        output_configs,
+        encoder_config,
+        decoder_config
+    )
+
+    cimr = compile_model(model_config)
+
+
+    x = {
+        "gmi": torch.zeros(
+            (1, 13, 64, 64),
+            dtype=torch.float32
+        ),
+        "ssmis": torch.zeros(
+            (1, 11, 64, 64),
+            dtype=torch.float32
+        )
+    }
+
+    y = cimr(x)
+
+    assert len(y) == 1
+    assert "mrms" in y
+    assert y["mrms"].shape == (1, 32, 128, 128)
 
 
 

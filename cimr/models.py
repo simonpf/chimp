@@ -6,7 +6,6 @@ The neural-network models used by CIMR.
 """
 import logging
 from math import log2
-from configparser import ConfigParser, SectionProxy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, List, Union, Tuple
@@ -21,6 +20,7 @@ from quantnn.models.pytorch.encoders import (
     ParallelEncoder
 )
 from quantnn.models.pytorch.decoders import (
+    SpatialDecoder,
     SparseSpatialDecoder,
     DLADecoder
 )
@@ -30,9 +30,18 @@ from quantnn.models.pytorch.blocks import ConvBlockFactory
 from quantnn.models.pytorch.stages import AggregationTreeFactory
 from quantnn.packed_tensor import PackedTensor, forward
 
+from cimr.config import (
+    InputConfig,
+    OutputConfig,
+    EncoderConfig,
+    DecoderConfig,
+    ModelConfig,
+)
 from cimr.data.utils import get_input, get_inputs, get_reference_data
 from cimr.data.inputs import Input
 from cimr.data.reference import ReferenceData
+from cimr.stems import get_stem_factory
+from cimr.blocks import get_block_factory, get_downsampler_factory
 
 LOGGER = logging.getLogger(__name__)
 
@@ -44,302 +53,169 @@ SOURCES = {
 }
 
 
-def _parse_list(values, constr=int):
-    """
-    Parses a config value as a list.
-
-    Args:
-        values: A string containing a space-, comma- or semicolon-separated
-            list of values.
-        constr: Constructor functional to use to parse the list elements.
-
-    Return:
-        A list containing the parsed values.
-    """
-    delimiters = [",", ";", "(", ")"]
-    for delim in delimiters:
-        values = values.replace(delim, " ")
-    values = values.split(" ")
-    return [constr(val) for val in values]
-
-
-@dataclass
-class InputConfig:
-    """
-    Specification of the input handling of a CIMR model.
-    """
-    input_data: Input
-    stem_type: str = "standard"
-    stem_depth: int = 1
-    stem_downsampling: Optional[int] = None
-
-    @property
-    def scale(self):
-        if self.stem_downsampling is None:
-            return self.input_data.scale
-        return self.input_data.scale * self.stem_downsampling
-
-def parse_input_config(section: SectionProxy) -> InputConfig:
-    """
-    Parses an input section from a model configuration file.
-
-    Args:
-        section: A SectionProxy object representing a section of
-            config file, whose type is 'input'
-
-    Return:
-        An 'InputConfig' object containing the parsed input properties.
-    """
-    name = section.get("name", None)
-    if name is None:
-        raise ValueError(
-            "Each input section must have a 'name' entry."
-        )
-    inpt = get_input(name)
-    stem_type = section.get("stem_type", "standard")
-    stem_depth = section.getint("stem_depth", 1)
-    stem_downsampling = section.getint("stem_downsampling", None)
-    return InputConfig(
-        input_data=inpt,
-        stem_type=stem_type,
-        stem_depth=stem_depth,
-        stem_downsampling=stem_downsampling
-    )
-
-
-@dataclass
-class OutputConfig:
-    """
-    Specification of the outputs of  handling of a CIMR model.
-    """
-    output_data: ReferenceData
-    loss: str
-    shape: Tuple[int] = tuple()
-    quantiles: Optional[str] = None
-    bins: Optional[str] = None
-
-
-def parse_output_config(section: SectionProxy) -> OutputConfig:
-    """
-    Parses an output section from a model configuration file.
-
-    Args:
-        section: A SectionProxy object representing a section of
-            config file, whose type is 'output'
-
-    Return:
-        An 'OutputConfig' object containing the parsed output properties.
-    """
-    name = section.get("name", None)
-    if name is None:
-        raise ValueError(
-            "Each input section must have a 'name' entry."
-        )
-    output_data = get_reference_data(name)
-    loss = section.get("loss", "quantile_loss")
-    shape = eval(section.get("shape", "()"))
-    quantiles = section.get("quantiles", None)
-    bins = section.get("bins", None)
-    return OutputConfig(
-        output_data=output_data,
-        loss=loss,
-        shape=shape,
-        quantiles=quantiles,
-        bins=bins
-    )
-
-
-@dataclass
-class EncoderConfig:
-    """
-    Specification of the encoder of a CIMR model.
-    """
-    block_type: str
-    stage_depths: List[int]
-    downsampling_factors: List[int]
-    skip_connections: bool
-
-    def __init__(
-            self,
-            block_type: str,
-            stage_depths: List[int],
-            downsampling_factors: List[int],
-            skip_connections: bool
-    ):
-        if not len(stage_depths) == len(downsampling_factors):
-            raise ValueError(
-                "The number of provided stage depths must match that of the"
-                " downsampling factors."
-            )
-        self.block_type = block_type
-        self.stage_depths = stage_depths
-        self.downsampling_factors = downsampling_factors
-        self.skip_connections = skip_connections
-
-
-def parse_encoder_config(section: SectionProxy) -> EncoderConfig:
-    """
-    Parses an encoder section from a model configuration file.
-
-    Args:
-        section: A SectionProxy object representing a section of
-            config file, whose type is 'encoder'
-
-    Return:
-        An 'EncoderConfig' object containing the parsed encoder
-        configuration.
-    """
-    block_type = section.get("block_type", "convnext")
-    stage_depths = _parse_list(section.get("stage_depths", None), int)
-    if stage_depths is None:
-        raise ValueErrors(
-            "'encoder' section of model config must contain a list "
-            "of stage depths."
-        )
-    downsampling_factors = _parse_list(
-        section.get("downsampling_factors", None),
-        int
-    )
-    skip_connections = section.getboolean("skip_connections")
-    return EncoderConfig(
-        block_type=block_type,
-        stage_depths=stage_depths,
-        downsampling_factors=downsampling_factors,
-        skip_connections=skip_connections
-    )
-
-
-@dataclass
-class DecoderConfig:
-    """
-    Specification of the decoder of a CIMR model.
-    """
-    block_type: str
-    stage_depths: List[int]
-
-
-def parse_decoder_config(section: SectionProxy) -> DecoderConfig:
-    """
-    Parses a decoder section from a model configuration file.
-
-    Args:
-        section: A SectionProxy object representing a section of
-            config file, whose type is 'decoder'
-
-    Return:
-        A 'DecoderConfig' object containing the parsed encoder
-        configuration.
-    """
-    block_type = section.get("block_type", "convnext")
-    stage_depths = _parse_list(section.get("stage_depths", "1"))
-
-    return DecoderConfig(
-        block_type=block_type,
-        stage_depths=stage_depths,
-    )
-
-
-@dataclass
-class ModelConfig:
-    """
-    Configuration of a CIMR retrieval model.
-    """
-    input_configs: List[InputConfig]
-    output_configs: List[OutputConfig]
-    encoder_config: EncoderConfig
-    decoder_config: DecoderConfig
-
-
-
-def parse_model_config(path: Union[str, Path]):
-    """
-    Parse a model config file.
-
-    Args:
-        path: Path pointing to the model file.
-
-    Return:
-        A 'ModelConfig' object containing the parsed model
-        config.
-
-    """
-    path = Path(path)
-    parser = ConfigParser()
-    parser.read(path)
-
-    input_configs = []
-    output_configs = []
-    encoder_config = None
-    decoder_config = None
-
-    for section_name in parser.sections():
-        sec = parser[section_name]
-        if not "type" in sec:
-            continue
-        sec_type = sec["type"]
-
-        if sec_type == "input":
-            input_configs.append(parse_input_config(sec))
-        elif sec_type == "output":
-            output_configs.append(parse_output_config(sec))
-        elif sec_type == "encoder":
-            if encoder_config is not None:
-                raise ValueError(
-                    "Model config contains multiple encoder sections."
-                )
-            encoder_config = parse_encoder_config(sec)
-        elif sec_type == "decoder":
-            if decoder_config is not None:
-                raise ValueError(
-                    "Model config contains multiple decoder sections."
-                )
-            decoder_config = parse_decoder_config(sec)
-        else:
-            raise ValueError(
-                "Model config file contains unknown section of type '%s'",
-                sec_type
-            )
-
-    return ModelConfig(
-        input_configs=input_configs,
-        output_configs=output_configs,
-        encoder_config=encoder_config,
-        decoder_config=decoder_config
-    )
 
 def compile_encoder(
-        input_configs: List[InputConfig]
+        input_configs: List[InputConfig],
         encoder_config: EncoderConfig
 ) -> nn.Module:
+    """
+    Compile the Pytorch encoder module for a given inputs and encoder
+    configuration.
 
+    Args:
+        input_configs: A list of InputConfig objects representing the
+            retrieval inputs.
+        encoder_config: An EncoderConfig object representing the encoder
+            configuration.
+
+    Return:
+
+        A torch.nn.Module object implementing the encoder module to be
+        used in a CIMR retrieval network.
+    """
     input_scales = [
         cfg.scale
-        for cfg in model_config.input_configs
+        for cfg in input_configs
     ]
 
     stage_depths = encoder_config.stage_depths
     downsampling_factors = encoder_config.downsampling_factors
+    channels = encoder_config.channels
     skip_connections = encoder_config.skip_connections
-    block_type = encoder_confi
+    block_type = encoder_config.block_type
+
+    kwargs = encoder_config.block_factory_kwargs
+    block_factory = get_block_factory(
+        block_type,
+        factory_kwargs=kwargs
+    )
+
 
     inputs = {}
     scale = min(input_scales)
     for stage, f_d in enumerate(downsampling_factors):
         for cfg in input_configs:
-            if cfg.scale = scale:
-
+            if cfg.scale == scale:
                 name = cfg.input_data.name
                 n_channels = cfg.input_data.n_channels
                 stem_factory = get_stem_factory(cfg)
                 inputs[name] = (stage, n_channels, stem_factory)
+        scale *= f_d
 
 
+    downsampler_factory = get_downsampler_factory(
+        encoder_config.downsampling_strategy,
+        {}
+    )
+
+    encoder = MultiInputSpatialEncoder(
+        inputs=inputs,
+        channels=channels,
+        stages=stage_depths,
+        downsampling_factors=downsampling_factors,
+        downsampler_factory=downsampler_factory,
+        block_factory=block_factory
+    )
+
+    return encoder
 
 
+def compile_decoder(
+        input_configs: List[OutputConfig],
+        output_configs: List[OutputConfig],
+        encoder_config: EncoderConfig,
+        decoder_config: DecoderConfig
+) -> nn.Module:
+    """
+    Compile the Pytorch decoder module for a given inputs, outputs
+    and decoder configurations.
+
+    Args:
+        input_configs: A list of InputConfig objects representing the
+            retrieval inputs.
+        output_configs: A list of Output config objects representing the
+            retrieval outputs.
+        encoder_config: An EncoderConfig object representing the encoder
+            configuration corresponding to this decoder.
+        decoder_config: A DecoderConfig object representing the decoder
+            configuration.
+
+    Return:
+
+        A torch.nn.Module object implementing the decoder module to be
+        used in a CIMR retrieval network.
+    """
+    input_scales = [
+        cfg.scale
+        for cfg in input_configs
+    ]
+    output_scales = [
+        cfg.scale
+        for cfg in output_configs
+    ]
+
+    downsampling_factors = encoder_config.downsampling_factors
+    upsampling_factors = decoder_config.upsampling_factors
+
+    output_scale = min(output_scales)
+    base_scale = output_scale
+    for f_up in upsampling_factors:
+        base_scale *= f_up
+
+    min_input_scale = min(input_scales)
+
+    scale = base_scale
+
+    skip_connections = 0
+    for stage_ind, (f_down, f_up) in enumerate(zip(
+            downsampling_factors[::-1],
+            upsampling_factors
+    )):
+        if f_down != f_up:
+            raise ValueError(
+                "Upsampling factors in decoder must match the corresponding "
+                " downsampling factors in the encoder but found an upsamling "
+                f" factor of {f_up} corresponding to a downsampling factor "
+                f" of {f_down} in layer {stage_ind + 1} of the decoder."
+            )
+        if scale >= min_input_scale:
+            skip_connections = stage_ind
+        scale /= f_up
+
+    if scale >= min_input_scale:
+        skip_connections = encoder_config.n_stages
+
+    if not encoder_config.skip_connections:
+        skip_connections = 0
 
 
+    channels = encoder_config.channels[-1:] + decoder_config.channels
+    stage_depths = decoder_config.stage_depths
 
-    
+    kwargs = decoder_config.block_factory_kwargs
+    block_factory = get_block_factory(
+        decoder_config.block_type,
+        factory_kwargs=kwargs
+    )
+
+    if skip_connections != 0:
+        decoder = SparseSpatialDecoder(
+            channels=channels,
+            stages=stage_depths,
+            block_factory=block_factory,
+            skip_connections=skip_connections,
+            upsampling_factors=upsampling_factors
+        )
+    else:
+        decoder = SpatialDecoder(
+            channels=channels,
+            stages=stage_depths,
+            block_factory=block_factory,
+            skip_connections=skip_connections,
+            upsampling_factors=upsampling_factors
+        )
+
+    return decoder
 
 def compile_model(model_config: ModelConfig) -> nn.Module:
     """
@@ -352,63 +228,165 @@ def compile_model(model_config: ModelConfig) -> nn.Module:
     Return:
         A pytorch Module implementing the requested configuration.
     """
-    input_scales = [
-        cfg.input_data.scale for cfg in model_config.input_configs
-    ]
-    output_scales = [
-        cfg.output_data.scale for cfg in model_config.output_configs
-    ]
+    encoder = compile_encoder(
+        model_config.input_configs,
+        model_config.encoder_config
+    )
+    decoder = compile_decoder(
+        model_config.input_configs,
+        model_config.output_configs,
+        model_config.encoder_config,
+        model_config.decoder_config
+    )
 
-    min_input_scale = min(input_scales)
-    min_output_scale = min(output_scales)
-
-
-    n_stages_enc = len(model_config.stage_depths)
-
-    inputs = {}
+    features_in = model_config.decoder_config.channels[-1]
 
 
+    heads = {}
+    for cfg in model_config.output_configs:
 
+        shape = cfg.shape
+        if cfg.loss == "quantile_loss":
+            shape = (cfg.quantiles.size,) + shape
+        elif cfg.loss == "density_loss":
+            shape = (cfg.bins.size,) + shape
+        elif cfg.loss == "mse":
+            pass
+        else:
+            raise ValueError(
+                f"The provided loss '{cfg.loss}' is not known."
+            )
 
-
-
-def get_block_factory(block_type_str):
-    """
-    Get block factory from 'block_type' string.
-
-    Args:
-        block_type_str: A string specifying the block type.
-
-    Return:
-        A tuple ``block_factory, norm_factory, norm_factory_head`` containing
-        the factory functionals for blocks, norms inside blocks and norms inside
-        the MLP head, respectively.
-
-    Raises:
-        ValueError if the block type is not supported.
-    """
-    block_type_str = block_type_str.lower()
-    if block_type_str == "unet":
-        block_factory = ConvBlockFactory(
-            kernel_size=3,
-            norm_factory=None,
-            activation_factory=nn.ReLU
+        heads[cfg.name] = Head(
+            shape=shape,
+            loss=cfg.loss,
+            features_in=features_in,
+            n_features=64,
+            n_layers=1
         )
-        norm_factory = None
-        norm_factory_head = None
-    elif block_type_str == "resnet":
-        block_factory = blocks.ResNetBlockFactory()
-        norm_factory = block_factory.norm_factory
-        norm_factory_head = nn.BatchNorm1d
-    elif block_type_str == "convnext":
-        block_factory = blocks.ConvNextBlockFactory()
-        norm_factory = block_factory.layer_norm_with_permute
-        norm_factory_head = block_factory.layer_norm
-    else:
-        raise ValueError(
-            "'block_type' should be one of 'resnet' or 'convnext'."
+
+    return CIMRModel(
+        encoder,
+        decoder,
+        heads
+    )
+
+
+class Head(MLP):
+    """
+    Pytorch module for the network heads that product output estimates.
+    """
+    def __init__(
+            self,
+            shape: Tuple[int],
+            loss: str,
+            features_in: int,
+            n_features: int,
+            n_layers: int,
+    ):
+        """
+        Args:
+            shape: A tuple specifying the shape of a single-pixel
+                retrieval result.
+            loss: A string specitying the loss applied to this output.
+            features_in: The number of features coming from the model
+                body.
+            n_features: The number of internal features in the head.
+            n_layers: The number of layers in the head.
+        """
+        features_out = 1
+        for ext in shape:
+            features_out *= ext
+
+        super().__init__(
+            features_in,
+            n_features,
+            features_out,
+            n_layers
         )
-    return block_factory, norm_factory, norm_factory_head
+        self.shape = shape
+        self.loss = loss
+
+    def forward(self, x):
+        """
+        Forward tensor through MLP and reshape to expected output
+        shape.
+        """
+        y = MLP.forward(self, x)
+        shape = tuple(x.shape)
+        output_shape = shape[:1] + self.shape + shape[2:]
+        return y.reshape(output_shape)
+
+
+class CIMRModel(nn.Module):
+    def __init__(
+            self,
+            encoder,
+            decoder,
+            heads,
+            skip_connections=True
+    ):
+        super().__init__()
+        self.encoder = encoder
+        self.decoder = decoder
+        self.heads = nn.ModuleDict(heads)
+        self.skip_connections = skip_connections
+
+
+    def forward(self, x):
+        y = self.encoder(x, return_skips=self.skip_connections)
+        y = self.decoder(y)
+        y = {key: head(y) for key, head in self.heads.items()}
+
+        return y
+
+
+    @property
+    def n_params(self):
+        return sum(p.numel() for p in self.parameters() if p.requires_grad)
+
+
+
+
+
+
+#def get_block_factory(block_type_str):
+#    """
+#    Get block factory from 'block_type' string.
+#
+#    Args:
+#        block_type_str: A string specifying the block type.
+#
+#    Return:
+#        A tuple ``block_factory, norm_factory, norm_factory_head`` containing
+#        the factory functionals for blocks, norms inside blocks and norms inside
+#        the MLP head, respectively.
+#
+#    Raises:
+#        ValueError if the block type is not supported.
+#    """
+#    block_type_str = block_type_str.lower()
+#    if block_type_str == "unet":
+#        block_factory = ConvBlockFactory(
+#            kernel_size=3,
+#            norm_factory=None,
+#            activation_factory=nn.ReLU
+#        )
+#        norm_factory = None
+#        norm_factory_head = None
+#    elif block_type_str == "resnet":
+#        block_factory = blocks.ResNetBlockFactory()
+#        norm_factory = block_factory.norm_factory
+#        norm_factory_head = nn.BatchNorm1d
+#    elif block_type_str == "convnext":
+#        block_factory = blocks.ConvNextBlockFactory()
+#        norm_factory = block_factory.layer_norm_with_permute
+#        norm_factory_head = block_factory.layer_norm
+#    else:
+#        raise ValueError(
+#            "'block_type' should be one of 'resnet' or 'convnext'."
+#        )
+#    return block_factory, norm_factory, norm_factory_head
 
 
 def get_aggregator_factory(
