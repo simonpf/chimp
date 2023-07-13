@@ -25,6 +25,7 @@ from cimr.models import (
     compile_encoder,
     compile_decoder,
     compile_model,
+    load_config,
     CIMRBaseline,
     CIMRSeq,
     TimeStepper,
@@ -225,6 +226,15 @@ def test_compile_model():
     assert len(y) == 1
     assert "mrms" in y
     assert y["mrms"].shape == (1, 32, 128, 128)
+
+
+def test_load_config():
+    """
+    Test the loading of a pre-defined configuration.
+    """
+    config = load_config("gremlin")
+    assert config.encoder_config.channels == [32, 32, 32, 32]
+
 
 
 
