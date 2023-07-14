@@ -14,7 +14,7 @@ from cimr.data.mhs import (
 )
 
 data_path = Path(__file__).parent / "data"
-atms_file = "1C.METOPB.MHS.XCAL2016-V.20200501-S085148-E103309.039533.V05A.HDF5"
+mhs_file = "1C.METOPB.MHS.XCAL2016-V.20200501-S085148-E103309.039533.V05A.HDF5"
 
 
 def test_resampling():
@@ -23,7 +23,7 @@ def test_resampling():
     """
     domain = NORDIC
     product = MHS_PRODUCTS[0]
-    data = product.open(data_path / "obs" / atms_file)
+    data = product.open(data_path / "obs" / mhs_file)
     tbs_r = resample_swaths(domain, data)
 
     assert np.any(np.isfinite(tbs_r))
@@ -36,7 +36,7 @@ def test_process_file(tmp_path):
     """
     domain = NORDIC
     product = MHS_PRODUCTS[0]
-    data = product.open(data_path / "obs" / atms_file)
+    data = product.open(data_path / "obs" / mhs_file)
     process_file(domain, data, tmp_path)
 
     files = list(tmp_path.glob("*.nc"))

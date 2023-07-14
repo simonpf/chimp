@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple, List, Union
 
+import numpy as np
 import torch
 
 from cimr.data.inputs import Input
@@ -55,7 +56,7 @@ class InputConfig:
 
     @property
     def name(self):
-        return self.output_data.name
+        return self.input_data.name
 
 
 def parse_input_config(section: SectionProxy) -> InputConfig:
@@ -78,7 +79,7 @@ def parse_input_config(section: SectionProxy) -> InputConfig:
     stem_type = section.get("stem_type", "standard")
     stem_depth = section.getint("stem_depth", 1)
     stem_kernel_size = section.getint("stem_kernel_size", 3)
-    stem_downsampling = section.getint("stem_downsampling", None)
+    stem_downsampling = section.getint("stem_downsampling", 1)
     return InputConfig(
         input_data=inpt,
         stem_type=stem_type,
@@ -93,19 +94,17 @@ class OutputConfig:
     """
     Specification of the outputs of  handling of a CIMR model.
     """
-    output_data: ReferenceData
+    reference_data: ReferenceData
+    variable: str
     loss: str
     shape: Tuple[int] = tuple()
     quantiles: Optional[str] = None
     bins: Optional[str] = None
+    transformation: Optional[str] = None
 
     @property
     def scale(self):
-        return self.output_data.scale
-
-    @property
-    def name(self):
-        return self.output_data.name
+        return self.reference_data.scale
 
 
 def parse_output_config(section: SectionProxy) -> OutputConfig:
@@ -119,18 +118,32 @@ def parse_output_config(section: SectionProxy) -> OutputConfig:
     Return:
         An 'OutputConfig' object containing the parsed output properties.
     """
-    name = section.get("name", None)
-    if name is None:
+    reference_data = section.get("reference_data", None)
+    if reference_data is None:
         raise ValueError(
-            "Each input section must have a 'name' entry."
+            "Each input section must have a 'reference_data' entry."
         )
-    output_data = get_reference_data(name)
+    reference_data = get_reference_data(reference_data)
+
+    variable = section.get("variable", None)
+    if variable is None:
+        raise ValueError(
+            "Every output section must have a 'variable' entry."
+        )
+
     loss = section.get("loss", "quantile_loss")
     shape = eval(section.get("shape", "()"))
     quantiles = section.get("quantiles", None)
+    if quantiles is not None:
+        quantiles = eval(quantiles)
     bins = section.get("bins", None)
+    if bins is not None:
+        bins = eval(bins)
+    transformation = section.get("transformation", None)
+
     return OutputConfig(
-        output_data=output_data,
+        reference_data=reference_data,
+        variable=variable,
         loss=loss,
         shape=shape,
         quantiles=quantiles,
@@ -211,7 +224,9 @@ def parse_encoder_config(section: SectionProxy) -> EncoderConfig:
         args.append(_parse_list(conf, int))
 
     skip_connections = section.getboolean("skip_connections")
-    block_factory_kwargs = section.get("block_factory_kwargs", "{}")
+    block_factory_kwargs = eval(
+        section.get("block_factory_kwargs", "{}")
+    )
 
     return EncoderConfig(
         block_type,
@@ -281,7 +296,6 @@ def parse_decoder_config(section: SectionProxy) -> DecoderConfig:
     args = []
     for key in keys:
         conf = section.get(key, None)
-        print(key, conf)
         if conf is None:
             raise ValueError(
                 "'encoder' section of model config must contain a list "
@@ -311,6 +325,23 @@ class ModelConfig:
     decoder_config: DecoderConfig
 
 
+def get_model_config(name):
+    """
+    Return path to a pre-define model config file.
+
+    Args:
+        name: The name of the configuration.
+
+    Return:
+        A path object pointint to the .ini file containing
+        the model configuration.
+    """
+    path = Path(__file__).parent / "model_configs" / name
+    if path.suffix == "":
+        path = path.with_suffix(".ini")
+    return path
+
+
 def parse_model_config(path: Union[str, Path]):
     """
     Parse a model config file.
@@ -331,6 +362,13 @@ def parse_model_config(path: Union[str, Path]):
     output_configs = []
     encoder_config = None
     decoder_config = None
+
+    # Check for base section
+    for section_name in parser.sections():
+        if section_name == "base":
+            from cimr import models
+            name = parser[section_name].get("name")
+            parser.read(get_model_config(name))
 
     for section_name in parser.sections():
         sec = parser[section_name]
@@ -378,6 +416,18 @@ class TrainingConfig:
     optimizer_kwargs: Optional[dict] = None
     scheduler: str = None
     scheduler_kwargs: Optional[dict] = None
+    precision: int = 16
+    batch_size: int = 8
+    input_size: int = 256
+    accelerator: str = "cuda"
+    sequence_length: Optional[int] = 1
+    forecast: Optional[int] = 0
+    quality_threshold: float = 0.8
+    pretraining: bool = False
+    sample_rate: int = 1
+    gradient_clipping: Optional[float] = None
+    data_loader_workers: int = 4
+
 
     def get_optimizer_and_scheduler(self, model):
         """
@@ -427,13 +477,19 @@ def parse_training_config(path: Union[str, Path]):
         optimizer_kwargs = eval(sec.get("optimizer_kwargs", "{}"))
         scheduler = sec.get("scheduler", None)
         scheduler_kwargs = eval(sec.get("scheduler_kwargs", "None"))
+        precision = sec.getint("precision", 16)
+        sample_rate = sec.getint("sample_rate", 1)
+        batch_size = sec.getint("batch_size", 8)
 
         training_configs.append(TrainingConfig(
             n_epochs=n_epochs,
             optimizer=optimizer,
             optimizer_kwargs=optimizer_kwargs,
             scheduler=scheduler,
-            scheduler_kwargs=scheduler_kwargs
+            scheduler_kwargs=scheduler_kwargs,
+            precision=precision,
+            sample_rate=sample_rate,
+            batch_size=batch_size
         ))
 
     return training_configs

@@ -31,6 +31,10 @@ def resample_mrms_data(dataset):
     Args:
         dataset: 'xarray.Dataset' containing the MRMS surface precip and
             radar quality index.
+
+    Return:
+        A new dataset containing the surface precip and RQI data
+        resampled to the CONUS 4-km domain.
     """
     lons_out, lats_out = areas.CONUS_4.get_lonlats()
 
@@ -85,7 +89,7 @@ def get_output_filename(time):
         A string containing the filename of the output file.
 
     """
-    time_15 = round_time(time)
+    time_15 = round_time(time, minutes=15)
     year = time_15.year
     month = time_15.month
     day = time_15.day
@@ -122,7 +126,7 @@ def save_file(dataset, output_folder):
 
     dataset.surface_precip.data = surface_precip
     encoding["rqi"] = {
-        "scale_factor": 1 / 128,
+        "scale_factor": 1 / 127,
         "dtype": "int8",
         "zlib": True,
         "_FillValue": -1

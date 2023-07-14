@@ -67,6 +67,19 @@ def add_parser(subparsers):
         type=str,
         help="Optional end date to limit the testing period.",
     )
+    parser.add_argument(
+        "--inputs",
+        metavar="name",
+        type=str,
+        nargs="+",
+        help="Names of the inputs sources to use.",
+    )
+    parser.add_argument(
+        "--reference_data",
+        metavar="name",
+        type=str,
+        help="Name of the reference data.",
+    )
     parser.set_defaults(func=run)
 
 
@@ -107,59 +120,20 @@ def process(model, dataset, output_path):
             data.
         output_path: The directory to which to write the results.
     """
-    input_iterator = dataset.full_range()
+    input_iterator = dataset.full_domain()
 
     previous_time = None
     state = None
     age = 0
     input_queue = Queue()
 
-    for model_input, output, y_slice, x_slice, date in input_iterator:
+    for time, x, y in input_iterator:
 
-        if previous_time is None:
-            time_delta = np.timedelta64(0, "s")
-        else:
-            time_delta = date - previous_time
-        if time_delta > np.timedelta64(20 * 60, "s"):
-            state = None
-            age = 0
-            input_queue = Queue()
-        previous_time = date
+        results, _ = retrieval_step(model, (x, y), state)
 
-        if state is None and empty_input(model, model_input):
-            continue
+        results["surface_precip_ref"] = (("y", "x"), y["surface_precip"])
 
-        if state is None:
-            initialized = False
-            while input_queue.qsize() > 0:
-                inpt = input_queue.get()
-                if not initialized and empty_input(model, inpt):
-                    continue
-                _, state = retrieval_step(
-                    model, inpt, y_slice, x_slice, state
-                )
-                initialized = True
-                age += 1
-
-        results, state = retrieval_step(model, model_input, y_slice, x_slice, state)
-        age += 1
-
-        # Check age of state
-        if age >= MAX_AGE:
-            state = None
-            age = 0
-
-        input_queue.put(model_input)
-        if input_queue.qsize() > OVERLAP:
-            input_queue.get()
-
-        # Add reference values
-        y_true = output.detach().cpu().float()
-        results["dbz_true"] = (("y", "x"), y_true)
-        precip_true = 10 ** ((y_true / 10 - np.log10(200)) / 1.5)
-        results["surface_precip_true"] = (("y", "x"), precip_true)
-
-        date = pd.to_datetime(str(date))
+        date = pd.to_datetime(str(time))
         filename = date.strftime("results_%Y_%m_%d_%H%M.nc")
         results.to_netcdf(output_path / filename)
 
@@ -203,7 +177,13 @@ def run(args):
     if end_time is not None:
         end_time = np.datetime64(end_time)
 
-    test_data = CIMRDataset(input_path, start_time=start_time, end_time=end_time)
+    test_data = CIMRDataset(
+        input_path,
+        inputs=args.inputs,
+        reference_data=args.reference_data,
+        start_time=start_time,
+        end_time=end_time
+    )
     process(qrnn, test_data, output_path)
 
     return 0

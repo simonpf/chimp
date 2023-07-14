@@ -1,6 +1,7 @@
 name: cimr
 channels:
-  - pytorch
+  - pytorch-nightly
+  - nvidia
   - conda-forge
   - defaults
 dependencies:
@@ -22,9 +23,12 @@ dependencies:
   - trollsift
   - xarray[version='>=0.10.1']
   - satpy
+  - cartopy
   - ipywidgets
+  - pytorch
   - torchvision
   - torchaudio
-  - pytorch
-  - cudatoolkit=11.6
+  - pytorch-cuda=12.1
+  - lightning
+  - protobuf
 prefix: /home/simonpf/miniconda3/envs/cimr

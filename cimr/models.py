@@ -29,6 +29,7 @@ from quantnn.models.pytorch.fully_connected import MLP
 from quantnn.models.pytorch.blocks import ConvBlockFactory
 from quantnn.models.pytorch.stages import AggregationTreeFactory
 from quantnn.packed_tensor import PackedTensor, forward
+from quantnn import mrnn
 
 from cimr.config import (
     InputConfig,
@@ -36,6 +37,7 @@ from cimr.config import (
     EncoderConfig,
     DecoderConfig,
     ModelConfig,
+    parse_model_config
 )
 from cimr.data.utils import get_input, get_inputs, get_reference_data
 from cimr.data.inputs import Input
@@ -207,6 +209,8 @@ def compile_decoder(
             upsampling_factors=upsampling_factors
         )
     else:
+        if skip_connections == 0:
+            skip_connections = False
         decoder = SpatialDecoder(
             channels=channels,
             stages=stage_depths,
@@ -257,7 +261,7 @@ def compile_model(model_config: ModelConfig) -> nn.Module:
                 f"The provided loss '{cfg.loss}' is not known."
             )
 
-        heads[cfg.name] = Head(
+        heads[cfg.variable] = Head(
             shape=shape,
             loss=cfg.loss,
             features_in=features_in,
@@ -270,6 +274,67 @@ def compile_model(model_config: ModelConfig) -> nn.Module:
         decoder,
         heads
     )
+
+
+def compile_mrnn(model_config: ModelConfig) -> mrnn.MRNN:
+    """
+    Comple quantnn mixed-regression neural network.
+
+    This function compile a model configuration into a full
+    quantnn MRNN model.
+
+    Args:
+        model_config: A ModelConfig object representing the model
+            configuration.
+
+    Rerturn:
+        The compile MRNN object.
+    """
+    model = compile_model(model_config)
+
+    losses = {}
+    transformations = {}
+
+    for output_config in model_config.output_configs:
+
+        if output_config.loss == "quantile_loss":
+            loss = mrnn.Quantiles(output_config.quantiles)
+        elif output_config.loss == "density_loss":
+            loss = mrnn.Density(output_config.bins)
+        elif output_config.loss == "mse":
+            loss = mrnn.MSE()
+        losses[output_config.variable] = loss
+
+        transform = output_config.transformation
+        if transform is not None:
+            transformations[output_config.variable] = transform
+
+    cimr_mrnn = mrnn.MRNN(
+        losses, model=model, transformation=transformations
+    )
+    cimr_mrnn.model_config = model_config
+    return cimr_mrnn
+
+
+
+
+
+
+def load_config(name):
+    """
+    Load a pre-defined model configuration.
+
+    Args:
+        name: The name of the configuration.
+
+    Rerturn:
+        A ModelConfig object representing the loaded and parsed
+        model configuration.
+    """
+    path = Path(__file__).parent / "model_configs" / name
+    if path.suffix == "":
+        path = path.with_suffix(".ini")
+    return parse_model_config(path)
 
 
 class Head(MLP):

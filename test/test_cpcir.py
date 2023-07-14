@@ -25,4 +25,4 @@ def test_resample_data():
     cpcir_data = xr.load_dataset(cpcir_file)
     tbs_r = resample_data(CONUS, cpcir_data[{"time": 0}])
     assert np.any(np.isfinite(tbs_r.tbs.data))
-    assert tbs_r.tbs.shape == CONUS[4].shape
+    assert tbs_r.tbs.shape[1:] == CONUS[4].shape

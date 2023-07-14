@@ -28,7 +28,8 @@ stem_depth = 1
 
 [mrms]
 type = output
-name = mrms
+reference_data = mrms
+variable = surface_precip
 loss = quantile_loss
 quantiles = np.linspace(0, 1, 34)[1:-1]
 shape = (28,)

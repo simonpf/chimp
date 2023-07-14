@@ -217,7 +217,6 @@ def process_day(year, month, day, output_folder, path=None):
         day: The day
         output_folder: The folder to which to write the extracted
             observations.
-        path: Not used, included for compatibility.
     """
     if path is None:
         raise ValueError(
@@ -231,6 +230,5 @@ def process_day(year, month, day, output_folder, path=None):
     end_time = datetime(year, month, day) + timedelta(hours=23, minutes=59)
     files = Baltrad.find_files(path, start_time=start_time, end_time=end_time)
     for filename in files:
-        print(filename)
         dataset = Baltrad(filename).to_xarray_dataset()
         save_file(dataset, output_folder)

@@ -9,6 +9,7 @@
 *.out
 *.log
 wget-log*
+*.nc
 
 notebooks/
 __pycache__/

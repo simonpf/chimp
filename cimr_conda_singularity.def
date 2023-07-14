@@ -12,7 +12,8 @@ From: continuumio/miniconda3
 %post
     apt update
     apt install -y build-essential
-    /opt/conda/bin/conda env create -f /cimr.yml
+    /opt/conda/bin/conda install mamba -n base -c conda-forge
+    /opt/conda/bin/mamba env create -f /cimr.yml
     rm -rf n /cimr.yml
     echo ". /opt/conda/etc/profile.d/conda.sh" >> $SINGULARITY_ENVIRONMENT
     echo "conda activate cimr" >> $SINGULARITY_ENVIRONMENT
@@ -20,4 +21,3 @@ From: continuumio/miniconda3
 %runscript
 
     exec "$@"
-    

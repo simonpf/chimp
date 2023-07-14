@@ -42,138 +42,132 @@ This report presents the results of the associated scientist activity \texttt{AS
 \subsection{Background}
 \label{sec:orgc337a7d}
 
-Real-time precipitation monitoring forms the basis for a range of meteorological
-and hydrological applications. Together with observations from ground-based
-precipitation radars, satellite observations are the only observations that are
-suitable for large-scale, real-time time precipitation monitoring. Although
-ground-based radar networks provide the most direct measurement of precipitation,
-space-borne observations can complement ground-based observations where the
-former may be unavailable or otherwise corrupted.
+
+Real-time precipitation monitoring forms the basis for various meteorological
+and hydrological applications. Ground-based precipitation radars and satellites
+are the only observation systems suitable for large-scale, real-time
+precipitation monitoring. Although ground-based radar networks provide the most
+reliable precipitation measurements, space-borne observations can complement
+ground-based observations where the former may be unavailable or otherwise
+corrupted.
+
 
 Today, a wide range of space-borne sensors provide observations that can be used
-for the monitoring of precipitation. However, the specific sensor characteristics
-strongly influence the quality and availability of the resulting precipitation
-estimates. The principal characteristics that determine the suitability of a
-sensor for precipitation monitoring are its observation frequency and the orbit
-into which the sensor is placed.
+to monitor precipitation. However, the sensor characteristics strongly influence
+the quality and availability of the resulting precipitation estimates. The
+principal factors determining the suitability of a sensor for precipitation
+monitoring are its observation frequency and the orbit into which the sensor is
+placed.
 
-Visible (VIS) and infrared (IR) observations are mostly sensitive to the upper
-parts of clouds. Although the observed cloud structures can provide limited
-information on the presence of precipitation, VIS/IR observations  do not
-provide a direct signal from precipitation close to the surface. Microwave
-(MW) observations, on the other hand, are directly sensitive to the emission and
-scattering signatures of precipitation. However, the relation between the
-observed precipitation signal and the corresponding precipitation depends on its
-microphysical properties, and, for passive observations, the surface properties
-and the thermodynamic structure of the atmosphere. This leads to significant,
-inherent retrieval uncertainties even for microwave-based measurements.
 
-The most commonly used orbits for precipitation retrievals are geostationary and
+Visible (VIS) and infrared (IR) observations are primarily sensitive to the
+upper parts of clouds. Although the observed cloud structures can provide
+limited information on the presence of precipitation, VIS and IR observations do not
+provide a direct signal from precipitation near the surface. On the other
+hand, microwave (MW) observations are directly sensitive to the emission and
+scattering signatures of precipitation. However, the relationship between
+observations and the corresponding precipitation depends on the precipitation
+microphysics and, for passive observations, the surface properties and the
+thermodynamic structure of the atmosphere. This leads to significant, inherent
+retrieval uncertainties even for microwave-based measurements.
+
+The most common orbits for precipitation retrievals are geostationary and
 low-earth orbits. The principal advantage of geostationary orbits is that they
-provide observations at high temporal resolution (currently \(15\ \si{\min}\) in
+provide observations at high temporal resolution  in
 Europe) for all locations within their field of view. The disadvantage of
-geostationary platforms is their large distance from Earth. This makes them
-unsuitable for MW sensors because the spatial resolution of their observations
-is limited by the antenna size. This is not an issue for VIS and IR sensors
-which can achieve resolutions of a few kilometers and less even from
-geostationary orbits. However, the resolution of geostationary observations
-decreases at high latitudes limiting their use for precipitation retrievals
-to latitude between \(\SI{-70}{\degree N}\) and \(\SI{70}{\degree N}\).
+geostationary platforms is their large distance from Earth, which makes them
+unsuitable for MW sensors due to their limited spatial resolution. The large
+distance from Earth is less of an issue for VIS and IR sensors, which can
+achieve resolutions of a few kilometers and less even from geostationary orbits.
+However, the resolution of geostationary observations decreases with
+increasing latitude limiting their use for precipitation retrievals to regions within
+\(\SI{-70}{\degree N}\) and \(\SI{70}{\degree N}\).
 
-Platforms in low-Earth orbit are suitable for VIS, IR and MW sensors. Their
+Platforms in low-Earth orbit are suitable for VIS, IR, and MW sensors. Their
 proximity to the surface allows them to achieve higher spatial resolutions than
-what would be possible from a geostationary orbit. Nonetheless, the resolution
-of microwave sensors in low-earth orbits is still lower than that of most
-current geostationary VIS/IR observations. Compared to geostationary sensors,
-the principal disadvantage of sensors in low-earth orbit is their
-poorer temporal coverage caused by their limited swath width. However, for
-low-earth orbits crossing over the poles, the coverage increases with
-increasing latitude. This again increases the value of MW observations for
-precipitation retrievals over high-latitude regions.
+from a geostationary orbit. Nonetheless, the resolution of microwave sensors in
+low-earth orbits is still lower than that of most current geostationary VIS and IR
+observations. Compared to geostationary sensors, the principal disadvantage of
+sensors in low-earth orbit is their poorer temporal coverage caused by their
+limited swath width. However, the temporal resolution increases with increasing
+latitude for  orbits passing over the poles. The increased
+availability of MW observations over high latitudes adds to their value for
+precipitation retrievals in these regions.
 
 
 Because of the complementary characteristics of different sensors and orbits,
-meteorological agencies operate platforms in both geostationary and low-Earth
-orbit that carry a range of different sensors. EUMETSAT's METEOSAT and METOP
-programmes provide operational VIS and IR observations from a geostationary
-orbit located over Europe, as well as VIS, IR and MW observations from low-Earth
-orbits.
+meteorological agencies operate multiple platforms that combine different orbit
+and sensor types. For example, EUMETSAT operates the METEOSAT and METOP programs
+to ensure the availability of VIS, IR and MW observations for operational
+meteorological use. The currently operational METEOSAT second generation (SG)
+platforms carry the Spinning Enhanced Visible and Infrared Imager (SEVIRI,
+\citeauthor{aminou02}, \citeyear{aminou02}), which provides VIS and IR
+observations from a geostationary orbit every 15 minutes over Europe. Additionally, the
+currently operational METOP satellites carry, among others, the Microwave
+Humidity Sounder (MHS, \citeauthor{bonsignori07}, \citeyear{bonsignori07}) and
+the Advanced Very High Resolution Radiometer (AVHRR) providing MW and VIS and IR
+observations from a low-earth orbit. While many more sensors provide
+meteorologically valuable observations from space, this study focuses on those
+named above.
+
 
 \subsection{Motivation}
 \label{sec:orga93baac}
 
-Current, operational NRT precipitation retrievals are typically designed to
-process observation from a specific sensor type. They thus neglect a large part
-of the available satellite observations and directly inherit the limitations of
-the underlying sensor in terms of sensitivity to precipitation as well as
-temporal and spatial resolution.
 
-Moreover, most current precipitation retrievals process all observation pixels
-in isolation and thus neglect the structural information in the satellite
-observations. Recent advances in retrieval methodology \citep{pfreundschuh22}
-have shown that retrievals using convolutional neural network (CNNs) learn to
-make use of the spatial information in satellite observations, which leads to
-notable improvements in retrieval accuracy.
+The motivation for this study stems from the observation that current
+precipitation retrievals underutilize available satellite imagery.
 
-The aim of this study were two-fol d: Firstly, we aimed to develop a prototype
-of a NRT precipitation retrieval that can potentially replace the discontinued,
-legacy NRT precipitation algorithm. Secondly, we aimed to develop methodology
-to make better use of currently available satellite observations.
+For one, most retrieval algorithms process pixels in the observations in
+isolation and thus neglect the structural information in the satellite
+observations. However, as recent advances in retrieval methodology
+\citep{pfreundschuh22} have shown, exploiting the spatial information in
+satellite observations can lead to notable improvements in retrieval accuracy.
+
+Moreover, current, operational NRT precipitation retrievals are typically
+designed to process observation from a specific sensor type. They thus tend to
+neglect a significant part of the available observations and directly inherit
+the limitations of the underlying sensor in terms of sensitivity to
+precipitation as well as temporal and spatial resolution.
 
 \subsection{Overview}
 \label{sec:org073dc78}
 
-We have developed machine-learning-based NRT precipitation retrieval. Similar to
-other state-of-the-art precipitation retrievals \citep{pfreundschuh22,
-  pfreundschuh22a}, The retrieval is based on a CNN to make use of the
+
+We have developed a prototype for a machine-learning-based NRT precipitation
+retrieval. Similar to other state-of-the-art precipitation retrievals
+\citep{pfreundschuh22, pfreundschuh22a}, the implementation is based on a
+convolutional neural network (CNN) allowing the retrieval to make use of
 structural information in the satellite imagery. Moreover, the retrieval
-combines observations from different sensors and even merges observations in
-time. In terms of functionality, the closest algorithm in the published
-literature is probably the work by \citet{gorooh22}, which combines microwave
-and geostationary IR observations for precipitation retrieval. However, their
+combines observations from different sensors and can merge observations in time.
+In terms of functionality, the closest algorithm in the published literature is
+probably the work by \citet{gorooh22}, which combines microwave and
+geostationary IR observations for retrieving precipitation. However, their
 algorithm only works where both observations are available and thus inherits the
-coverage limitations of the MW observations used in the retrieval. Moreover,
-despite the misleading title of the study the retrieval does not combine
-observations in time.
+coverage limitations of the MW observations used in the retrieval. Moreover, the
+retrieval does not combine observations in time. Our algorithm was designed to
+overcome these limitations in order to leverage the full potential of currently
+available satellite imagery for real-time precipitation monitoring.
 
-The aim of designing a precipitation retrieval that exploits the synergies
-between different satellite observations poses two technical challenges that
-needed to be addressed during the development of the retrieval.
-\begin{enumerate}
-\item Since observations from different platforms are available at different
-    times, a suitable neural-network architecture had to be found that allows merging
-    of observations with irregular availability. In particular, it is essential
-    for operational use that the network produces accurate results even when some
-    observations are missing.
-\item Observations from platforms in low-earth orbits are available at discrete
-  times. However, due to the continuous evolution of the atmospheric state, the
-  observations should provide valuable information even some time after the overpass.
-  Therefore, to fully leverage the potential of available satellite observations, the
-  retrieval should be able to make use of observations from previous time steps.
-  This requires an architecture that can merge observations in time. 
-\end{enumerate}
+A limitation of this study is that radar reflectivities are used as a proxy for
+precipitation rates. The motivation for this is that the Baltrad measurements
+use a simple power-law relationship to derive rain rates from reflectivities and
+do not distinguish precipitation by type or phase. Moreover, the reflectivity
+fields exhibit visible artifacts even after quality control. Therefore, we do
+not expect the measurements to provide accurate, quantitative precipitation
+estimates and thus limit the retrieval algorithms' evaluation to retrieved radar
+reflectivities, which contain the same information as the derived precipitation
+estimates.
 
-We have developed two neural-network architectures that aim to address both
-of these challenges. The two architectures will be described, together with
-other implementation details, in section~\ref{sec:method}.
-
-One limitation of the developed retrieval algorithm is that we, for this
-study, only consider the retrieval of radar reflectivities. This is because
-the Baltrad measurements make use of a simple Marshall-Palmer relationship
-to calculate rain rates and does not distinguish precipitation types by
-type or phase as is the case for other quantitative precipitation estimates.
-Moreover, the reflectivity fields exhibit visible artifacts even after quality
-control. Since we do not expect the measurements to provide accurate,
-quantitative measurements of precipitation, we limited the evaluation of
-the retrieval algorithms to retrieved radar reflectivities, which contain
-the same information as the derived precipitation estimates.
-
-The newly developed retrieval is assessed in section~\ref{sec:results}. Multiple
-retrieval configurations have been developed and tested in order to assess the
-added value of the combining observations from different sensors and the merging
-of observations in time. Finally, two case studies are considered where the
-retrieval is compared against the previously operational, legacy retrieval
-algorithm.
+The implementation of the retrieval algorithm is described in
+section~\ref{sec:method}. The retrieval performance is assessed in
+section~\ref{sec:results}. Multiple retrieval configurations have been developed
+and tested to assess the added value of combining observations from different
+sensors and merging observations in time. In addition, we explore the
+possibility of using the merged retrieval to predict the evolution of
+precipitation fields into the future. The report closes with a brief
+discussion of the results and suggestions for future development in
+section~\ref{sec:conclusions}
 
 
 \section{Algorithm description}
@@ -184,57 +178,68 @@ algorithm.
 \label{sec:org4dcfa76}
 
 The training dataset consists of collocations of Baltrad ground-based
-precipitation radar measurements collocated with observations from SEVIRI, AHRR,
-MHS and ATMS. Training samples are extracted for minutes \(0, 15, 30, 45\) of
+ radar measurements collocated with observations from SEVIRI, AHRR,
+MHS, and ATMS. Training samples are extracted for minutes \(0, 15, 30, 45\) of
 every hour. Observations from platforms in low-Earth orbit are mapped to the
 closest quarter-hour and stored only when present. All data from the year 2020
 are used for training.
 
-The Baltrad measurements are used as the ground truth to train the retrieval.
-Because Blatrad relies on a simple Marshall-Palmer-type dBZ-rain rate relationship,
-the retrieval is trained directly on the measured dBZ values and the conversion
-of the results to rain rates is performed as a post-processing step. Because
-artifacts are common in ground-radar measurement, the quality index provided by
-Baltrad is used to filter the output pixels that are used during training.
 
-During the study we were informed that the quality index does not take into
-account the distance from the radar, which may reduce the reliability of the
-reference data. Given that this study's focus is put on the relative accuracy of
-the retrievals, we have considered this issue of minor importance and not
-pursued it further.
+Baltrad radar reflectivities are used as the training target to train the retrieval algorithms. Only pixels with a quality index larger than 0.8 are used during the training in order to minimize the risk of training the retrieval to reproduce corrupted Baltrad measurements. Unfortunately, the quality index does not take into account the distance from the radar, which may reduce the reliability of the reference data. However, given that this study focuses on the relative accuracy of the retrievals, we have considered this issue of minor importance and not pursued it further.
 
 \subsection{Neural network model}
 \label{sec:org623391a}
 
+A precipitation retrieval that fully exploits the synergies between different
+satellite observations poses two technical challenges that the underlying
+implementation must address.
+\begin{enumerate}
+\item Since observations from different platforms are available at different
+  times, the neural network must allow for the merging of observations with
+  irregular availability. In particular, it is essential for operational use
+  that the retrieval produces accurate results even when some observations are
+  missing.
 
-The basic neural network architecture used in the retrieval is displayed in
-Fig.~\ref{fig:arch}. The network consists of two parallel branches each
-comprising a U-Net-type encoder and decoder (represented by the gray pyramid
-stumps in Fig.~\ref{fig:arch}). The observation branch ingests the input
-observations and transforms them into a multi-scale representation of the
-atmospheric state, the \textit{hidden state}, while the time-propagation branch
-transforms the hidden state from the previous time step.
+\item Observations from platforms in low-earth orbits are available at discrete
+  times. However, due to the continuous evolution of the atmospheric state, the
+  observations can be expected provide useful information even after the immediate
+  overpass. Therefore, to fully leverage the potential of available satellite
+  observations, the retrieval should be able to integrate observations from
+  previous time steps.
+\end{enumerate}
+
+
+The c neural network architecture that has been developed to address these two
+challenges is displayed in Fig.~\ref{fig:arch}. The network consists of two
+parallel branches, each comprising a U-Net-type \citep{ronneberger15} encoder
+and decoder(, whose stages are represented by the gray pyramid stumps in
+Fig.~\ref{fig:arch}). The observation branch ingests the satellite observations
+and transforms them into a multi-scale representation of the atmospheric state,
+the \textit{hidden state}, while the time-propagation branch transforms the
+hidden state from the previous time step.
+
 
 \subsubsection{Basic blocks}
 
 The neural network model uses convolution blocks from the ConvNext \citep{liu22}
 model as basic building blocks. Several of these blocks are combined to form the
 stages of the encoder and decoder in the observation and time-propagation
-branches. Moreover, these blocks are used in the stems of the network and the
-merging of different data streams.
+branches. Additionally, these blocks are used in the stems of the network and
+the merging of different data streams.
 
 \begin{figure}
 \begin{center}
-  \includegraphics[width=\linewidth]{./cimr_arch.png}
+  \includegraphics[width=\linewidth]{arch.png}
   \caption{
     The neural-network architecture used for the merged precipitation
     retrievals. The network comprises two separate branches: The observation
     branch, which encodes the satellite-observation input into a the network's
-    \textit{hidden state}, and a time-propagation branch, which transforms the
+    hidden state, and a time-propagation branch, which transforms the
     hidden state from the previous time step. The outputs from the
-    time-propagation and observation branch are merged to form the final hidden
-    state for the current time step. A simple neural network head then transform
-    the hidden state into reflectivity estimates.
+    time-propagation and observation branch are merged using dedicated merge
+    blocks (M) to form the final hidden state for the current time step. A
+    fully-connected head (H) then transform the hidden state into reflectivity
+    estimates.
   }
   \label{fig:arch}
 \end{center}
@@ -248,37 +253,39 @@ observations at the base resolution of $\SI{2}{\kilo \meter}$, the geostationary
 observations at a resolution of $\SI{4}{\kilo \meter}$ and the microwave
 observation at a resolution of $\SI{8}{\kilo \meter}$.
 
-Each input is first fed into a corresponding stem consisting of a single
-ConvNext block. The inputs at $\SI{4}{\kilo \meter}$ and $\SI{8}{\kilo \meter}$
-resolution are then merged with the corresponding features from the encoder and
-the result is fed into the subsequent encoder stage.
+Each input is first fed into a corresponding stem ($S_1, S_2, S_3$ in
+Fig.~\ref{fig:arch}) consisting of a single ConvNext block. The inputs at
+$\SI{4}{\kilo \meter}$ and $\SI{8}{\kilo \meter}$ resolution are then merged
+with the corresponding features from the encoder using a single ConvNext block.
+The merged features are then fed into the subsequent encoder stage.
 
-The number of features is doubled with each stage of the encoder starting with
+The number of features is doubled with each stage of the encoder, starting with
 16 at the highest resolution. The encoder consists of 5 stages, each containing
-4 ConvNext blocks. Downsampling is performed using the downsampling blocks
-as the original ConvNext architecture.
+4 ConvNext blocks. Downsampling is performed using the same downsampling blocks as
+the original ConvNext architecture.
 
 The decoder stages consist of only one ConvNext block each. Upsampling is
 performed using bi-linear interpolation. Although not shown in
-Fig.~\ref{fig:arch}, skip connections are used to connect the outputs
-from the encoder stages to the corresponding decoder stages. The hidden state is
-obtained by projecting the output from each decoder stage to 16 channels using a
-simple $1 \times 1$ convolution layer.
+Fig.~\ref{fig:arch}, skip connections are used to connect the outputs from the
+encoder stages to the corresponding decoder stages. The hidden state is obtained
+by projecting the output from each decoder stage to 16 channels using a simple
+$1 \times 1$ convolution layer.
 
 \subsubsection{Time-propagation branch}
 
-The time-propagation branch is only present in retrievals that perform temporal
-merging of observations. The encoder-decoder structure of time-propagation
-branch is similar to that of the observation branch except that the input is the
-hidden state from the previous time step.
 
-The output from the time-propagation branch is merged with the observation-based
-hidden state obtained from the observation branch. The merging is performed
-using a separate ConvNext block for each scale. The resulting merged hidden
-state is taken as the final hidden state corresponding to the current time step.
+ The encoder-decoder structure of the time-propagation branch is similar to that
+ of the observation branch, except that the input is the hidden state from the
+ previous time step. The output from the time-propagation branch is merged with
+ the observation-based hidden state obtained from the observation branch. The
+ merging is performed using a separate ConvNext block for each scale. The
+ resulting merged hidden state is taken as the final hidden state corresponding
+ to the current time step. The time-propagation branch is only present in
+ retrievals that perform temporal merging of observations.
 
 
 \subsubsection{Calculation of retrieval output}
+
 
 Radar reflectivities are calculated from the hidden state using a separate
 network head. The head consist of layers of $1 \times 1$ convolutions followed
@@ -289,39 +296,39 @@ corresponding dBZ.
 
 \subsection{Training}
 
-The retrieval uses a quantile regression \citep{pfreundschuh18} to produce
+The retrieval uses quantile regression \citep{pfreundschuh18} to produce
 probabilistic estimates of the radar reflectivity. The network is trained to
-predict the quantiles corresponding to quantile fractions
-$\tau = [\frac{1}{65}, \ldots, \frac{64}{65}]$.
+predict the quantiles corresponding to quantile fractions $\tau = [\frac{1}{65},
+  \ldots, \frac{64}{65}]$. The training is performed using the AdamW
+\citep{loshchilov18} optimizer and a cosine-annealing learning-rate schedule
+\citep{loshchilov16} with warm restarts every 20 epochs. The training is
+restarted until the training loss has converged.
 
-The training uses the AdamW \citep{loshchilov18} optimizer and a
-cosine-annealing learning-rate schedule with warm restarts every 20 epochs. The
-training is restarted until the training loss has converged.
+The training data uses all available radar measurements over the Baltrad domain
+from 2020. Samples are generated by extracting random crops of a size of 256
+pixels at $2-\si{\kilo \meter}$ resolution and transforming them using random
+flip and transpose operations. For one epoch, one sample is extracted from every
+available radar scene. For the training of the microwave-only retrieval,
+the scenes were restricted to scenes for which microwave observations are
+available.
 
-The training data used all available radar measurements over the Baltrad domain
-from the year 2020. Samples are generated by extracting random crops of a size
-of 256 pixels at $2-\si{\kilo \meter}$ resolution and transforming the using
-random flipping and transposition. For one epoch, one sample is extracted from
-every available radar measurement. For the training of the microwave-only
-retrieval the scenes were restricted to scenes for which microwave observations
-are available.
 
 \subsection{Retrieval configurations}
 
-To assess the benfits of merging satellite observations from different sensors
-and in time, we have developed several retrieval configuration that
-consecutively integrate more observations into the retrieval. A geostationary-
-(\texit{Geo}) and microwave-only (\textit{MW}) configuration, are used as
-accuracy baselines because they are most representative of conventional
-retrieval algorithm. Addiotionally, the \textit{All} configuration uses all
-observations considered in this study, i. e. observations from AVHRR, a VIS/IR
-sensor in low-earth orbit, observations from SEVIRI, a VIS/IR sensor in
-geostationary orbit, and observations from MHS and ATMS, microwave sensors in
-low-earth orbit. Finally, the \texit{All, merged} configuration uses
-observations from all sensors and merges them temporally. The configurations
-are summarized in table~\ref{tab:configurations}.
+To assess the benefits of merging satellite observations from different sensors
+and time steps, we have developed several retrieval configurations that
+consecutively integrate more observations into the retrieval. The geostationary-
+(\textit{Geo}) and microwave-only (\textit{MW}) configurations use only
+observations from the geostationary sensor (SEVIRI) and the microwave sensors
+(MHS, ATMS), respectively. They are used as baseline retrievals because they are
+most representative of conventional precipitation retrieval algorithms. The
+\textit{All} configuration uses all observations considered in this study, i. e.
+observations from AVHRR, SEVIRI, MHS and ATMS. Finally, the \textit{All, merged}
+configuration uses observations from all sensors and merges them temporally. The
+configurations are summarized in table~\ref{tab:configurations}.
 
 \begin{table}[hbpt]
+  \begin{center}
   \begin{tabular}{l|cc}
     Name & Input observations & Temporal merging \\
     \hline
@@ -330,41 +337,43 @@ are summarized in table~\ref{tab:configurations}.
     All & SEVIRI, AVHRR MHS, ATMS & No \\
     All, merged & SEVIRI, AVHRR, ATMS & Yes
   \end{tabular}
+  \end{center}
   \caption{Retrieval configuration assessed in this study.}
   \label{tab:configurations}
   \end{table}
 
-The configurations all share the same basic architecture displayed in
-Fig.~\ref{fig:arch}. For configurations using only a subset of the
-input observations, the stems and parts of the encoder that aren't
-required are omitted. Similarly, the time-propagation branch is omitted
-for configurations that don't merge observations in time.
+
+The configurations all share the same basic architecture illustrated in
+Fig.~\ref{fig:arch}. The stems and parts of the encoder that are not required
+are omitted for configurations that only use a subset of the satellite
+observations. Similarly, the time-propagation branch is omitted for
+configurations that do not merge observations in time.
 
 
 \section{Results}
 \label{sec:results}
 
-The accuracy of the retrieval was assessed using all observations from the months
+The accuracy of the retrieval is assessed using all observations from the months
 May and December 2021. The retrieval was run on the full Baltrad domain and the
 results compared to corresponding the Baltrad measurements.
 
 \subsection{Accuracy}
 
 
-Bias, meas-squared error (MSE) and correlation coefficients for all
+Bias, mean-squared error (MSE) and correlation coefficients for all
 configurations are shown in Fig.~\ref{fig:metrics}. The evaluation considers
 only pixels at which SEVIRI, AVHRR and microwave observations are available to
-ensure a fair comparison.
+ensure a fair comparison to ensure a just comparison.
 
-The \textit{MW} configuration exhibits the largest biases, which are
-significantly smaller for the \textit{All}, \textit{Geo} and \textit{All,
+The \textit{GEO} configuration exhibits the largest biases, which are
+significantly smaller for the \textit{MW}, \textit{All} and \textit{All,
   merged} configurations. In terms of MSE, \textit{Geo} has the largest errors,
 followed by \textit{MW}, \textit{All}, and \textit{All, merged}. The decrease in
 error for the \textit{All} configuration indicates that the retrieval
 successfully learned to leverage complementary information in the satellite
-observations, which improves the accuracy of the dBZ retrieval. The temporal
+observations, which improves the accuracy of the reflectivity retrieval. The temporal
 merging of observations leads to further increases in retrieval accuracy. The
-same tendencies are observed also for the correlation between retrieved and
+same tendencies are observed  for the correlation between retrieved and
 reference reflectivities. Although the overall accuracy is lower for December,
 the relative performance of the configurations is the same as for May.
 
@@ -381,11 +390,11 @@ the relative performance of the configurations is the same as for May.
 Scatter plots of the reference and retrieved radar reflectivities are shown in
 Fig.~\ref{fig:scatter}. The scatter plots reveal clear differences between
 \textit{Geo} and the other configurations. The \textit{Geo} configuration
-exhibits the strongest tendency to underestimation of high reflectivities. The
+exhibits the strongest tendency to underestimate high reflectivities. The
 \textit{MW} configuration significantly improves the retrieval of high
 reflectivities. Compared to \textit{MW}, the \textit{All} and \textit{All,
-  merged} configurations slightly improve the retrieval of moderate and high
-reflectivities
+  merged} configurations principally improve the retrieval of moderate and high
+reflectivities.
 
 
 \begin{figure}
@@ -409,16 +418,17 @@ north from the Gulf of Bothnia. The configurations that make use of micorwave
 observations (\textit{MW}, \textit{All}, \textit{All, merged}) are more
 successful in reproducing the magnitude of the reflectivities. Comparing the
 \textit{MW}, \textit{All}, \textit{All, merged} configuration, the results show
-a clear improvement in the resolution of the retrieval when VIS and IR
+a clear improvement in the spatial resolution  when VIS and IR
 observations are incorporated into the retrieval.
 
 The final row of Fig.~\ref{fig:case_1_seq} also shows the retrieved
 precipitation probability from the discontinued legacy retrieval. The retrieval
 outputs probabilities for light, moderate and intense precipitation. They have
-been combined to a universal precipitation probability by taking the maximum of
- the three retrieved probabilities. Although the retrieval does predict
-precipitation in all regions where significant reflectivities are observed, the
-extent of the precipitation is heavily overestimated.
+been combined to a general precipitation probability by taking the maximum of
+the three retrieved probabilities. The retrieval produces large regions of
+low precipitation probabilities, which strongly overestimate the real extent
+of the radar echoes, while the regions with high precipitation probability
+strongly underestimate the extent of the observed precipitation.
 
 
 \begin{figure}
@@ -431,7 +441,7 @@ extent of the precipitation is heavily overestimated.
     the \textit{MW}, \textit{Geo}, \textit{All} and \textit{All, merged}
     retrieval configurations, respectively. The sixth row shows a map of the
     observation availability. The seventh row shows the probability of
-    precipitation derived from the legacy precipitation retrieval.
+    precipitation derived from the discontinued legacy precipitation retrieval.
   }
   \label{fig:case_1_seq}
 \end{figure}
@@ -445,9 +455,9 @@ clearly improved for the retrievals that incorporate microwave observations.
 A clear impact of the temporal merging can be observed here on the eastern flank
 of the precipitation system impacting Southern Norway. At 20:30 both
 \textit{All} and \textit{All, merged} reproduce the shape of the precipitation
-cell extending inlands. At 20:45, however, the shape observed at 20:30 is
-blurred out in the \texit{All} results but still present in the \textit{All,
-  merged} results.
+cell that extends inlands. At 20:45, however, the shape of the cell is strongly
+blurred in the \textit{All} results but still truthfully represent in the
+\textit{All, merged} results.
 
 
 
@@ -466,20 +476,17 @@ blurred out in the \texit{All} results but still present in the \textit{All,
 
 \subsection{Precipitation forecasts}
 
-The \textit{All, merged} configuration can also be used to predict the temporal
-evolution of the reflectivity fields. To explore the potential of the algorithm
-for precipitation forecasting, we have performed forecasts for the fist ten days
-of May 2021. To perform the forecasts, the retrieval has been trained on
-sequences of 32 consecutive observations of which the first 16 contain
-observations but the last 16 do not.
+The \textit{All, merged} configuration can also be used to predict the temporal evolution of the reflectivity fields. To explore the algorithm's potential for precipitation forecasting, we have performed forecasts for the first ten days of May 2021. For this, the retrieval has been trained on sequences of 32 consecutive observations, of which the first 16 contain observations but the last 16 do not.
 
  Fig.~\ref{fig:forecast} shows the mean-squared error and correlation of the
- forecasts compared to the reference reflectivity fields. For reference also the
- corresponding results of a persistence forecast using the retrieval results at
- $t = \SI{0}{\minute}$ is shown. These results indicate that the retrieval has
- some skill even for precipitation forecasting. Unfortunately, we were not able
- to evaluate the quality of the forecast against the currently withing the
- project.
+ forecasts compared to the reference reflectivity fields. The corresponding
+ results of a persistence forecast using the retrieval results at $t =
+ \SI{0}{\minute}$ are also shown. The retrieval clearly outperforms the
+ persistence forecast indicating that it has some skill for precipitation
+ forecasting. Unfortunately, we were not able to evaluate the quality of the
+ forecast against the currently operational precipitation nowcasting algorithm
+ within this project.
+
 
 \begin{figure}
   \centering
@@ -491,36 +498,79 @@ observations but the last 16 do not.
   \label{fig:forecast}
 \end{figure}
 
+A case study of a precipitation forecast is presented in
+Fig.~\ref{fig:case_forecast}. The figure shows the reference reflectivity fields
+together with the mean of the predicted reflectivities and the predicted
+probability that  reflectivities higher than $\SI{0}{\deci \bel}$ are observed in
+each pixel. Due to the probabilistic nature of the forecast, the predicted mean
+reflectivity should be interpreted not as a single realization of a forecast but
+rather as the mean of an ensemble of forecasts. This approach has the advantage that
+statistical inference, such as the calculation of exceedance probabilities, can
+be performed from just a single forecast.
+
+
+Overall, the forecast captures the evolution of the principal precipitation
+features, such as the eastern flank of the frontal system over the baltic sea.
+Also, the precipitation system propagating in the western direction over
+northern Finland is represented correctly in the forecast. However, the forecast
+misses the smaller-scale precipitation developing in the South-East of the
+scene. Moreover, the evolution of the precipitation system over northern Finland
+into an eight-shaped structure seems to indicate that the forecast reproduces
+radar artifacts in its predictions. Interestingly, this structure can be
+partially observed even in the reference measurements, indicating that the
+forecast correctly predicts what it was trained to predict.
+
+
+\begin{figure}
+  \centering
+  \includegraphics[width=\textwidth]{forecast_case}
+  \caption{
+    Four prediction steps from a reflectivity forecast initialized
+    at 8:00 on 6 May 2021. The first row of panels show the reference
+    measurements corresponding to the forecasts. The second row
+    of panels show the posterior mean of the probabilistic reflectivity
+    forecast. The third row of panels shows the predicted probability
+    of the reflectivity exceeding $\SI{0}{\deci \bel}$.
+  }
+  \label{fig:case_forecast}
+\end{figure}
+
 \section{Summary and conclusions}
-\label{sec:org5e185c2}
+\label{sec:conclusions}
 
-This study has presented a neural-network-based NRT precipitation retrieval
-algorithm which combines observations from multiple sensors and across time
-steps. The evaluation of the algorithm shows that neural network is able to
-leverage synergies between different observations types even across multiple
-time steps.
+This study presents a neural-network-based NRT precipitation retrieval algorithm that combines observations from multiple satellite sensors and merges them in time. The evaluation of the algorithm shows that the retrieval can leverage synergies between observations from different sensors and successive time steps.
 
-While there exist some algorithms that combine observations from multiple
-sensors, they typically only work for the case where all observations are
-available. The algorithm developed here works with any subset of observations,
-which is essential to achieve high spatial coverage and temporal resolution in
-operation. When only geostationary observations are available, the retrieval
-that uses all observations works as well as the retrieval that was trained only
-geostationary observations only. This is an important aspect, as it indicates
-that observations can be added to the retrieval without a negative impact
-on retrieval accuracy when these observations are not available.
+While there exist certain retrieval algorithms \citep{gorooh22} that combine observations from multiple sensors, they typically only work for the case where all observations are available. The algorithm developed in this study works with any subset of observations, which is crucial for achieving high spatial coverage and temporal resolution in an operational setting.
 
-The use of temporal information in precipitation retrievals has so far
-been mostly limited to morphing algorithms such as IMERG \citep{huffman20} and
-CMORPH \citep{joyce11}. However, these algorithms typically only use motion
-fields derived from  geostationary satellites to interpolate retrievals
-from microwave sensors. Since technique only counteracts the absence of
-observations it does not improve the accuracy in the case where multiple
-observations are available. The temporal merging used in our retrieval,
-however, increases the accuracy even when all observations are available.
-This in fact mean that observations are combined synergistically across
-time steps. We are not aware of that a retrieval algorithm with similar
-capabilities has been published in the literature.
+Other notable precipitation retrieval algorithms that use temporal information
+are IMERG \citep{huffman20} and CMORPH \citep{joyce11}. These algorithms use
+motion fields derived from geostationary satellites to interpolate between
+retrievals from microwave sensors. However, these techniques only aim to
+counteract the absence of observations and  cannot improve the accuracy of
+the original microwave retrievals. The retrieval presented here improves the
+accuracy even when observations from all considered sensors are already
+available. This shows that observations are combined synergistically, not only
+between sensors, but even across time steps. To the best of our knowledge, this
+is the first precipitation retrieval algorithm that achieves this.
+
+Finally, we have demonstrated that the merged retrieval can predict the temporal
+evolution of precipitation fields. Although the forecasts presented here are
+merely a proof of concept, this is an exciting direction for future research.
+
+The retrieval presented in this study constitutes a first step toward the next generation of data-driven precipitation retrievals. Our results demonstrate the benefits of the machine-learning-based approach, which allows combining observations from various sensors and successive time steps synergistically, which, so far, could only be achieved through data assimilation. However, due to the difficulty of representing hydrometeors, data assimilation is not well suited for precipitation retrievals.
+
+Considering the limited extent of this project, we expect the results presented
+here to be merely a glimpse of what is possible with the approach. The presented
+retrieval can easily be extended to incorporate observations from additional
+sensors. Moreover, only a fraction of the available training data has been used
+in this project. Given the empirical evidence from other deep learning
+applications, it can be expected that increasing the training data can
+substantially improve the retrieval. Finally, future developments should also
+revisit the neural-network architecture used in the retrieval and improve the
+quality of the reference data.
+
+
+
 
 \bibliography{references}
 

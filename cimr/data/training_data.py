@@ -27,7 +27,9 @@ import pandas as pd
 
 
 from cimr.areas import NORDIC_2
-from cimr.utils import MISSING
+from cimr.definitions import MASK
+from cimr.data.utils import get_inputs, get_reference_data
+from cimr.data import inputs, reference
 
 ###############################################################################
 # Normalizer objects
@@ -79,6 +81,7 @@ NORMALIZER_MW_183.stats = {
     3: (190, 290),
     4: (190, 290),
 }
+
 
 
 ###############################################################################
@@ -326,7 +329,9 @@ class CIMRDataset:
     def __init__(
         self,
         folder,
-        sources=None,
+        reference_data="radar",
+        inputs=None,
+        targets=None,
         sample_rate=1,
         sequence_length=1,
         normalize=True,
@@ -335,11 +340,16 @@ class CIMRDataset:
         end_time=None,
         quality_threshold=0.8,
         augment=True,
-        sparse=True
+        sparse=True,
+        time_step=None
     ):
         """
         Args:
             folder: The root folder containing the training data.
+            reference_data: Name of the folder containing the reference
+                data.
+            inputs: List of names of inputs specifying the input data.
+            targets: List of target names.
             sample_rate: How often each scene should be sampled per epoch.
             normalize: Whether inputs should be normalized.
             window_size: Size of the training scenes.
@@ -354,48 +364,66 @@ class CIMRDataset:
             sparse: Whether to return ``None`` for inputs that are empty. This
                 this can be used together with 'PackedTensors' to handle missing
                 inputs.
+            time_step: Minimum time step between consecutive reference samples.
+                Can be used to sub-sample the reference data.
         """
         self.folder = Path(folder)
-        if sources is None:
-            sources = ["visir", "geo", "mw"]
-        self.sources = sources
+
+        self.reference_data = get_reference_data(reference_data)
+
+        if inputs is None:
+            inputs = ["visir", "geo", "mw"]
+        self.inputs = get_inputs(inputs)
+
+        self.n_inputs = len(inputs)
         self.sample_rate = sample_rate
         self.normalize = normalize
         self.quality_threshold = quality_threshold
         self.augment = augment
         self.sparse = sparse
 
-        radar_files = sorted(list((self.folder / "radar").glob("radar*.nc")))
-        times = np.array(list(map(get_date, radar_files)))
+        pattern = "*????????_??_??.nc"
+
+        # Find all reference files and select those within time range.
+        reference_files = sorted(
+            list((self.folder / self.reference_data.name).glob(pattern))
+        )
+        times = np.array(list(map(get_date, reference_files)))
         if start_time is not None and end_time is not None:
             indices = (times >= start_time) * (times < end_time)
             times = times[indices]
-            radar_files = [radar_files[i] for i in np.where(indices)[0]]
+            reference_files = [reference_files[i] for i in np.where(indices)[0]]
+
+        if time_step is not None:
+            d_t = np.timedelta64(time_step.seconds, "s")
+            d_t_files = times[1] - times[0]
+            subsample = int(d_t / d_t_files)
+            reference_files = reference_files[::subsample]
 
         samples = {
-            time: SampleRecord(b_file) for time, b_file in zip(times, radar_files)
+            time: [ref_file,] + [None,] * self.n_inputs for
+            time, ref_file in zip(times, reference_files)
         }
-        if "geo" in self.sources:
-            geo_files = sorted(list((self.folder / "geo").glob("*.nc")))
-            times = np.array(list(map(get_date, geo_files)))
-            for time, geo_file in zip(times, geo_files):
+
+        with xr.open_dataset(reference_files[0]) as ref_data:
+            base_size = self.reference_data.scale
+
+        self.scales = {}
+        for src_ind, inpt in enumerate(self.inputs):
+            src_files = sorted(list((self.folder / inpt.name).glob(pattern)))
+            times = np.array(list(map(get_date, src_files)))
+            scale = None
+            for time, src_file in zip(times, src_files):
+
+                if scale is None:
+                    with xr.open_dataset(src_file) as src_data:
+                        scale = inpt.scale / base_size
+                        self.scales[inpt.name] = scale
+
                 sample = samples.get(time)
                 if sample is not None:
-                    sample.geo = geo_file
-        if "mw" in self.sources:
-            mw_files = sorted(list((self.folder / "microwave").glob("*.nc")))
-            times = np.array(list(map(get_date, mw_files)))
-            for time, mw_file in zip(times, mw_files):
-                sample = samples.get(time)
-                if sample is not None:
-                    sample.mw = mw_file
-        if "visir" in self.sources:
-            visir_files = sorted(list((self.folder / "visir").glob("*.nc")))
-            times = np.array(list(map(get_date, visir_files)))
-            for time, visir_file in zip(times, visir_files):
-                sample = samples.get(time)
-                if sample is not None:
-                    sample.visir = visir_file
+                    sample[src_ind + 1] = src_file
+
         self.samples = samples
 
         self.keys = np.array(list(self.samples.keys()))
@@ -415,7 +443,7 @@ class CIMRDataset:
         self.sequence_starts = []
         for index in starts:
             sample = self.samples[times[index]]
-            if sample.has_input(self.sources):
+            if any((inp is not None for inp in sample[1:])):
                 self.sequence_starts.append(index)
 
         self.init_rng()
@@ -436,166 +464,122 @@ class CIMRDataset:
 
     def load_sample(
             self,
-            index,
-            slices=None,
+            files,
+            slices,
             forecast=False,
             flip_v=False,
             flip_h=False,
-            transpose=False
+            transpose=False,
     ):
         """
         Load training sample.
 
         Args:
-            index: Time stamp identifying the input sample.
-            slices: Optional row and column slices determining the
-                window to extract from each scene.
+            files: A list containing the reference data and inputs files
+                 containing the data to this sample.
+            slices: Tuple ``(i_start, i_end, j_start, j_end)`` defining
+                 defining the crop of the domain.
+            forecast: If 'True' inputs will be None.
+            flip_v: Whether or not to flip the data vertically.
+            flip_h: Whether or not to flip the data horizontally.
+            transpose: Whether or not to transpose the data.
+
+        Return:
+            A tuple ``(x, y)`` containing two dictionaries ``x`` and ``y``
+            with ``x`` containing the training inputs and ``y`` the
+            corresponding outputs.
         """
-        key = self.keys[index]
-        with xr.open_dataset(self.samples[key].radar) as data:
+        if slices is not None:
+            i_start, i_end, j_start, j_end = slices
+            row_slice = slice(i_start, i_end)
+            col_slice = slice(j_start, j_end)
+        else:
+            row_slice = slice(0, None)
+            col_slice = slice(0, None)
 
-            y = data.dbz.data.copy()
-            y[data.qi.data < self.quality_threshold] = np.nan
+        y = {}
+        with xr.open_dataset(files[0]) as data:
 
-            if slices is None:
+            qual = data[self.reference_data.quality_index]
+            qual = qual.data[row_slice, col_slice]
+            invalid = qual < self.quality_threshold
 
-                found = False
-                while not found:
-                    n_rows, n_cols = y.shape
-                    i_start = self.rng.integers(0, (n_rows - self.window_size) // 4)
-                    i_end = i_start + self.window_size // 4
-                    j_start = self.rng.integers(0, (n_cols - self.window_size) // 4)
-                    j_end = j_start + self.window_size // 4
+            for target in self.reference_data.targets:
+                y_t = data[target].data[row_slice, col_slice]
 
-                    row_slice = slice(4 * i_start, 4 * i_end)
-                    col_slice = slice(4 * j_start, 4 * j_end)
+                y_t[y_t < 0] = np.nan
+                small = y_t < 1e-2
+                rnd = self.rng.uniform(-5, -3, small.sum())
+                y_t[small] = 10 ** rnd
 
-                    y_s = y[row_slice, col_slice]
+                if flip_v:
+                    y_t = np.flip(y_t, -2)
+                if flip_h:
+                    y_t = np.flip(y_t, -1)
+                if transpose:
+                    dims = list(range(y_t.ndim))
+                    dims[-2], dims[-1] = dims[-1], dims[-2]
+                    y_t = np.transpose(y_t, dims)
 
-                    if (y_s >= -100).mean() > 0.1:
-                        found = True
 
-            else:
-                i_start, i_end, j_start, j_end = slices
-                row_slice = slice(4 * i_start, 4 * i_end)
-                col_slice = slice(4 * j_start, 4 * j_end)
-                y_s = y[row_slice, col_slice]
-
-        y_s = np.nan_to_num(y_s, nan=-100)
-        y = torch.as_tensor(y_s, dtype=torch.float)
-        n_rows = y.shape[-2]
-        n_cols = y.shape[-1]
+                y_t[invalid] = np.nan
+                y[target] = np.nan_to_num(y_t, nan=MASK, copy=True)
 
         x = {}
 
-        # GEO data
-        if "geo" in self.sources:
-            if self.samples[key].geo is not None and not forecast:
-                with xr.open_dataset(self.samples[key].geo) as data:
-                    row_slice = slice(i_start * 2, i_end * 2)
-                    col_slice = slice(j_start * 2, j_end * 2)
-                    load_geo_obs(
-                        x,
-                        data[{"y": row_slice, "x": col_slice}],
-                        normalize=self.normalize,
-                        rng=self.rng
-                    )
-                    if self.sparse:
-                        missing_fraction = (x["geo"] < -1.4).float().mean()
-                        if missing_fraction > 0.95:
-                            x["geo"] = None
-            else:
+        for input_ind, inpt in enumerate(self.inputs):
+
+            if files[input_ind + 1] is None:
                 if self.sparse:
-                    x["geo"] = None
+                    x_s = None
                 else:
-                    x["geo"] = -1.5 * torch.ones(
-                        (11, n_rows // 2, n_cols // 2),
-                        dtype=torch.float
-                    )
+                    size = self.window_size * self.scales[inpt.names]
+                    n_channels = len(inpt.normalizer.stats)
+                    x_s = np.nan * np.zeros((n_channels, size, size))
+                    if self.normalize:
+                        x_s = inpt.normalizer(x_s)
+                x[inpt.name] = x_s
+                continue
 
-        # VISIR data
-        if "visir" in self.sources:
-            if self.samples[key].visir is not None and not forecast:
-                with xr.open_dataset(self.samples[key].visir) as data:
-                    row_slice = slice(4 * i_start, 4 * i_end)
-                    col_slice = slice(4 * j_start, 4 * j_end)
-                    load_visir_obs(
-                        x,
-                        data[{"y": row_slice, "x": col_slice}],
-                        normalize=self.normalize,
-                        rng=self.rng
-                    )
-                    if self.sparse:
-                        missing_fraction = (x["visir"] < -1.4).float().mean()
-                        if missing_fraction > 0.95:
-                            x["visir"] = None
+
+            if slices is not None:
+                scl = self.scales[inpt.name]
+                row_slice = slice(int(i_start / scl), int(i_end / scl))
+                col_slice = slice(int(j_start / scl), int(j_end / scl))
             else:
-                if self.sparse:
-                    x["visir"] = None
+                row_slice = slice(0, None)
+                col_slice = slice(0, None)
+
+            with xr.open_dataset(files[input_ind + 1]) as data:
+
+                vars = inpt.variables
+                if isinstance(vars, str):
+                    x_s = data[vars].data[..., row_slice, col_slice]
+                    # Expand dims in case of single-channel inputs.
+                    if x_s.ndim < 3:
+                        x_s = x_s[None]
+
                 else:
-                    x["visir"] = -1.5 * torch.ones(
-                        (5, n_rows, n_cols),
-                        dtype=torch.float
+                    x_s = np.stack(
+                        [data[vrbl].data[row_slice, col_slice] for vrbl in vars]
                     )
 
-        # Microwave data
-        if "mw" in self.sources:
-            if self.samples[key].mw is not None and not forecast:
-                with xr.open_dataset(self.samples[key].mw) as data:
-                    row_slice = slice(i_start, i_end)
-                    col_slice = slice(j_start, j_end)
-                    load_microwave_obs(
-                        x,
-                        data[{"y": row_slice, "x": col_slice}],
-                        normalize=self.normalize,
-                        rng=self.rng
-                    )
-                    if self.sparse:
-                        missing_fraction = 0
-                        keys = ["mw_90", "mw_160", "mw_183"]
-                        for key in keys:
-                            missing_fraction += (x[key] < -1.4).float().mean()
-                        if missing_fraction / 3 > 0.95:
-                            for key in keys:
-                                x[key] = None
-            else:
                 if self.sparse:
-                    x["mw_90"] = None
-                    x["mw_160"] = None
-                    x["mw_183"] = None
-                else:
-                    x["mw_90"] = -1.5 * torch.ones(
-                        (2, n_rows // 4, n_cols // 4),
-                        dtype=torch.float
-                    )
-                    x["mw_160"] = -1.5 * torch.ones(
-                        (2, n_rows // 4, n_cols // 4),
-                        dtype=torch.float
-                    )
-                    x["mw_183"] = -1.5 * torch.ones(
-                        (5, n_rows // 4, n_cols // 4),
-                        dtype=torch.float
-                    )
+                    missing_fraction = np.isnan(x_s).mean()
+                    if missing_fraction > 0.95:
+                        x[inpt.name] = None
+                        continue
 
-        if flip_v:
-            x = {
-                k: torch.flip(x_k, (-2,)) if x_k is not None else x_k
-                for k, x_k in x.items()
-            }
-            y = torch.flip(y, (-2,))
-        if flip_h:
-            x = {
-                k: torch.flip(x_k, (-1,)) if x_k is not None else x_k
-                for k, x_k in x.items()
-            }
-            y = torch.flip(y, (-1,))
-        if transpose:
-            x = {
-                k: torch.transpose(x_k, -2, -1) if x_k is not None else x_k
-                for k, x_k in x.items()
-            }
-            y = torch.transpose(y, -2, -1)
+                if self.normalize:
+                    x_s = inpt.normalizer(x_s)
 
+                if flip_v:
+                    x_s = np.flip(x_s, 1)
+                if flip_h:
+                    x_s = np.flip(x_s, 2)
+                if transpose:
+                    x_s = np.transpose(x_s, [0, 2, 1])
+                x[inpt.name] = torch.tensor(x_s.copy())
         return x, y
 
     def __getitem__(self, index):
@@ -604,38 +588,13 @@ class CIMRDataset:
         scene_index = self.sequence_starts[index // self.sample_rate]
         key = self.keys[scene_index]
 
-        with xr.open_dataset(self.samples[key].radar) as data:
-
-            y = data.dbz.data.copy()
-            y[data.qi.data < self.quality_threshold] = np.nan
-
-            found = False
-            tries = 0
-
-            while not found:
-
-                n_rows, n_cols = y.shape
-
-                i_start = self.rng.integers(0, (n_rows - self.window_size) // 4)
-                i_end = i_start + self.window_size // 4
-                j_start = self.rng.integers(0, (n_cols - self.window_size) // 4)
-                j_end = j_start + self.window_size // 4
-
-                row_slice = slice(4 * i_start, 4 * i_end)
-                col_slice = slice(4 * j_start, 4 * j_end)
-
-                y_s = y[row_slice, col_slice]
-
-                if (y_s >= -100).mean() > 0.2:
-                    found = True
-                else:
-                    tries += 1
-
-                if tries > 10:
-                    new_index = self.rng.integers(0, len(self))
-                    return self[new_index]
-
-        slices = (i_start, i_end, j_start, j_end)
+        slices = reference.find_random_scene(
+            self.samples[key][0],
+            self.rng,
+            multiple=4,
+            window_size=self.window_size,
+            rqi_thresh=self.quality_threshold
+        )
 
         xs = []
         ys = []
@@ -649,26 +608,24 @@ class CIMRDataset:
             flip_h = False
             transpose = False
 
-        # If not in sequence mode return data directly.
-        if self.sequence_length == 1:
-            x, y = self.load_sample(
-                scene_index,
-                slices=slices,
-                flip_v=flip_v,
-                flip_h=flip_h,
-                transpose=transpose
-            )
-            has_input = False
-            for source in self.sources:
-                if source == "mw":
-                    source = "mw_90"
-                if x[source] is not None:
-                    has_input = True
-            if has_input:
-                return x, y
+        x, y = self.load_sample(
+            self.samples[key],
+            slices,
+            flip_v=flip_v,
+            flip_h=flip_h,
+            transpose=transpose
+        )
 
-        new_index = self.rng.integers(0, len(self))
-        return self[new_index]
+        has_input = any((x[inpt.name] is not None for inpt in self.inputs))
+        has_output = any (
+            (y[target] is not None for target in self.reference_data.targets)
+        )
+
+        if not has_input or not has_output:
+            new_index = self.rng.integers(0, len(self))
+            return self[new_index]
+
+        return x, y
 
 
     def plot(self, key):
@@ -947,36 +904,32 @@ class CIMRDataset:
 
         return x, slice_y, slice_x
 
-    def full_range(self, start_time=None, end_time=None):
 
-        indices = np.ones(self.keys.size, dtype=np.bool)
+    def full_domain(self, start_time=None, end_time=None):
+
+
+        indices = np.ones(self.keys.size, dtype="bool")
         if start_time is not None:
             indices = indices * (self.keys >= start_time)
         if end_time is not None:
             indices = indices * (self.keys <= end_time)
-        keys = sorted(self.keys[indices])
+        times = sorted(self.keys[indices])
 
-        for key in keys:
-            x, y = self.load_full_data(key)
-            x, slice_y, slice_x = self.pad_input(x, multiple=64)
+        for time in times:
 
-            missing_fraction = (x["geo"] < -1.4).float().mean()
-            if missing_fraction > 0.95:
-                x["geo"] = None
-            missing_fraction = (x["visir"] < -1.4).float().mean()
-            if missing_fraction > 0.95:
-                x["visir"] = None
-            missing_fraction = 0
-            keys_mw = ["mw_90", "mw_160", "mw_183"]
-            for mw in keys_mw:
-                missing_fraction += (x[mw] < -1.4).float().mean()
-            if missing_fraction / 3 > 0.95:
-                for mw in keys_mw:
-                    x[mw] = None
+            x, y = self.load_sample(self.samples[time], None)
+
+            for inpt in self.inputs:
+                cut = 3 // (inpt.scale // 4)
+                x_i = x[inpt.name]
+                if cut > 0 and x_i is not None:
+                    x[inpt.name] = x_i[..., :-cut]
+            for key in y:
+                y[key] = y[key][..., :-3]
 
             x = sparse_collate([x])
 
-            yield x, y, slice_y, slice_x, key
+            yield time, x, y
 
 
     def get_forecast_input(self, forecast_time, n_obs):
@@ -1035,6 +988,133 @@ class CIMRDataset:
             x = sparse_collate([x])
             inputs.append((x, y, slice_y, slice_x, key))
         return inputs
+
+
+class CIMRPretrainDataset(CIMRDataset):
+    """
+    Dataset class for the CIMR training data.
+
+    Implements the PyTorch Dataset interface.
+    """
+    def __init__(
+        self,
+        folder,
+        reference_data="radar",
+        inputs=None,
+        targets=None,
+        sample_rate=1,
+        sequence_length=1,
+        normalize=True,
+        window_size=128,
+        start_time=None,
+        end_time=None,
+        quality_threshold=0.8,
+        augment=True,
+        sparse=True,
+        time_step=None
+    ):
+        super().__init__(
+            folder,
+            reference_data=reference_data,
+            inputs=inputs,
+            targets=targets,
+            sample_rate=sample_rate,
+            sequence_length=sequence_length,
+            normalize=normalize,
+            window_size=window_size,
+            start_time=start_time,
+            end_time=end_time,
+            quality_threshold=quality_threshold,
+            augment=augment,
+            sparse=sparse,
+            time_step=time_step
+        )
+        samples_by_input = [[] for _ in inputs]
+        for scene_index in self.sequence_starts:
+            key = self.keys[scene_index]
+            sample = self.samples[key]
+            for i in range(len(inputs)):
+
+                # Input not available at time step
+                if sample[1 + i] is None:
+                    continue
+
+                with xr.open_dataset(sample[1 + i]) as data:
+                    if "swath_centers" not in data.dims:
+                        samples_by_input[i].append(scene_index)
+                    else:
+                        if data.swath_centers.size > 0:
+                            samples_by_input[i].append(scene_index)
+
+        most_obs = max(map(len, samples_by_input))
+        total_samples = len(inputs) * most_obs
+
+        new_starts = []
+        for i in range(len(inputs)):
+            new_starts.append(
+                self.rng.choice(
+                    samples_by_input[i],
+                    most_obs,
+                    replace=True
+                )
+            )
+        self.sequence_starts = np.concatenate(new_starts)
+        self.obs_per_input = most_obs
+
+    def __getitem__(self, index):
+        """Return ith training sample."""
+
+        scene_index = self.sequence_starts[index // self.sample_rate]
+        key = self.keys[scene_index]
+        input_index = index // self.obs_per_input
+        inpt = self.inputs[input_index]
+
+        scl = inpt.scale // self.reference_data.scale
+        slices = inputs.find_random_scene(
+            self.samples[key][1 + input_index],
+            self.rng,
+            multiple=16 // inpt.scale,
+            window_size=self.window_size // scl,
+            rqi_thresh=self.quality_threshold
+        )
+
+        if slices is None:
+            new_index = self.rng.integers(0, len(self))
+            return self[new_index]
+
+        slices = tuple((index * scl for index in slices))
+
+
+        xs = []
+        ys = []
+
+        if self.augment:
+            flip_v = self.rng.random() > 0.5
+            flip_h = self.rng.random() > 0.5
+            transpose= self.rng.random() > 0.5
+        else:
+            flip_v = False
+            flip_h = False
+            transpose = False
+
+        x, y = self.load_sample(
+            self.samples[key],
+            slices,
+            flip_v=flip_v,
+            flip_h=flip_h,
+            transpose=transpose
+        )
+
+        has_input = any((x[inpt.name] is not None for inpt in self.inputs))
+        has_output = any (
+            (y[target] is not None for target in self.reference_data.targets)
+        )
+
+        if not has_input or not has_output:
+            new_index = self.rng.integers(0, len(self))
+            return self[new_index]
+
+        return x, y
 
 
 class CIMRSequenceDataset(CIMRDataset):
@@ -1129,7 +1209,7 @@ class CIMRSequenceDataset(CIMRDataset):
 
                 y_s = y[row_slice, col_slice]
 
-                if (y_s >= -100).mean() > 0.2:
+                if (y_s >= MASK).mean() > 0.2:
                     found = True
                 else:
                     tries += 1

@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 import torch
 from torch.utils.data import DataLoader
+from quantnn.mrnn import MRNN
 
 from cimr.data.training_data import (CIMRDataset,
                                      SuperpositionDataset,
@@ -25,6 +26,7 @@ from cimr.models import (
     compile_encoder,
     compile_decoder,
     compile_model,
+    compile_mrnn,
     load_config,
     CIMRBaseline,
     CIMRSeq,
@@ -111,6 +113,7 @@ def test_compile_decoder():
     output_configs = [
         OutputConfig(
             reference.MRMS,
+            "surface_precip",
             "quantile_loss",
         ),
     ]
@@ -125,9 +128,9 @@ def test_compile_decoder():
 
     decoder_config = DecoderConfig(
         "convnet",
-        channels=[64, 32, 16, 16, 16],
-        stage_depths=[1, 1, 1, 1, 1],
-        upsampling_factors=[2, 2, 2, 2, 2],
+        channels=[64, 32, 16, 16],
+        stage_depths=[1, 1, 1, 1],
+        upsampling_factors=[2, 2, 2, 2],
     )
 
     encoder = compile_encoder(
@@ -153,9 +156,6 @@ def test_compile_decoder():
     }
 
     y = encoder(x, return_skips=True)
-    print("SC :", decoder.skip_connections)
-    for tensor in y:
-        print(tensor.shape)
     y = decoder(y)
     assert y.shape == (1, 16, 128, 128)
 
@@ -181,6 +181,7 @@ def test_compile_model():
     output_configs = [
         OutputConfig(
             reference.MRMS,
+            "surface_precip",
             "quantile_loss",
             quantiles=np.linspace(0, 1, 34)[1:-1]
         ),
@@ -224,8 +225,60 @@ def test_compile_model():
     y = cimr(x)
 
     assert len(y) == 1
-    assert "mrms" in y
-    assert y["mrms"].shape == (1, 32, 128, 128)
+    assert "surface_precip" in y
+    assert y["surface_precip"].shape == (1, 32, 128, 128)
+
+
+def test_compile_mrnn():
+    """
+    Test the compilation of the quantnn MRNN.
+    """
+    input_configs = [
+        InputConfig(
+            inputs.GMI,
+            stem_depth=2,
+            stem_kernel_size=7,
+            stem_downsampling=2
+        ),
+        InputConfig(
+            inputs.SSMIS,
+            stem_depth=2,
+            stem_kernel_size=7,
+            stem_downsampling=1
+        )
+    ]
+    output_configs = [
+        OutputConfig(
+            reference.MRMS,
+            "surface_precip",
+            "quantile_loss",
+            quantiles=np.linspace(0, 1, 34)[1:-1]
+        ),
+    ]
+
+    encoder_config = EncoderConfig(
+        "convnet",
+        channels=[16, 32, 64, 128],
+        stage_depths=[2, 2, 4, 4],
+        downsampling_factors=[2, 2, 2],
+        skip_connections=True
+    )
+
+    decoder_config = DecoderConfig(
+        "convnet",
+        channels=[64, 32, 16, 16],
+        stage_depths=[1, 1, 1, 1],
+        upsampling_factors=[2, 2, 2, 2],
+    )
+    model_config = ModelConfig(
+        input_configs,
+        output_configs,
+        encoder_config,
+        decoder_config
+    )
+
+    mrnn = compile_mrnn(model_config)
+    assert isinstance(mrnn, MRNN)
 
 
 def test_load_config():
@@ -235,7 +288,59 @@ def test_load_config():
     config = load_config("gremlin")
     assert config.encoder_config.channels == [32, 32, 32, 32]
 
+    config.input_configs = [
+        InputConfig(
+            inputs.CPCIR,
+            stem_depth=1,
+            stem_kernel_size=3,
+            stem_downsampling=1
+        ),
+    ]
+    config.output_configs = [
+        OutputConfig(
+            reference.MRMS,
+            "surface_precip",
+            "mse",
+            quantiles=np.linspace(0, 1, 34)[1:-1]
+        ),
+    ]
 
+    model = compile_model(config)
+    assert model.n_params == 46593
+
+def test_gremlin():
+    """
+    Test the loading of a pre-defined configuration.
+    """
+    config = load_config("gremlin")
+    assert config.encoder_config.channels == [32, 32, 32, 32]
+
+    config.input_configs = [
+        InputConfig(
+            inputs.CPCIR,
+            stem_depth=1,
+            stem_kernel_size=3,
+            stem_downsampling=1
+        ),
+    ]
+    config.output_configs = [
+        OutputConfig(
+            reference.MRMS,
+            "surface_precip",
+            "mse",
+            quantiles=np.linspace(0, 1, 34)[1:-1]
+        ),
+    ]
+
+    model = compile_model(config)
+
+    x = {
+        "cpcir": torch.ones(
+            (1, 1, 128, 128)
+        )
+    }
+    y = model(x)
+    assert y["surface_precip"].shape == (1, 128, 128)
 
 
 def test_cimr_model():

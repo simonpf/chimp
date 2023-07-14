@@ -13,7 +13,7 @@ from pansat.download.providers import Disc2Provider
 from pyresample import geometry, kd_tree, create_area_def
 import xarray as xr
 
-from cimr.utils import round_time
+from cimr.utils import get_available_times, round_time
 
 
 PROVIDER = Disc2Provider(gpm_mergeir)
@@ -70,7 +70,7 @@ def resample_data(domain, scene):
         fill_value=np.nan
     )
     return xr.Dataset({
-        "tbs": (("y", "x"), tbs_r)
+        "tbs": (("channels", "y", "x"), tbs_r[None]),
     })
 
 
@@ -125,7 +125,8 @@ def process_day(
         day,
         output_folder,
         path=None,
-        time_step=timedelta(minutes=15)
+        time_step=timedelta(minutes=15),
+        conditional=None
 ):
     """
     Extract CPCIR input observations for the CIMR retrieval.
@@ -154,23 +155,53 @@ def process_day(
 
     files = PROVIDER.get_files_in_range(start_time, end_time)
     with TemporaryDirectory() as tmp:
+
+        cpcir_data = []
         for cpcir_file in files:
             local_file = Path(tmp) / cpcir_file
             PROVIDER.download_file(cpcir_file, local_file)
-            cpcir_data = xr.load_dataset(local_file)
+            data = xr.load_dataset(local_file)
             for t_ind in range(2):
-
-                cpcir_data_t = cpcir_data[{"time": t_ind}]
-                time = cpcir_data_t.time.data.item()
-
+                cpcir_data_t = data[{"time": t_ind}]
                 tbs_r = resample_data(domain, cpcir_data_t)
-                tbs_r.tbs.data[:] = np.clip(tbs_r.tbs.data, 170, 320)
-                tbs_r.tbs.encoding = {
-                    "scale_factor": 150 / 254,
-                    "add_offset": 170,
-                    "zlib": True,
-                    "dtype": "uint8",
-                    "_FillValue": 255
-                }
-                filename = get_output_filename(time)
-                tbs_r.to_netcdf(output_folder / filename)
+                tbs_r["time"] = (("time",), [cpcir_data_t.time.data])
+                cpcir_data.append(tbs_r)
+            local_file.unlink()
+        cpcir_data = xr.concat(cpcir_data, dim="time")
+
+    if conditional is not None:
+        available_times = get_available_times(conditional)
+        for time in available_times:
+            tbs_r = cpcir_data.interp(time=time)
+            tbs_r.tbs.data[:] = np.clip(tbs_r.tbs.data, 170, 320)
+            tbs_r.tbs.encoding = {
+                "scale_factor": 150 / 254,
+                "add_offset": 170,
+                "zlib": True,
+                "dtype": "uint8",
+                "_FillValue": 255
+            }
+            filename = get_output_filename(time)
+            tbs_r.to_netcdf(output_folder / filename)
+    else:
+        start_time = datetime(year, month, day)
+        end_time = datetime(year, month, day) + timedelta(hours=23, minutes=59)
+        time = start_time
+        while time < end_time:
+
+            tbs_r = cpcir_data.interp(
+                time=time,
+                method="nearest",
+                kwargs={"fill_value": "extrapolate"}
+            )
+            tbs_r.tbs.data[:] = np.clip(tbs_r.tbs.data, 170, 320)
+            tbs_r.tbs.encoding = {
+                "scale_factor": 150 / 254,
+                "add_offset": 170,
+                "zlib": True,
+                "dtype": "uint8",
+                "_FillValue": 255
+            }
+            filename = get_output_filename(time)
+            tbs_r.to_netcdf(output_folder / filename)
+            time = time + time_step
