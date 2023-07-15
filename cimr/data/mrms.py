@@ -5,6 +5,7 @@ cimr.data.mrms
 Functionality to download and extract MRMS reference data.
 """
 from datetime import datetime, timedelta
+import logging
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -22,6 +23,9 @@ import xarray as xr
 
 from cimr.utils import round_time
 from cimr import areas
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 def resample_mrms_data(dataset):
@@ -175,23 +179,30 @@ def process_day(
                 precip_rate_provider.get_files_in_range(time, time, start_inclusive=True)[-1:],
                 rqi_provider.get_files_in_range(time, time, start_inclusive=True)[-1:]
             )
-        print(files, time)
         time = time + time_step
 
     for precip_rate_file, rqi_file in files:
         with TemporaryDirectory() as tmp:
-            precip_rate_file = Path(tmp) / precip_rate_file
-            precip_rate_provider.download_file(precip_rate_file.name, precip_rate_file)
+            try:
+                precip_rate_file = Path(tmp) / precip_rate_file
+                precip_rate_provider.download_file(precip_rate_file.name, precip_rate_file)
 
-            rqi_file = Path(tmp) / rqi_file
-            rqi_provider.download_file(rqi_file.name, rqi_file)
+                rqi_file = Path(tmp) / rqi_file
+                rqi_provider.download_file(rqi_file.name, rqi_file)
 
-            precip_rate_data = mrms_precip_rate.open(precip_rate_file)
-            rqi_data = mrms_radar_quality_index.open(rqi_file)
+                precip_rate_data = mrms_precip_rate.open(precip_rate_file)
+                rqi_data = mrms_radar_quality_index.open(rqi_file)
 
-            dataset = xr.merge([precip_rate_data, rqi_data]).rename({
-                "precip_rate": "surface_precip",
-                "radar_quality_index": "rqi"
-            })
-            dataset = resample_mrms_data(dataset)
-            save_file(dataset, output_folder)
+                dataset = xr.merge([precip_rate_data, rqi_data], compat="override").rename({
+                    "precip_rate": "surface_precip",
+                    "radar_quality_index": "rqi"
+                })
+                dataset = resample_mrms_data(dataset)
+                save_file(dataset, output_folder)
+            except Exception:
+                LOGGER.exception(
+                    "The following error was encountered while processing "
+                    " MRMS files (%s, %s)",
+                    precip_rate_file,
+                    rqi_file
+                )
