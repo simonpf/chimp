@@ -96,7 +96,7 @@ def add_parser(subparsers):
     )
     parser.add_argument(
         "--resume",
-        action="store_false"
+        action="store_true"
     )
 
     parser.set_defaults(func=run)
@@ -122,15 +122,16 @@ def run(args):
     from cimr.training import train
     from cimr.models import compile_mrnn
 
+    logging.basicConfig(level=logging.INFO, force=True)
+
     #
     # Prepare training and validation data.
     #
 
-
     training_data = Path(args.training_data)
     if not training_data.exists():
         LOGGER.error(
-            "Provided training data path '%s' doesn't exist."
+            f"Provided training data path '{training_data}' doesn't exist."
         )
         sys.exit()
 
@@ -139,7 +140,8 @@ def run(args):
         validation_data = Path(validation_data)
         if not validation_data.exists():
             LOGGER.error(
-                "Provided validation data path '%s' doesn't exist."
+                f"Provided validation data path '{validation_data}' "
+                "doesn't exist."
             )
             sys.exit()
 
@@ -157,6 +159,7 @@ def run(args):
     model_path = output_path / args.model_name
     ckpt_path = model_path / f"cimr_{args.model_name}.ckpt"
 
+    print(ckpt_path.exists(), ckpt_path)
     if ckpt_path.exists():
         if args.resume:
             LOGGER.info(
@@ -167,8 +170,12 @@ def run(args):
                 f"Not continuing from checkpoint checkpoint '{ckpt_path}' "
                 " because --resume flag has not been set."
             )
-
-
+            ckpt_path = None
+    else:
+        LOGGER.info(
+            f"Not continuing from checkpoint checkpoint '{ckpt_path}' "
+            " because --resume flag has not been set."
+        )
         ckpt_path = None
 
     training_config_path = Path(args.training_config)
