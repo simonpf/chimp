@@ -8,14 +8,25 @@ test data.
 """
 import logging
 from pathlib import Path
+from timeit import default_timer
 from queue import Queue
 
 import numpy as np
 import pandas as pd
 from torch import nn
+import xarray as xr
+
 from quantnn import QRNN
 from quantnn.packed_tensor import PackedTensor
 from cimr.processing import empty_input, retrieval_step
+from cimr.metrics import (
+    Bias,
+    MSE,
+    Correlation,
+    PRCurve,
+    SpectralCoherence
+)
+
 
 LOGGER = logging.getLogger(__name__)
 
@@ -127,15 +138,61 @@ def process(model, dataset, output_path):
     age = 0
     input_queue = Queue()
 
+    n_iters = 0
+    total_time = 0.0
+
+    estimation_metrics = [
+        Bias(),
+        MSE(),
+        Correlation(),
+        SpectralCoherence(window_size=32, scale=0.04)
+    ]
+    detection_metric = PRCurve()
+    heavy_detection_metric = PRCurve()
+    all_metrics = estimation_metrics + [
+        detection_metric,
+        heavy_detection_metric
+    ]
+
     for time, x, y in input_iterator:
 
-        results, _ = retrieval_step(model, (x, y), state)
+        start = default_timer()
+        results = retrieval_step(model, (x, y), state)
+        end = default_timer()
+        total_time += end - start
+        n_iters += 1
 
-        results["surface_precip_ref"] = (("y", "x"), y["surface_precip"])
+        targets = ["surface_precip"]
+
+        for target in targets:
+            ref = y[target].copy()
+            invalid = ~(ref > -100)
+            ref[invalid] = np.nan
+            results[target + "_ref"] = (("y", "x"), ref)
+
+        y_pred = {key: results[key + "_mean"].data for key in targets}
+        y_true = {key: results[key + "_ref"].data for key in targets}
+        for metric in estimation_metrics:
+            metric.calc(y_pred, y_true)
+
+        targets = ["surface_precip"]
+        y_pred = {key: results["p_" + key + "_non_zero"].data for key in targets}
+        y_true = {key: results[key + "_ref"].data >= 1e-2 for key in targets}
+        detection_metric.calc(y_pred, y_true)
+
+        y_pred = {key + "_heavy": results["p_" + key + "_heavy"].data for key in targets}
+        y_true = {key + "_heavy": results[key + "_ref"].data >= 1e1 for key in targets}
+        heavy_detection_metric.calc(y_pred, y_true)
 
         date = pd.to_datetime(str(time))
         filename = date.strftime("results_%Y_%m_%d_%H%M.nc")
         results.to_netcdf(output_path / filename)
+
+    metrics = xr.merge(
+        [metric.results() for metric in all_metrics]
+    )
+    metrics["retrieval_time"] = total_time / n_iters
+    metrics.to_netcdf(output_path / "metrics.nc")
 
 
 def run(args):

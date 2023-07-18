@@ -405,11 +405,11 @@ class SpectralCoherence(MetricBase):
         mse = []
 
         w_true_s = results[f"coeffs_true_sum"]
-        w_true_s2 = results["coeffs_true_sum2"]
+        w_true_s2 = results["coeffs_true_sum2"].real
         w_pred_s = results["coeffs_pred_sum"]
-        w_pred_s2 = results["coeffs_pred_sum2"]
+        w_pred_s2 = results["coeffs_pred_sum2"].real
         w_truepred_s = results["coeffs_truepred_sum"]
-        w_d_s2 = results["coeffs_diff_sum2"]
+        w_d_s2 = results["coeffs_diff_sum2"].real
         counts = results["counts"]
 
         sigma_true = w_true_s2 / counts - (w_true_s / counts) ** 2
@@ -420,7 +420,7 @@ class SpectralCoherence(MetricBase):
         cc = (
             (truepred_mean - true_mean * pred_mean) /
             (np.sqrt(sigma_true) * np.sqrt(sigma_pred))
-        )
+        ).real
         co = np.abs(w_truepred_s) / (np.sqrt(w_true_s2) * np.sqrt(w_pred_s2))
         co = co.real
 
@@ -457,7 +457,7 @@ class SpectralCoherence(MetricBase):
 
         return xr.Dataset({
             "scales": (("scales"), scales),
-            "corr_coef": (("scales"), corr_coeffs),
+            "corr_coef": (("scales"), corr_coeffs.real),
             "energy_true": (("scales"), energy_true),
             "energy_pred": (("scales"), energy_pred),
             "mse": (("scales"), mse),
