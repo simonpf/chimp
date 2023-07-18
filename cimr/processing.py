@@ -92,48 +92,61 @@ def retrieval_step(
         An ``xarray.Dataset`` containing the retrieval results and the
         crreutn internal state of the retrieval.
     """
-    quantiles = torch.tensor(model.quantiles).to(device)
-    model.model.to(device)
+    #quantiles = torch.tensor(model.quantiles).to(device)
 
-    x, y = model_input
-    tiler = Tiler(x, tile_size=tile_size, overlap=64)
+    with torch.autocast(device_type=device, dtype=torch.float16):
 
-    means = {}
+        x, y = model_input
+        tiler = Tiler(x, tile_size=tile_size, overlap=64)
 
-    for k, x_k in x.items():
-        print(k, x_k.shape)
+        means = {}
+
+        output_names = list(model.losses.keys())
 
 
-    for i in range(tiler.M):
-        means.setdefault("surface_precip", []).append([])
-        for j in range(tiler.N):
+        def predict_fun(x_t):
 
-            x_t = to_device(tiler.get_tile(i, j), device)
+            results = {}
 
             with torch.no_grad():
-                with torch.autocast(device_type=device, dtype=torch.float16):
-                    y_pred, state = model.model(x_t, state=state, return_state=True)
-                    if isinstance(y_pred, PackedTensor):
-                        y_pred = y_pred._t
+                y_pred = model.model(x_t)
+                if isinstance(y_pred, PackedTensor):
+                    y_pred = y_pred._t
 
-                    for targ in ["surface_precip"]:
-                        y_pred_t = model.transformation.invert(y_pred[targ])
-                        means[targ][-1].append(
-                            posterior_mean(
-                                y_pred= y_pred_t,
-                                quantile_axis=1,
-                                quantiles=quantiles
-                            ).cpu().numpy()[0]
+                for key, y_pred_k in y_pred.items():
+
+                    if key in model.transformation:
+                        transform = model.transformation[key]
+                        y_pred_k = transform.invert(y_pred_k)
+
+                    loss = model.losses[key]
+
+                    y_mean_k = loss.posterior_mean(y_pred=y_pred_k)
+                    p_non_zero = y_mean_k
+                    if hasattr(loss, "probability_larger_than"):
+                        p_non_zero = loss.probability_larger_than(
+                            y_pred_k,
+                            1e-2,
                         )
 
-    surface_precip = tiler.assemble(means["surface_precip"])
+                    p_heavy = y_mean_k
+                    if hasattr(loss, "probability_larger_than"):
+                        p_heavy = loss.probability_larger_than(
+                            y_pred_k,
+                            1e1,
+                        )
 
-    results = xr.Dataset(
-        {
-            "surface_precip": (("y", "x"), surface_precip),
-        }
-    )
-    return results, state
+                    results[key + "_mean"] = y_mean_k.cpu().numpy()[0]
+                    results["p_" + key + "_non_zero"] = p_non_zero.cpu().numpy()[0]
+                    results["p_" + key + "_heavy"] = p_heavy.cpu().numpy()[0]
+
+            return results
+
+    results = tiler.predict(predict_fun)
+    results = xr.Dataset({
+        key: (("y", "x"), value) for key, value in results.items()
+    })
+    return results
 
 
 def make_forecast(

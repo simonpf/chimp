@@ -385,8 +385,8 @@ class Tiler:
                 )
             return assembled
 
-        ds_row = self.x.shape[-2] // results.shape[-2]
-        ds_col = self.x.shape[-1] // results.shape[-1]
+        ds_row = self.m // results.shape[-2]
+        ds_col = self.n // results.shape[-1]
 
         i_start = self.i_start[row_index]
         i_end = i_start + self.tile_size[0]
