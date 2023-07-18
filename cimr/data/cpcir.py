@@ -1,8 +1,10 @@
 """
 cimr.data.cpcir
 ===============
-"""
 
+This module implements functionality to extract IR brightness
+temperature from the NCEP CPC merged IR dataset.
+"""
 from datetime import datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -123,6 +125,10 @@ def process_day(
             the training data.
         path: Not used, included for compatibility.
         time_step: The time step between consecutive retrieval steps.
+        conditional: If provided, it should point to folder containing
+            samples from another datasource. In this case, CPCIR input
+            data will only be extracted for the times at which samples
+            of the other dataset are available.
     """
     output_folder = Path(output_folder) / "cpcir"
     if not output_folder.exists():
