@@ -10,10 +10,66 @@ import torch
 from torch import nn
 import pytorch_lightning as pl
 
+from pytorch_lightning.callbacks import Callback
 from quantnn import metrics
 from torch.utils.data import DataLoader
 
 from cimr.data.training_data import CIMRDataset
+
+
+class ResetParameters(Callback):
+    """
+    Pytorch lightning callback to reset model parameters.
+    """
+    def on_train_epoch_start(self, trainer, pl_module):
+        """
+        Args:
+             training: The Pytorch lightning training.
+             pl_module: The Pytroch lightning module.
+        """
+        mrnn = pl_module.qrnn
+
+        def reset_params(layer):
+            """
+            Rest parameters in network layer.
+            """
+            if hasattr(layer, 'reset_parameters'):
+                layer.reset_parameters()
+
+        mrnn.model.apply(reset_params)
+
+
+def get_optimizer_and_scheduler(training_config, model):
+    """
+    Return torch optimizer and and learning-rate scheduler objects
+    corresponding to this configuration.
+
+    Args:
+        model: The model to be trained as a torch.nn.Module object.
+    """
+    optimizer = getattr(torch.optim, training_config.optimizer)
+    optimizer = optimizer(model.parameters(), **training_config.optimizer_kwargs)
+
+    scheduler = training_config.scheduler
+    if scheduler is None:
+        return optimizer, None, []
+
+    if scheduler == "lr_search":
+        scheduler = torch.optim.lr_scheduler.ExponentialLR(
+            optimizer,
+            gamma=2.51
+        )
+        callbacks = [
+            ResetParameters()
+        ]
+        return optimizer, scheduler, callbacks
+
+    scheduler = getattr(torch.optim.lr_scheduler, training_config.scheduler)
+    scheduler = scheduler(
+        optimizer=optimizer,
+        **training_config.scheduler_kwargs,
+    )
+    return optimizer, scheduler, []
 
 
 def create_data_loaders(
@@ -51,9 +107,9 @@ def create_data_loaders(
         training_data,
         shuffle=True,
         batch_size=training_config.batch_size,
-        num_workers=training_config.data_loader_workers
+        num_workers=training_config.data_loader_workers,
+        worker_init_fn=training_data.init_rng
     )
-    print("NUM LOADERS :: ", training_config.data_loader_workers)
     if validation_data_path is None:
         return training_loader, None
 
@@ -70,7 +126,8 @@ def create_data_loaders(
         validation_data,
         shuffle=False,
         batch_size=8 * training_config.batch_size,
-        num_workers=training_config.data_loader_workers
+        num_workers=training_config.data_loader_workers,
+        worker_init_fn=validation_data.init_rng
     )
     return training_loader, validation_loader
 
@@ -132,9 +189,11 @@ def train(
     ]
 
     for training_config in training_configs:
-        optimizer, scheduler = training_config.get_optimizer_and_scheduler(
+        optimizer, scheduler, clbks = get_optimizer_and_scheduler(
+            training_config,
             mrnn.model
         )
+        callbacks = callbacks + clbks
         training_loader, validation_loader = create_data_loaders(
             mrnn.model_config,
             training_config,
@@ -164,6 +223,7 @@ def train(
             model=lightning_module,
             train_dataloaders=training_loader,
             val_dataloaders=validation_loader,
+            ckpt_path=ckpt_path
         )
 
         mrnn.save(model_path / f"cimr_{model_name}.pckl")

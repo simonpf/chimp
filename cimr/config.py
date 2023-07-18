@@ -429,27 +429,6 @@ class TrainingConfig:
     data_loader_workers: int = 4
 
 
-    def get_optimizer_and_scheduler(self, model):
-        """
-        Return torch optimizer and and learning-rate scheduler objects
-        corresponding to this configuration.
-
-        Args:
-            model: The model to be trained as a torch.nn.Module object.
-        """
-        optimizer = getattr(torch.optim, self.optimizer)
-        optimizer = optimizer(model.parameters(), **self.optimizer_kwargs)
-
-        if self.scheduler is None:
-            return optimizer, None
-
-        scheduler = getattr(torch.lr_scheduler, self.scheduler)
-        scheduler = scheduler(
-            optimizer=optimizer,
-            T_max=self.n_epochs,
-            **self.scheduler_kwargs,
-        )
-        return optimizer, scheduler
 
 def parse_training_config(path: Union[str, Path]):
     """
