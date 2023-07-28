@@ -12,7 +12,10 @@ from cimr.config import TrainingConfig
 from cimr.data import inputs, reference
 from cimr.data.training_data import CIMRDataset
 from cimr.models import compile_mrnn
-from cimr.training import train
+from cimr.training import (
+    train,
+    find_most_recent_checkpoint
+)
 
 from torch.utils.data import DataLoader
 
@@ -81,3 +84,29 @@ def test_training(tmp_path):
     )
 
     assert (tmp_path / "test_model" / "cimr_test_model.pckl").exists()
+
+
+def test_find_most_recent_checkpoint(tmp_path):
+    """
+    Test that the find_most_recent_checkpoint function identifies the
+    correct checkpoint file.
+    """
+    ckpt_1 = tmp_path / ("cimr_model.ckpt")
+    ckpt_2 = tmp_path / ("cimr_model-v1.ckpt")
+    ckpt_3 = tmp_path / ("cimr_model-v12.ckpt")
+    model_name = "model"
+
+    ckpt = find_most_recent_checkpoint(tmp_path, model_name)
+    assert ckpt is None
+
+    ckpt_1.touch()
+    ckpt = find_most_recent_checkpoint(tmp_path, model_name)
+    assert ckpt == ckpt_1
+
+    ckpt_2.touch()
+    ckpt = find_most_recent_checkpoint(tmp_path, model_name)
+    assert ckpt == ckpt_2
+
+    ckpt_3.touch()
+    ckpt = find_most_recent_checkpoint(tmp_path, model_name)
+    assert ckpt == ckpt_3

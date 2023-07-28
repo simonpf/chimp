@@ -5,10 +5,12 @@ cimr.training
 Module implementing training functionality.
 """
 from pathlib import Path
+import re
 
+import numpy as np
+import pytorch_lightning as pl
 import torch
 from torch import nn
-import pytorch_lightning as pl
 
 from pytorch_lightning.callbacks import Callback
 from quantnn import metrics
@@ -108,7 +110,8 @@ def create_data_loaders(
         shuffle=True,
         batch_size=training_config.batch_size,
         num_workers=training_config.data_loader_workers,
-        worker_init_fn=training_data.init_rng
+        worker_init_fn=training_data.init_rng,
+        pin_memory=True
     )
     if validation_data_path is None:
         return training_loader, None
@@ -125,9 +128,10 @@ def create_data_loaders(
     validation_loader = DataLoader(
         validation_data,
         shuffle=False,
-        batch_size=8 * training_config.batch_size,
+        batch_size=2 * training_config.batch_size,
         num_workers=training_config.data_loader_workers,
-        worker_init_fn=validation_data.init_rng
+        worker_init_fn=validation_data.init_rng,
+        pin_memory=True
     )
     return training_loader, validation_loader
 
@@ -168,8 +172,8 @@ def train(
         metrics.Correlation(),
         metrics.CRPS(),
         metrics.MeanSquaredError(),
-        metrics.ScatterPlot(log_scale=True),
-        metrics.CalibrationPlot()
+        #metrics.ScatterPlot(log_scale=True),
+        #metrics.CalibrationPlot()
     ]
 
     lightning_module = mrnn.lightning(
@@ -217,7 +221,7 @@ def train(
             precision=training_config.precision,
             logger=lightning_module.tensorboard,
             callbacks=callbacks,
-            strategy=pl.strategies.DDPStrategy(find_unused_parameters=True),
+            #strategy=pl.strategies.DDPStrategy(find_unused_parameters=True),
         )
         trainer.fit(
             model=lightning_module,
@@ -227,3 +231,38 @@ def train(
         )
 
         mrnn.save(model_path / f"cimr_{model_name}.pckl")
+
+
+def find_most_recent_checkpoint(path: Path, model_name: str) -> Path:
+    """
+    Find most recente Pytorch lightning checkpoint files.
+
+    Args:
+        path: A pathlib.Path object pointing to the folder containing the
+            checkpoints.
+        model_name: The model name as defined by the user.
+
+    Return:
+        If a checkpoint was found, returns a object pointing to the
+        checkpoint file with the highest version number. Otherwise
+        returns 'None'.
+    """
+    path = Path(path)
+
+    checkpoint_files = list(path.glob("*.ckpt"))
+    print("CKPT :: ", path, checkpoint_files)
+    if len(checkpoint_files) == 0:
+        return None
+    if len(checkpoint_files) == 1:
+        return checkpoint_files[0]
+
+    checkpoint_regexp = re.compile(f"cimr_{model_name}(-v\d*)?.ckpt")
+    versions = []
+    for checkpoint_file in checkpoint_files:
+        match = checkpoint_regexp.match(checkpoint_file.name)
+        if match.group(1) is None:
+            versions.append(-1)
+        else:
+            versions.append(int(match.group(1)[2:]))
+    ind = np.argmax(versions)
+    return checkpoint_files[ind]
