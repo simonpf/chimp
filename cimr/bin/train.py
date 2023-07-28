@@ -10,6 +10,7 @@ import logging
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 import importlib
 import multiprocessing as mp
+import os
 from pathlib import Path
 import sys
 
@@ -119,7 +120,7 @@ def run(args):
     from quantnn import transformations
     from cimr import models
     from cimr.config import parse_model_config, parse_training_config
-    from cimr.training import train
+    from cimr.training import train, find_most_recent_checkpoint
     from cimr.models import compile_mrnn
 
     logging.basicConfig(level=logging.INFO, force=True)
@@ -157,10 +158,10 @@ def run(args):
 
     output_path = Path(args.output_path)
     model_path = output_path / args.model_name
-    ckpt_path = model_path / f"cimr_{args.model_name}.ckpt"
 
-    print(ckpt_path.exists(), ckpt_path)
-    if ckpt_path.exists():
+    ckpt_path = find_most_recent_checkpoint(model_path, args.model_name)
+
+    if ckpt_path is not None:
         if args.resume:
             LOGGER.info(
                 f"Continuing training from checkpoint at '{ckpt_path}'."

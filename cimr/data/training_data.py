@@ -341,7 +341,8 @@ class CIMRDataset:
         quality_threshold=0.8,
         augment=True,
         sparse=True,
-        time_step=None
+        time_step=None,
+        validation=False
     ):
         """
         Args:
@@ -366,6 +367,7 @@ class CIMRDataset:
                 inputs.
             time_step: Minimum time step between consecutive reference samples.
                 Can be used to sub-sample the reference data.
+            validation: If 'True' sampling will reproduce identical scenes.
         """
         self.folder = Path(folder)
 
@@ -440,12 +442,14 @@ class CIMRDataset:
             <= np.timedelta64(self.sequence_length * 15 * 60, "s")
         )[0]
 
-        self.sequence_starts = []
+        sequence_starts = []
         for index in starts:
             sample = self.samples[times[index]]
             if any((inp is not None for inp in sample[1:])):
-                self.sequence_starts.append(index)
+                sequence_starts.append(index)
+        self.sequence_starts = np.array(sequence_starts)
 
+        self.validation = validation
         self.init_rng()
 
     def init_rng(self, w_id=0):
@@ -455,7 +459,10 @@ class CIMRDataset:
         Args:
             w_id: The worker ID which of the worker process..
         """
-        seed = int.from_bytes(os.urandom(4), "big") + w_id
+        if self.validation:
+            seed = 1234
+        else:
+            seed = int.from_bytes(os.urandom(4), "big") + w_id
         self.rng = np.random.default_rng(seed)
 
     def __len__(self):
@@ -585,7 +592,8 @@ class CIMRDataset:
     def __getitem__(self, index):
         """Return ith training sample."""
 
-        scene_index = self.sequence_starts[index // self.sample_rate]
+        n_starts = len(self.sequence_starts)
+        scene_index = self.sequence_starts[index % n_starts]
         key = self.keys[scene_index]
 
         slices = reference.find_random_scene(
@@ -595,9 +603,6 @@ class CIMRDataset:
             window_size=self.window_size,
             rqi_thresh=self.quality_threshold
         )
-
-        xs = []
-        ys = []
 
         if self.augment:
             flip_v = self.rng.random() > 0.5

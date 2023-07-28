@@ -316,10 +316,6 @@ def compile_mrnn(model_config: ModelConfig) -> mrnn.MRNN:
     return cimr_mrnn
 
 
-
-
-
-
 def load_config(name):
     """
     Load a pre-defined model configuration.

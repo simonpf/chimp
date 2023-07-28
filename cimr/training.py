@@ -123,7 +123,8 @@ def create_data_loaders(
         sample_rate=training_config.sample_rate,
         sequence_length=training_config.sequence_length,
         window_size=training_config.input_size,
-        quality_threshold=training_config.quality_threshold
+        quality_threshold=training_config.quality_threshold,
+        validation=True
     )
     validation_loader = DataLoader(
         validation_data,

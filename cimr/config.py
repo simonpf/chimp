@@ -416,7 +416,7 @@ class TrainingConfig:
     optimizer_kwargs: Optional[dict] = None
     scheduler: str = None
     scheduler_kwargs: Optional[dict] = None
-    precision: int = 16
+    precision: str = "16-mixed"
     batch_size: int = 8
     input_size: int = 256
     accelerator: str = "cuda"
@@ -456,9 +456,10 @@ def parse_training_config(path: Union[str, Path]):
         optimizer_kwargs = eval(sec.get("optimizer_kwargs", "{}"))
         scheduler = sec.get("scheduler", None)
         scheduler_kwargs = eval(sec.get("scheduler_kwargs", "None"))
-        precision = sec.getint("precision", 16)
+        precision = sec.get("precision", "16-mixed")
         sample_rate = sec.getint("sample_rate", 1)
         batch_size = sec.getint("batch_size", 8)
+        data_loader_workers = sec.getint("data_loader_workers", 8)
 
         training_configs.append(TrainingConfig(
             n_epochs=n_epochs,
@@ -468,7 +469,8 @@ def parse_training_config(path: Union[str, Path]):
             scheduler_kwargs=scheduler_kwargs,
             precision=precision,
             sample_rate=sample_rate,
-            batch_size=batch_size
+            batch_size=batch_size,
+            data_loader_workers=data_loader_workers
         ))
 
     return training_configs

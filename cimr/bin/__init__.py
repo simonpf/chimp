@@ -8,6 +8,7 @@ Its task is to delegate the processing to the sub-commands defined in
  the sub-module of the 'cimr.bin' module.
 """
 import argparse
+import os
 import sys
 import warnings
 
@@ -22,6 +23,7 @@ def cimr():
     from cimr.bin import train
     from cimr.bin import test
     from cimr.bin import forecast
+
 
     warnings.filterwarnings("ignore", category=RuntimeWarning)
 

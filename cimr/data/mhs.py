@@ -29,7 +29,7 @@ from cimr.data.resample import resample_tbs
 
 # The pansat products providing access to MHS L1C data.
 MHS_PRODUCTS = [
-    l1c_noaa19_mhs,
+    #l1c_noaa19_mhs,
     l1c_metopb_mhs,
     l1c_metopc_mhs,
 ]
@@ -156,8 +156,6 @@ def process_day(
     if not output_folder.exists():
         output_folder.mkdir(parents=True, exist_ok=True)
 
-    print(year, month, day)
-
     start_time = datetime(year, month, day)
     end_time = datetime(year, month, day) + timedelta(hours=23, minutes=59)
     # Iterate over platform.
@@ -165,11 +163,15 @@ def process_day(
         provider = GesdiscProvider(product)
         product_files = provider.get_files_in_range(start_time, end_time)
         # For all file on given day.
+
+
         for filename in product_files:
             # Check if swath covers ROI.
+
             swath = parse_swath(provider.download_metadata(filename))
             if swath.intersects(domain["roi_poly"].to_geometry()):
                 # Extract observations
+
                 with TemporaryDirectory() as tmp:
                     tmp = Path(tmp)
                     provider.download_file(filename, tmp / filename)
