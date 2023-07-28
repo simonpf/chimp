@@ -24,7 +24,8 @@ setup(
         "scipy",
         "xarray",
         "pandas",
-        "quantnn"
+        "quantnn",
+        "tensorboard"
     ],
     packages=find_packages(),
     python_requires=">=3.6",

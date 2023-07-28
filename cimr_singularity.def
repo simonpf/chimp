@@ -15,8 +15,8 @@ From: /home/simonpf/src/cimr_singularity/cimr_conda.sif
     /opt/conda/envs/cimr/bin/python3 -m pip install -e /quantnn
     /opt/conda/envs/cimr/bin/python3 -m pip install -e /cimr
     /opt/conda/envs/cimr/bin/python3 -m pip install notebook
-    echo ". /opt/conda/etc/profile.d/conda.sh" >> $SINGULARITY_ENVIRONMENT
-    echo "conda activate cimr" >> $SINGULARITY_ENVIRONMENT
+    echo ". /singularity_shell_init.sh" >> $SINGULARITY_ENVIRONMENT
+    echo "micromamba activate cimr" >> $SINGULARITY_ENVIRONMENT
 
 %runscript
 

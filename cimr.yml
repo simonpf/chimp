@@ -5,7 +5,7 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  - python=3.8
+  - python=3.10
   - netcdf4
   - pyyaml
   - pooch
@@ -24,6 +24,7 @@ dependencies:
   - xarray[version='>=0.10.1']
   - satpy
   - cartopy
+  - llvm-openmp[version='14']
   - ipywidgets
   - pytorch
   - torchvision
