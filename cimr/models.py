@@ -43,7 +43,11 @@ from cimr.data.utils import get_input, get_inputs, get_reference_data
 from cimr.data.inputs import Input
 from cimr.data.reference import ReferenceData
 from cimr.stems import get_stem_factory
-from cimr.blocks import get_block_factory, get_downsampler_factory
+from cimr.blocks import (
+    get_block_factory,
+    get_downsampler_factory,
+    get_upsampler_factory
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -199,6 +203,10 @@ def compile_decoder(
         decoder_config.block_type,
         factory_kwargs=kwargs
     )
+    upsampler_factory = get_upsampler_factory(
+        decoder_config.upsampling_type,
+        factory_kwargs=decoder_config.upsampler_factory_kwargs
+    )
 
     if skip_connections != 0:
         decoder = SparseSpatialDecoder(
@@ -206,6 +214,7 @@ def compile_decoder(
             stages=stage_depths,
             block_factory=block_factory,
             skip_connections=skip_connections,
+            upsampler_factory=upsampler_factory,
             upsampling_factors=upsampling_factors
         )
     else:
@@ -216,6 +225,7 @@ def compile_decoder(
             stages=stage_depths,
             block_factory=block_factory,
             skip_connections=skip_connections,
+            upsampler_factory=upsampler_factory,
             upsampling_factors=upsampling_factors
         )
 

@@ -12,6 +12,7 @@ from typing import Optional, Tuple, List, Union
 
 import numpy as np
 import torch
+from torch import nn
 
 from cimr.data.inputs import Input
 from cimr.data.reference import ReferenceData
@@ -246,6 +247,8 @@ class DecoderConfig:
     stage_depths: List[int]
     upsampling_factors: List[int]
     block_factory_kwargs: Optional[dict] = None
+    upsampling_type: Optional[str] = "upsample"
+    upsampler_factory_kwargs: Optional[dict] = None
 
     def __init__(
             self,
@@ -253,7 +256,9 @@ class DecoderConfig:
             channels,
             stage_depths,
             upsampling_factors,
-            block_factory_kwargs : Optional[dict] = None
+            block_factory_kwargs : Optional[dict] = None,
+            upsampling_type="upsample",
+            upsampler_factory_kwargs={}
     ):
         self.block_type = block_type
 
@@ -272,6 +277,8 @@ class DecoderConfig:
             )
         self.upsampling_factors = upsampling_factors
         self.block_factory_kwargs = block_factory_kwargs
+        self.upsampling_type = upsampling_type
+        self.upsampler_factory_kwargs = upsampler_factory_kwargs
 
     @property
     def n_stages(self):
@@ -291,6 +298,7 @@ def parse_decoder_config(section: SectionProxy) -> DecoderConfig:
         configuration.
     """
     block_type = section.get("block_type", "convnext")
+    upsampling_type = section.get("upsampler_factory", "upsample")
 
     keys = ["channels", "stage_depths", "upsampling_factors"]
     args = []
@@ -298,7 +306,7 @@ def parse_decoder_config(section: SectionProxy) -> DecoderConfig:
         conf = section.get(key, None)
         if conf is None:
             raise ValueError(
-                "'encoder' section of model config must contain a list "
+                "'decoder' section of model config must contain a list "
                 f"of '{key}'.",
             )
         args.append(_parse_list(conf, int))
@@ -306,11 +314,16 @@ def parse_decoder_config(section: SectionProxy) -> DecoderConfig:
     block_factory_kwargs = eval(
         section.get("block_factory_kwargs", "None")
     )
+    upsampler_factory_kwargs = eval(
+        section.get("upsampler_factory_kwargs", "{}")
+    )
 
     return DecoderConfig(
         block_type,
         *args,
-        block_factory_kwargs=block_factory_kwargs
+        block_factory_kwargs=block_factory_kwargs,
+        upsampling_type=upsampling_type,
+        upsampler_factory_kwargs=upsampler_factory_kwargs
     )
 
 
