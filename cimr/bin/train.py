@@ -38,7 +38,7 @@ def add_parser(subparsers):
         ),
     )
     parser.add_argument(
-        "model_name",
+        "experiment_name",
         metavar="name",
         type=str,
         help=(
@@ -51,7 +51,6 @@ def add_parser(subparsers):
         type=str,
         help="Folder containing the training data.",
     )
-
     parser.add_argument(
         "model_config",
         metavar="model_config",
@@ -61,7 +60,6 @@ def add_parser(subparsers):
             " or a model checkpoint."
         )
     )
-
     parser.add_argument(
         "training_config",
         metavar="training_config",
@@ -89,7 +87,7 @@ def add_parser(subparsers):
         "--output_path",
         metavar="path",
         type=str,
-        default=".",
+        default=None,
         help=(
             "Path pointing to a directory at which to store the training "
             " results."
@@ -157,9 +155,12 @@ def run(args):
     mrnn = compile_mrnn(model_config)
 
     output_path = Path(args.output_path)
-    model_path = output_path / args.model_name
+    if output_path is None:
+        output_path = model_config.parent
 
-    ckpt_path = find_most_recent_checkpoint(model_path, args.model_name)
+    model_path = output_path / args.experiment_name
+
+    ckpt_path = find_most_recent_checkpoint(model_path, args.experiment_name)
 
     if ckpt_path is not None:
         if args.resume:
@@ -190,7 +191,7 @@ def run(args):
     training_configs = parse_training_config(args.training_config)
 
     train(
-        args.model_name,
+        args.experiment_name,
         mrnn,
         training_configs,
         training_data,

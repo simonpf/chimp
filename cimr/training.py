@@ -59,7 +59,7 @@ def get_optimizer_and_scheduler(training_config, model):
     if scheduler == "lr_search":
         scheduler = torch.optim.lr_scheduler.ExponentialLR(
             optimizer,
-            gamma=2.51
+            gamma=2.0
         )
         callbacks = [
             ResetParameters()
