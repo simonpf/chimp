@@ -180,7 +180,8 @@ def train(
     lightning_module = mrnn.lightning(
         mask=-100,
         metrics=mtrcs,
-        name=model_name
+        name=model_name,
+        log_dir=output_path / "logs"
     )
 
     devices = None

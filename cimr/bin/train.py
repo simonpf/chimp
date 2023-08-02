@@ -89,8 +89,9 @@ def add_parser(subparsers):
         type=str,
         default=None,
         help=(
-            "Path pointing to a directory at which to store the training "
-            " results."
+            "Path pointing to a directory at which log and training output"
+            " will be stored. If not specified, the directory in which the "
+            " training config is located will be used."
         )
     )
     parser.add_argument(
@@ -144,23 +145,34 @@ def run(args):
             )
             sys.exit()
 
-    model_config = Path(args.model_config)
-    if not model_config.exists():
+    model_config_path = Path(args.model_config)
+    if not model_config_path.exists():
         LOGGER.error(
             "Model argument must point to an existing model configuration "
             " file, or an existing model or training checkpoint."
         )
         sys.exit()
-    model_config = parse_model_config(model_config)
+
+    training_config_path = Path(args.training_config)
+    if not training_config_path.exists():
+        LOGGER.error(
+            "'training_config' must point to an existing training config "
+            "file."
+        )
+        sys.exit()
+
+    # Use parent folder of config file if no explicit output directory
+    # is specified.
+    output_path = args.output_path
+    if output_path is None:
+        output_path = training_config_path.parent
+    else:
+        output_path = Path(output_path)
+
+    model_config = parse_model_config(model_config_path)
     mrnn = compile_mrnn(model_config)
 
-    output_path = Path(args.output_path)
-    if output_path is None:
-        output_path = model_config.parent
-
-    model_path = output_path / args.experiment_name
-
-    ckpt_path = find_most_recent_checkpoint(model_path, args.experiment_name)
+    ckpt_path = find_most_recent_checkpoint(output_path, args.experiment_name)
 
     if ckpt_path is not None:
         if args.resume:
@@ -180,13 +192,6 @@ def run(args):
         )
         ckpt_path = None
 
-    training_config_path = Path(args.training_config)
-    if not training_config_path.exists():
-        LOGGER.error(
-            "'training_config' must point to an existing training config "
-            "file."
-        )
-        sys.exit()
 
     training_configs = parse_training_config(args.training_config)
 

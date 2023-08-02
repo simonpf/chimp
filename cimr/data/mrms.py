@@ -2,7 +2,9 @@
 cimr.data.mrms
 ==============
 
-Functionality to download and extract MRMS reference data.
+This module implements the functionality to download and resample
+MRMS surface precipitation data to be used as reference data for
+training CIMR retrievals.
 """
 from datetime import datetime, timedelta
 import logging

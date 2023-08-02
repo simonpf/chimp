@@ -69,6 +69,6 @@ def get_upsampler_factory(
         return upsampling.UpsampleFactory(**factory_kwargs)
     else:
         raise ValueError(
-            f"Upsampling type '{name}' is not known. Refer to the 'cimr.blocks'"
-            " module for supported upsampling types."
+            f"Upsampling type '{upsampling_type}' is not known. Refer to "
+            " the 'cimr.blocks' module for supported upsampling types."
         )
