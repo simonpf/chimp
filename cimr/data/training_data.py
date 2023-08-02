@@ -512,12 +512,13 @@ class CIMRDataset:
             invalid = qual < self.quality_threshold
 
             for target in self.reference_data.targets:
-                y_t = data[target].data[row_slice, col_slice]
+                y_t = data[target.name].data[row_slice, col_slice]
 
-                y_t[y_t < 0] = np.nan
-                small = y_t < 1e-2
-                rnd = self.rng.uniform(-5, -3, small.sum())
-                y_t[small] = 10 ** rnd
+                if target.lower_limit is not None:
+                    y_t[y_t < 0] = np.nan
+                    small = y_t < target.lower_limit
+                    rnd = self.rng.uniform(-5, -3, small.sum())
+                    y_t[small] = 10 ** rnd
 
                 if flip_v:
                     y_t = np.flip(y_t, -2)
@@ -528,9 +529,8 @@ class CIMRDataset:
                     dims[-2], dims[-1] = dims[-1], dims[-2]
                     y_t = np.transpose(y_t, dims)
 
-
                 y_t[invalid] = np.nan
-                y[target] = np.nan_to_num(y_t, nan=MASK, copy=True)
+                y[target.name] = np.nan_to_num(y_t, nan=MASK, copy=True)
 
         x = {}
 
@@ -597,11 +597,12 @@ class CIMRDataset:
         key = self.keys[scene_index]
 
         slices = reference.find_random_scene(
+            self.reference_data,
             self.samples[key][0],
             self.rng,
             multiple=4,
             window_size=self.window_size,
-            rqi_thresh=self.quality_threshold
+            qi_thresh=self.quality_threshold
         )
 
         if self.augment:
@@ -623,7 +624,7 @@ class CIMRDataset:
 
         has_input = any((x[inpt.name] is not None for inpt in self.inputs))
         has_output = any (
-            (y[target] is not None for target in self.reference_data.targets)
+            (y[target.name] is not None for target in self.reference_data.targets)
         )
 
         if not has_input or not has_output:
@@ -1112,7 +1113,7 @@ class CIMRPretrainDataset(CIMRDataset):
 
         has_input = any((x[inpt.name] is not None for inpt in self.inputs))
         has_output = any (
-            (y[target] is not None for target in self.reference_data.targets)
+            (y[target.name] is not None for target in self.reference_data.targets)
         )
 
         if not has_input or not has_output:
