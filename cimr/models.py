@@ -14,6 +14,7 @@ import numpy as np
 import torch
 from torch import nn
 from quantnn.models.pytorch import aggregators
+import quantnn.transformations
 import quantnn.models.pytorch.torchvision as blocks
 from quantnn.models.pytorch.encoders import (
     MultiInputSpatialEncoder,
@@ -317,6 +318,7 @@ def compile_mrnn(model_config: ModelConfig) -> mrnn.MRNN:
 
         transform = output_config.transformation
         if transform is not None:
+            transform = getattr(quantnn.transformations, transform)()
             transformations[output_config.variable] = transform
 
     cimr_mrnn = mrnn.MRNN(

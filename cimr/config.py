@@ -148,7 +148,8 @@ def parse_output_config(section: SectionProxy) -> OutputConfig:
         loss=loss,
         shape=shape,
         quantiles=quantiles,
-        bins=bins
+        bins=bins,
+        transformation=transformation
     )
 
 
