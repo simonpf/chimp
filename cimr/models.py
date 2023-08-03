@@ -283,7 +283,8 @@ def compile_model(model_config: ModelConfig) -> nn.Module:
     return CIMRModel(
         encoder,
         decoder,
-        heads
+        heads,
+        skip_connections=model_config.encoder_config.skip_connections
     )
 
 
@@ -385,7 +386,7 @@ class Head(MLP):
         Forward tensor through MLP and reshape to expected output
         shape.
         """
-        y = MLP.forward(self, x)
+        y = MLP.forward(self, x).contiguous()
         shape = tuple(x.shape)
         output_shape = shape[:1] + self.shape + shape[2:]
         return y.reshape(output_shape)
