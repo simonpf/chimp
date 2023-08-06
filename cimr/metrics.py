@@ -118,6 +118,38 @@ class MetricBase(Metric):
 
         return self.accumulate(y_pred, y_true, results)
 
+    def _merge_rec(self, results, other):
+        """
+        Recursive merging of metric statistic.
+
+        Args:
+            results: The result dict or array of this metric object.
+            other: The results dict or array of another metric object.
+        """
+        if isinstance(other, dict):
+            for key in other.keys():
+                if results[key] is None:
+                    results[key] = other[key]
+                else:
+                    self._merge_rec(results[key], other[key])
+            return None
+        results += other
+        return None
+
+    def merge(self, other):
+        """
+        Accumulate running metric statistics.
+
+        Args:
+            other: Another metric object whose running statistics to integrate
+                into the running statistics of this object.
+        """
+        if self._results is None and other._results is not None:
+            self._results = other._results
+        self._merge_rec(self._results, other._results)
+
+
+
 
 class Bias(MetricBase):
     """

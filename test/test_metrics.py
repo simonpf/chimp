@@ -62,6 +62,24 @@ def test_mse():
     assert results["ice_water_path_mse"] == 1.0
     assert results["ice_water_path_rel_mse"] == 1.0
 
+    y_true = {
+        "surface_precip": np.zeros((32, 32)),
+        "ice_water_path": np.zeros((32, 32)),
+    }
+    mse_2 = MSE()
+    mse_2.calc(y_pred, y_true)
+    mse_2.calc(y_pred, y_true)
+    mse_2.calc(y_pred, y_true)
+
+    results = mse_2.results()
+    assert results["surface_precip_mse"] == 0.0
+    assert results["ice_water_path_mse"] == 0.0
+
+    mse.merge(mse_2)
+    results = mse.results()
+    assert results["surface_precip_mse"] == 0.5
+    assert results["ice_water_path_mse"] == 0.5
+
 
 def test_corr():
     """
@@ -85,10 +103,15 @@ def test_corr():
     assert np.isclose(results["surface_precip_corr"].data, 1.0)
     assert np.isclose(results["ice_water_path_corr"].data, -1.0)
 
+    corr.merge(corr)
+    results = corr.results()
+    assert np.isclose(results["surface_precip_corr"].data, 1.0)
+    assert np.isclose(results["ice_water_path_corr"].data, -1.0)
 
-def test_corr():
+
+def test_pr_curve():
     """
-    Test the calculation of the correlation.
+    Test the calculation of the PR curve.
     """
     y_pred = {
         "surface_precip": np.linspace(0, 1, 101),
@@ -109,6 +132,15 @@ def test_corr():
     prec = results["surface_precip_prec"].data
     rec = results["surface_precip_rec"].data
 
+    assert np.isclose(np.nanmin(rec), 0.0)
+    assert np.isclose(np.nanmax(rec), 1.0)
+    assert np.isclose(np.nanmin(prec), 0.5)
+    assert np.isclose(np.nanmax(prec), 1.0)
+
+    pr_curve.merge(pr_curve)
+    results = pr_curve.results()
+    prec = results["surface_precip_prec"].data
+    rec = results["surface_precip_rec"].data
     assert np.isclose(np.nanmin(rec), 0.0)
     assert np.isclose(np.nanmax(rec), 1.0)
     assert np.isclose(np.nanmin(prec), 0.5)

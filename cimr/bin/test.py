@@ -6,9 +6,11 @@ cimr.bin.test
 This sub-module implements the cimr CLI to run CIMR models on
 test data.
 """
+from concurrent.futures import ProcessPoolExecutor
 import logging
 from pathlib import Path
 from timeit import default_timer
+from time import sleep
 from queue import Queue
 
 import numpy as np
@@ -121,7 +123,43 @@ MAX_AGE = 16
 OVERLAP = 4
 
 
-def process(model, dataset, output_path):
+def calculate_metrics(
+        estimation_metrics,
+        detection_metric,
+        heavy_detection_metric,
+        results
+):
+    """
+    Caclulate metrics from retrieval results.
+
+    Args:
+        estimation_metrics: List of metrics to evaluate the quantitative
+            estimation of precipitation.
+        detection_metric: Metric for evaluating the detection of
+            precipitation.
+        heavy_detection_metric: Metric for evaluating the detection of
+            heavy precipitation.
+        results: Dictionary containing the retrieval results.
+    """
+    targets = ["surface_precip"]
+    y_pred = {key: results[key + "_mean"].data for key in targets}
+    y_true = {key: results[key + "_ref"].data for key in targets}
+    for metric in estimation_metrics:
+        metric.calc(y_pred, y_true)
+
+    targets = ["surface_precip"]
+    y_pred = {key: results["p_" + key + "_non_zero"].data for key in targets}
+    y_true = {key: results[key + "_ref"].data >= 1e-2 for key in targets}
+    detection_metric.calc(y_pred, y_true)
+
+    y_pred = {key + "_heavy": results["p_" + key + "_heavy"].data for key in targets}
+    y_true = {key + "_heavy": results[key + "_ref"].data >= 1e1 for key in targets}
+    heavy_detection_metric.calc(y_pred, y_true)
+
+    return estimation_metrics, detection_metric, heavy_detection_metric
+
+
+def process(model, dataset, output_path, n_processes=8):
     """
     Process validation dataset.
 
@@ -130,6 +168,8 @@ def process(model, dataset, output_path):
         dataset: A test dataset object providing an access to the test
             data.
         output_path: The directory to which to write the results.
+        n_processes: The number of processes to parallelize the processing
+            of the metrics.
     """
     input_iterator = dataset.full_domain()
 
@@ -154,6 +194,22 @@ def process(model, dataset, output_path):
         heavy_detection_metric
     ]
 
+    pool = ProcessPoolExecutor(max_workers=n_processes)
+    tasks = Queue(maxsize=n_processes)
+
+    def merge_results(future):
+        metrics_f = future.result()
+        estimation_metrics_f = metrics_f[0]
+        detection_metric_f = metrics_f[1]
+        heavy_detection_metric_f = metrics_f[2]
+
+        for metric, metric_f in zip(estimation_metrics, estimation_metrics_f):
+            metric.merge(metric_f)
+        detection_metric.merge(detection_metric_f)
+        heavy_detection_metric.merge(heavy_detection_metric_f)
+        tasks.get()
+
+
     for time, x, y in input_iterator:
 
         start = default_timer()
@@ -170,23 +226,25 @@ def process(model, dataset, output_path):
             ref[invalid] = np.nan
             results[target + "_ref"] = (("y", "x"), ref)
 
-        y_pred = {key: results[key + "_mean"].data for key in targets}
-        y_true = {key: results[key + "_ref"].data for key in targets}
-        for metric in estimation_metrics:
-            metric.calc(y_pred, y_true)
 
-        targets = ["surface_precip"]
-        y_pred = {key: results["p_" + key + "_non_zero"].data for key in targets}
-        y_true = {key: results[key + "_ref"].data >= 1e-2 for key in targets}
-        detection_metric.calc(y_pred, y_true)
-
-        y_pred = {key + "_heavy": results["p_" + key + "_heavy"].data for key in targets}
-        y_true = {key + "_heavy": results[key + "_ref"].data >= 1e1 for key in targets}
-        heavy_detection_metric.calc(y_pred, y_true)
+        task = (pool.submit(
+            calculate_metrics,
+            estimation_metrics,
+            detection_metric,
+            heavy_detection_metric,
+            results
+        ))
+        task.add_done_callback(merge_results)
+        tasks.put(task)
 
         date = pd.to_datetime(str(time))
         filename = date.strftime("results_%Y_%m_%d_%H%M.nc")
         results.to_netcdf(output_path / filename)
+
+        print(date)
+        while tasks.qsize() >= n_processes:
+            sleep(0.1)
+
 
     metrics = xr.merge(
         [metric.results() for metric in all_metrics]
