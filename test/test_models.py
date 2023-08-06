@@ -308,6 +308,7 @@ def test_load_config():
     model = compile_model(config)
     assert model.n_params == 46593
 
+
 def test_gremlin():
     """
     Test the loading of a pre-defined configuration.
@@ -341,6 +342,38 @@ def test_gremlin():
     }
     y = model(x)
     assert y["surface_precip"].shape == (1, 128, 128)
+
+
+def test_resnet18():
+    """
+    Test the loading of the ResNet18 configuration.
+    """
+    config = load_config("resnet_18")
+
+    config.input_configs = [
+        InputConfig(
+            inputs.CPCIR,
+            stem_type="resnet",
+            stem_downsampling=2
+        ),
+    ]
+    config.output_configs = [
+        OutputConfig(
+            reference.MRMS,
+            "surface_precip",
+            "mse"
+        ),
+    ]
+
+    model = compile_model(config)
+
+    x = {
+        "cpcir": torch.ones(
+            (1, 1, 256, 256)
+        )
+    }
+    y = model(x)
+    assert y["surface_precip"].shape == (1, 256, 256)
 
 
 def test_cimr_model():

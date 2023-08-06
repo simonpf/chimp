@@ -7,6 +7,8 @@ Defines factory functions for the creation of convolution blocks.
 from quantnn.models.pytorch import factories
 from quantnn.models.pytorch.blocks import ConvBlockFactory
 from quantnn.models.pytorch import upsampling
+from quantnn.models.pytorch import torchvision
+
 
 def get_block_factory(
         name,
@@ -17,6 +19,10 @@ def get_block_factory(
 
     if name.lower() in ["simple_conv", "conv2d", "convnet", "unet"]:
         return ConvBlockFactory(
+            **factory_kwargs
+        )
+    elif name.lower() == "resnet":
+        return torchvision.ResNetBlockFactory(
             **factory_kwargs
         )
     else:
@@ -33,7 +39,9 @@ def get_downsampler_factory(
     if factory_kwargs is None:
         factory_kwargs = {}
 
-    if name.lower() in ["max pooling"]:
+    if name.lower() == "none":
+        return None
+    elif name.lower() in ["max pooling"]:
         return factories.MaxPooling(
             **factory_kwargs
         )
