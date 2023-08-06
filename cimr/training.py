@@ -129,7 +129,7 @@ def create_data_loaders(
     validation_loader = DataLoader(
         validation_data,
         shuffle=False,
-        batch_size=2 * training_config.batch_size,
+        batch_size=training_config.batch_size,
         num_workers=training_config.data_loader_workers,
         worker_init_fn=validation_data.init_rng,
         pin_memory=True
@@ -165,16 +165,13 @@ def train(
         ckpt_path: An optional path to a checkpoint from which to resume
             training.
     """
-    model_path = output_path / model_name
-    model_path.mkdir(exist_ok=True, parents=True)
+    output_path.mkdir(exist_ok=True, parents=True)
 
     mtrcs = [
         metrics.Bias(),
         metrics.Correlation(),
         metrics.CRPS(),
         metrics.MeanSquaredError(),
-        #metrics.ScatterPlot(log_scale=True),
-        #metrics.CalibrationPlot()
     ]
 
     lightning_module = mrnn.lightning(
@@ -189,7 +186,7 @@ def train(
     callbacks = [
         pl.callbacks.LearningRateMonitor(),
         pl.callbacks.ModelCheckpoint(
-            dirpath=model_path,
+            dirpath=output_path,
             filename=f"cimr_{model_name}"
         )
     ]
@@ -216,7 +213,7 @@ def train(
         lightning_module.scheduler = scheduler
 
         trainer = pl.Trainer(
-            default_root_dir=model_path,
+            default_root_dir=output_path,
             max_epochs=training_config.n_epochs,
             accelerator=training_config.accelerator,
             devices=devices,
@@ -232,7 +229,7 @@ def train(
             ckpt_path=ckpt_path
         )
 
-        mrnn.save(model_path / f"cimr_{model_name}.pckl")
+        mrnn.save(output_path / f"cimr_{model_name}.pckl")
 
 
 def find_most_recent_checkpoint(path: Path, model_name: str) -> Path:
@@ -251,8 +248,7 @@ def find_most_recent_checkpoint(path: Path, model_name: str) -> Path:
     """
     path = Path(path)
 
-    checkpoint_files = list(path.glob("*.ckpt"))
-    print("CKPT :: ", path, checkpoint_files)
+    checkpoint_files = list(path.glob(f"cimr_{model_name}*.ckpt"))
     if len(checkpoint_files) == 0:
         return None
     if len(checkpoint_files) == 1:
