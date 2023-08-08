@@ -318,6 +318,18 @@ class PRCurve(MetricBase):
             "recall": (("recall",), rec),
         })
 
+    def merge(self, other):
+        """
+        Accumulate running metric statistics.
+
+        Args:
+            other: Another metric object whose running statistics to integrate
+                into the running statistics of this object.
+        """
+        super().merge(other)
+        if self._thresholds is None:
+            self._thresholds = other._thresholds
+
 
 def iterate_windows(valid, window_size):
     """

@@ -137,14 +137,16 @@ def test_pr_curve():
     assert np.isclose(np.nanmin(prec), 0.5)
     assert np.isclose(np.nanmax(prec), 1.0)
 
-    pr_curve.merge(pr_curve)
-    results = pr_curve.results()
+    pr_curve_new = PRCurve()
+    pr_curve_new.merge(pr_curve)
+    results = pr_curve_new.results()
     prec = results["surface_precip_prec"].data
     rec = results["surface_precip_rec"].data
     assert np.isclose(np.nanmin(rec), 0.0)
     assert np.isclose(np.nanmax(rec), 1.0)
     assert np.isclose(np.nanmin(prec), 0.5)
     assert np.isclose(np.nanmax(prec), 1.0)
+
 
 
 def _random_spectral_field(
