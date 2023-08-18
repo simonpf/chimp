@@ -252,7 +252,7 @@ class Correlation(MetricBase):
             return xr.Dataset(corrs)
 
         return xr.Dataset({
-            "corr": self._calc_corr(*results)
+            "corr": self._calc_corr(*self._results)
         })
 
 
@@ -261,7 +261,7 @@ class PRCurve(MetricBase):
     Calculates the precision-recall curve for binary classification
     retrievals.
     """
-    def __init__(self, n_points=1000, thresh_multiplier=10):
+    def __init__(self, n_points=1000, thresh_multiplier=5):
         """
         Args:
             n_points: How many threshold values to test
@@ -279,8 +279,12 @@ class PRCurve(MetricBase):
     def accumulate(self, y_pred, y_true, results):
 
         if self._thresholds is None:
-            thresh_max = y_pred.max() * self.thresh_multiplier
-            self._thresholds = np.linspace(0, thresh_max, self.n_points)
+            y_max = y_pred.max()
+            if y_max <= 1.0:
+                self._thresholds = np.linspace(0, 1, self.n_points)
+            else:
+                thresh_max = y_pred.max() * self.thresh_multiplier
+                self._thresholds = np.linspace(0, thresh_max, self.n_points)
 
         valid = np.isfinite(y_pred) * np.isfinite(y_true)
         y_pred = y_pred[valid]
