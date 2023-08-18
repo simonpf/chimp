@@ -16,6 +16,7 @@ from matplotlib.gridspec import GridSpec
 from matplotlib.animation import FuncAnimation
 import numpy as np
 from scipy import fft
+from scipy import ndimage
 from quantnn.normalizer import MinMaxNormalizer
 from quantnn.packed_tensor import PackedTensor
 import torch
@@ -411,6 +412,7 @@ class CIMRDataset:
             base_size = self.reference_data.scale
 
         self.scales = {}
+        self.max_scale = 0
         for src_ind, inpt in enumerate(self.inputs):
             src_files = sorted(list((self.folder / inpt.name).glob(pattern)))
             times = np.array(list(map(get_date, src_files)))
@@ -419,8 +421,9 @@ class CIMRDataset:
 
                 if scale is None:
                     with xr.open_dataset(src_file) as src_data:
-                        scale = inpt.scale / base_size
+                        scale = inpt.scale // base_size
                         self.scales[inpt.name] = scale
+                        self.max_scale = max(self.max_scale, scale)
 
                 sample = samples.get(time)
                 if sample is not None:
@@ -450,6 +453,8 @@ class CIMRDataset:
         self.sequence_starts = np.array(sequence_starts)
 
         self.validation = validation
+        if not self.validation:
+            self.augment = False
         self.init_rng()
 
     def init_rng(self, w_id=0):
@@ -473,10 +478,10 @@ class CIMRDataset:
             self,
             files,
             slices,
+            window_size,
             forecast=False,
-            flip_v=False,
-            flip_h=False,
-            transpose=False,
+            rotate=None,
+            flip=None,
     ):
         """
         Load training sample.
@@ -520,16 +525,24 @@ class CIMRDataset:
                     rnd = self.rng.uniform(-5, -3, small.sum())
                     y_t[small] = 10 ** rnd
 
-                if flip_v:
-                    y_t = np.flip(y_t, -2)
-                if flip_h:
-                    y_t = np.flip(y_t, -1)
-                if transpose:
-                    dims = list(range(y_t.ndim))
-                    dims[-2], dims[-1] = dims[-1], dims[-2]
-                    y_t = np.transpose(y_t, dims)
-
                 y_t[invalid] = np.nan
+
+                if rotate is not None:
+                    y_t = ndimage.rotate(
+                        y_t,
+                        rotate,
+                        order=0,
+                        axes=(-2, -1),
+                        reshape=False
+                    )
+                    width = y_t.shape[-1]
+                    if width > window_size:
+                        d_l = (width - window_size) // 2
+                        d_r = d_l + window_size
+                        y_t = y_t[..., d_l:d_r, d_l:d_r]
+                if flip:
+                    y_t = np.flip(y_t, -1)
+
                 y[target.name] = np.nan_to_num(y_t, nan=MASK, copy=True)
 
         x = {}
@@ -549,8 +562,8 @@ class CIMRDataset:
                 continue
 
 
+            scl = self.scales[inpt.name]
             if slices is not None:
-                scl = self.scales[inpt.name]
                 row_slice = slice(int(i_start / scl), int(i_end / scl))
                 col_slice = slice(int(j_start / scl), int(j_end / scl))
             else:
@@ -580,12 +593,23 @@ class CIMRDataset:
                 if self.normalize:
                     x_s = inpt.normalizer(x_s)
 
-                if flip_v:
-                    x_s = np.flip(x_s, 1)
-                if flip_h:
-                    x_s = np.flip(x_s, 2)
-                if transpose:
-                    x_s = np.transpose(x_s, [0, 2, 1])
+                # Apply augmentation
+                if rotate is not None:
+                    x_s = ndimage.rotate(
+                        x_s,
+                        rotate,
+                        order=0,
+                        reshape=False,
+                        axes=(-2, -1),
+                    )
+                    width = x_s.shape[-1]
+                    if width > (window_size // scl):
+                        d_l = (width - window_size // scl) // 2
+                        d_r = d_l + window_size // scl
+                        x_s = x_s[..., d_l:d_r, d_l:d_r]
+                if flip:
+                    x_s = np.flip(x_s, -1)
+
                 x[inpt.name] = torch.tensor(x_s.copy())
         return x, y
 
@@ -596,30 +620,36 @@ class CIMRDataset:
         scene_index = self.sequence_starts[index % n_starts]
         key = self.keys[scene_index]
 
+        if self.augment:
+            window_size = int(1.42 * self.window_size)
+            rem = window_size % self.max_scale
+            if rem != 0:
+                widow_size += self.max_scale - rem
+        else:
+            window_size = self.window_size
+
         slices = reference.find_random_scene(
             self.reference_data,
             self.samples[key][0],
             self.rng,
             multiple=4,
-            window_size=self.window_size,
+            window_size=window_size,
             qi_thresh=self.quality_threshold
         )
 
         if self.augment:
-            flip_v = self.rng.random() > 0.5
-            flip_h = self.rng.random() > 0.5
-            transpose= self.rng.random() > 0.5
+            ang = -180 + 360 * self.rng.random()
+            flip = self.rng.random() > 0.5
         else:
-            flip_v = False
-            flip_h = False
-            transpose = False
+            ang = None
+            flip = False
 
         x, y = self.load_sample(
             self.samples[key],
             slices,
-            flip_v=flip_v,
-            flip_h=flip_h,
-            transpose=transpose
+            self.window_size,
+            rotate=ang,
+            flip=flip
         )
 
         has_input = any((x[inpt.name] is not None for inpt in self.inputs))
@@ -923,7 +953,11 @@ class CIMRDataset:
 
         for time in times:
 
-            x, y = self.load_sample(self.samples[time], None)
+            x, y = self.load_sample(
+                self.samples[time],
+                None,
+                None
+            )
 
             for inpt in self.inputs:
                 cut = 3 // (inpt.scale // 4)
@@ -931,6 +965,7 @@ class CIMRDataset:
                 if cut > 0 and x_i is not None:
                     x[inpt.name] = x_i[..., :-cut]
             for key in y:
+                cut = 3 // (inpt.scale // 4)
                 y[key] = y[key][..., :-3]
 
             x = sparse_collate([x])
