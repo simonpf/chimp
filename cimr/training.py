@@ -13,6 +13,7 @@ import torch
 from torch import nn
 
 from pytorch_lightning.callbacks import Callback
+from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from quantnn import metrics
 from torch.utils.data import DataLoader
 
@@ -41,16 +42,46 @@ class ResetParameters(Callback):
         mrnn.model.apply(reset_params)
 
 
-def get_optimizer_and_scheduler(training_config, model):
+def get_optimizer_and_scheduler(
+        training_config,
+        model,
+        previous_optimizer=None
+):
     """
     Return torch optimizer and and learning-rate scheduler objects
     corresponding to this configuration.
 
     Args:
+        training_config: A TrainingConfig object specifying training
+            settings for one training stage.
         model: The model to be trained as a torch.nn.Module object.
+        previous_optimizer: Optimizer from the previous stage in case
+            it is reused.
+
+    Return:
+        A tuple ``(optimizer, scheduler, callbacks)`` containing a PyTorch
+        optimizer object ``optimizer``, the corresponding LR scheduler
+        ``scheduler`` and a list of callbacks.
+
+    Raises:
+        Value error if training configuration specifies to reuse the optimizer
+        but 'previous_optimizer' is none.
+
     """
-    optimizer = getattr(torch.optim, training_config.optimizer)
-    optimizer = optimizer(model.parameters(), **training_config.optimizer_kwargs)
+    if training_config.reuse_optimizer:
+        if previous_optimizer is None:
+            raise RuntimeError(
+                "Training stage '{training_config.name}' has 'reuse_optimizer' "
+                "set to 'True' but no previous optimizer is available."
+            )
+        optimizer = previous_optimizer
+
+    else:
+        optimizer_cls = getattr(torch.optim, training_config.optimizer)
+        optimizer = optimizer_cls(
+            model.parameters(),
+            **training_config.optimizer_kwargs
+        )
 
     scheduler = training_config.scheduler
     if scheduler is None:
@@ -62,16 +93,34 @@ def get_optimizer_and_scheduler(training_config, model):
             gamma=2.0
         )
         callbacks = [
-            ResetParameters()
+            ResetParameters(),
         ]
         return optimizer, scheduler, callbacks
 
     scheduler = getattr(torch.optim.lr_scheduler, training_config.scheduler)
+    scheduler_kwargs = training_config.scheduler_kwargs
+    if scheduler_kwargs is None:
+        scheduler_kwargs = {}
     scheduler = scheduler(
         optimizer=optimizer,
-        **training_config.scheduler_kwargs,
+        **scheduler_kwargs,
     )
-    return optimizer, scheduler, []
+    scheduler.stepwise = training_config.stepwise_scheduling
+
+    if training_config.minimum_lr is not None:
+        callbacks = [
+            EarlyStopping(
+                f"Learning rate",
+                stopping_threshold=training_config.minimum_lr * 1.001,
+                patience=training_config.n_epochs,
+                verbose=True,
+                strict=True
+            )
+        ]
+    else:
+        callbacks = []
+
+    return optimizer, scheduler, callbacks
 
 
 def create_data_loaders(
@@ -191,12 +240,26 @@ def train(
         )
     ]
 
-    for training_config in training_configs:
-        optimizer, scheduler, clbks = get_optimizer_and_scheduler(
+    all_optimizers = []
+    all_schedulers = []
+    all_callbacks = []
+    opt_prev = None
+    for stage_ind, training_config in enumerate(training_configs):
+        opt_s, sch_s, cback_s = get_optimizer_and_scheduler(
             training_config,
-            mrnn.model
+            mrnn.model,
+            previous_optimizer=opt_prev
         )
-        callbacks = callbacks + clbks
+        opt_prev = opt_s
+        all_optimizers.append(opt_s)
+        all_schedulers.append(sch_s)
+        all_callbacks.append(cback_s)
+
+    lightning_module.optimizer = all_optimizers
+    lightning_module.scheduler = all_schedulers
+
+    for stage_ind, training_config in enumerate(training_configs):
+        stage_callbacks = callbacks + all_callbacks[stage_ind]
         training_loader, validation_loader = create_data_loaders(
             mrnn.model_config,
             training_config,
@@ -209,8 +272,6 @@ def train(
         else:
             devices = 8
 
-        lightning_module.optimizer = optimizer
-        lightning_module.scheduler = scheduler
 
         trainer = pl.Trainer(
             default_root_dir=output_path,
@@ -219,7 +280,8 @@ def train(
             devices=devices,
             precision=training_config.precision,
             logger=lightning_module.tensorboard,
-            callbacks=callbacks,
+            callbacks=stage_callbacks,
+            num_sanity_val_steps=0
             #strategy=pl.strategies.DDPStrategy(find_unused_parameters=True),
         )
         trainer.fit(
@@ -228,7 +290,7 @@ def train(
             val_dataloaders=validation_loader,
             ckpt_path=ckpt_path
         )
-
+        lightning_module.stage += 1
         mrnn.save(output_path / f"cimr_{model_name}.pckl")
 
 
@@ -258,6 +320,8 @@ def find_most_recent_checkpoint(path: Path, model_name: str) -> Path:
     versions = []
     for checkpoint_file in checkpoint_files:
         match = checkpoint_regexp.match(checkpoint_file.name)
+        if match is None:
+            return None
         if match.group(1) is None:
             versions.append(-1)
         else:
