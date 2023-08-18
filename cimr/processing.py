@@ -103,6 +103,7 @@ def retrieval_step(
 
         output_names = list(model.losses.keys())
 
+        model.model.eval()
 
         def predict_fun(x_t):
 
