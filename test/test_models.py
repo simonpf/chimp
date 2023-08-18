@@ -348,13 +348,14 @@ def test_resnet18():
     """
     Test the loading of the ResNet18 configuration.
     """
-    config = load_config("resnet_18")
+    config = load_config("resnet18")
 
     config.input_configs = [
         InputConfig(
             inputs.CPCIR,
-            stem_type="resnet",
-            stem_downsampling=2
+            stem_depth=1,
+            stem_kernel_size=3,
+            stem_downsampling=1
         ),
     ]
     config.output_configs = [
@@ -373,6 +374,40 @@ def test_resnet18():
         )
     }
     y = model(x)
+    print(y["surface_precip"].shape)
+    assert y["surface_precip"].shape == (1, 256, 256)
+
+def test_convnext18():
+    """
+    Test the loading of the ConvNext18 configuration.
+    """
+    config = load_config("convnext18")
+
+    config.input_configs = [
+        InputConfig(
+            inputs.CPCIR,
+            stem_depth=1,
+            stem_kernel_size=3,
+            stem_downsampling=1
+        ),
+    ]
+    config.output_configs = [
+        OutputConfig(
+            reference.MRMS,
+            "surface_precip",
+            "mse"
+        ),
+    ]
+
+    model = compile_model(config)
+
+    x = {
+        "cpcir": torch.ones(
+            (1, 1, 256, 256)
+        )
+    }
+    y = model(x)
+    print(y["surface_precip"].shape)
     assert y["surface_precip"].shape == (1, 256, 256)
 
 
@@ -459,8 +494,6 @@ def test_cimr_model_3():
     x, y = next(it)
 
     cimr = CIMRBaselineV3(inputs=inputs, reference_data=reference_data)
-
-    print(cimr.encoder.stems)
 
     y = cimr(x)
 
