@@ -25,6 +25,10 @@ def get_block_factory(
         return torchvision.ResNetBlockFactory(
             **factory_kwargs
         )
+    elif name.lower() == "convnext":
+        return torchvision.ConvNextBlockFactory(
+            **factory_kwargs
+        )
     else:
         raise ValueError(
             f"Block type '{name}' is not known. Refer to the 'cimr.blocks' "
@@ -41,7 +45,7 @@ def get_downsampler_factory(
 
     if name.lower() == "none":
         return None
-    elif name.lower() in ["max pooling"]:
+    elif name.lower() in ["max_pooling"]:
         return factories.MaxPooling(
             **factory_kwargs
         )
