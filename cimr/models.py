@@ -109,10 +109,9 @@ def compile_encoder(
                 inputs[name] = (stage, n_channels, stem_factory)
         scale *= f_d
 
-
     downsampler_factory = get_downsampler_factory(
-        encoder_config.downsampling_strategy,
-        {}
+        encoder_config.downsampler_factory,
+        encoder_config.downsampler_factory_kwargs
     )
 
     encoder = MultiInputSpatialEncoder(
