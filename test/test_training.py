@@ -65,9 +65,23 @@ def test_training(tmp_path):
 
     training_configs = [
         TrainingConfig(
-            2,
+            "Stage 1",
+            4,
             "SGD",
-            {"lr": 1e-3}
+            {"lr": 1e-4},
+            scheduler = "ReduceLROnPlateau",
+            scheduler_kwargs = {"patience": 1, "min_lr": 1e-3},
+            minimum_lr = 1e-2
+        ),
+        TrainingConfig(
+            "Stage 2",
+            4,
+            "SGD",
+            {"lr": 1e-2},
+            scheduler = "ReduceLROnPlateau",
+            scheduler_kwargs = {"patience": 1, "min_lr": 1e-3},
+            reuse_optimizer=True,
+            minimum_lr = 1e-4
         )
     ]
 
@@ -80,10 +94,9 @@ def test_training(tmp_path):
         TEST_DATA / "training_data",
         TEST_DATA / "training_data",
         tmp_path,
-        accelerator="cpu"
     )
 
-    assert (tmp_path / "test_model" / "cimr_test_model.pckl").exists()
+    assert (tmp_path / "cimr_test_model.pckl").exists()
 
 
 def test_find_most_recent_checkpoint(tmp_path):

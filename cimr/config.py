@@ -163,8 +163,9 @@ class EncoderConfig:
     stage_depths: List[int]
     downsampling_factors: List[int]
     skip_connections: bool
-    downsampling_strategy: str = "max pooling"
     block_factory_kwargs: Optional[dict] = None
+    downsampler_factory: str = "max_pooling"
+    downsampler_factory_kwargs: Optional[dict] = None
 
     def __init__(
             self,
@@ -173,8 +174,9 @@ class EncoderConfig:
             stage_depths: List[int],
             downsampling_factors: List[int],
             skip_connections: bool,
-            downsampling_strategy: str = "max pooling",
-            block_factory_kwargs: Optional[dict] = None
+            block_factory_kwargs: Optional[dict] = None,
+            downsampler_factory: str = "max_pooling",
+            downsampler_factory_kwargs: Optional[dict] = None
     ):
         if len(stage_depths) != len(downsampling_factors) + 1:
             raise ValueError(
@@ -191,8 +193,9 @@ class EncoderConfig:
         self.stage_depths = stage_depths
         self.downsampling_factors = downsampling_factors
         self.skip_connections = skip_connections
-        self.downsampling_strategy = downsampling_strategy
         self.block_factory_kwargs = block_factory_kwargs
+        self.downsampler_factory = downsampler_factory
+        self.downsampler_factory_kwargs = downsampler_factory_kwargs
 
     @property
     def n_stages(self):
@@ -229,12 +232,18 @@ def parse_encoder_config(section: SectionProxy) -> EncoderConfig:
     block_factory_kwargs = eval(
         section.get("block_factory_kwargs", "{}")
     )
+    downsampler_factory = section.get("downsampler_factory", "max_pooling")
+    downsampler_factory_kwargs = eval(
+        section.get("downsampler_factory_kwargs", "{}")
+    )
 
     return EncoderConfig(
         block_type,
         *args,
         skip_connections=skip_connections,
-        block_factory_kwargs=block_factory_kwargs
+        block_factory_kwargs=block_factory_kwargs,
+        downsampler_factory=downsampler_factory,
+        downsampler_factory_kwargs=downsampler_factory_kwargs
     )
 
 
@@ -425,6 +434,7 @@ class TrainingConfig:
     """
     A description of a training regime.
     """
+    name: str
     n_epochs: int
     optimizer: str
     optimizer_kwargs: Optional[dict] = None
@@ -441,7 +451,9 @@ class TrainingConfig:
     sample_rate: int = 1
     gradient_clipping: Optional[float] = None
     data_loader_workers: int = 4
-
+    minimum_lr: Optional[float] = None
+    reuse_optimizer: bool = False
+    stepwise_scheduling: bool = False
 
 
 def parse_training_config(path: Union[str, Path]):
@@ -469,13 +481,17 @@ def parse_training_config(path: Union[str, Path]):
         optimizer = sec.get("optimizer", "SGD")
         optimizer_kwargs = eval(sec.get("optimizer_kwargs", "{}"))
         scheduler = sec.get("scheduler", None)
-        scheduler_kwargs = eval(sec.get("scheduler_kwargs", "None"))
+        scheduler_kwargs = eval(sec.get("scheduler_kwargs", "{}"))
         precision = sec.get("precision", "16-mixed")
         sample_rate = sec.getint("sample_rate", 1)
         batch_size = sec.getint("batch_size", 8)
         data_loader_workers = sec.getint("data_loader_workers", 8)
+        minimum_lr = sec.getfloat("minimum_lr", None)
+        reuse_optimizer = sec.getboolean("reuse_optimizer", False)
+        stepwise_scheduling = sec.getboolean("stepwise_scheduling", False)
 
         training_configs.append(TrainingConfig(
+            name=section_name,
             n_epochs=n_epochs,
             optimizer=optimizer,
             optimizer_kwargs=optimizer_kwargs,
@@ -484,7 +500,10 @@ def parse_training_config(path: Union[str, Path]):
             precision=precision,
             sample_rate=sample_rate,
             batch_size=batch_size,
-            data_loader_workers=data_loader_workers
+            data_loader_workers=data_loader_workers,
+            minimum_lr=minimum_lr,
+            reuse_optimizer=reuse_optimizer,
+            stepwise_scheduling=stepwise_scheduling
         ))
 
     return training_configs
