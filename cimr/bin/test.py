@@ -124,9 +124,6 @@ OVERLAP = 4
 
 
 def calculate_metrics(
-        estimation_metrics,
-        detection_metric,
-        heavy_detection_metric,
         results
 ):
     """
@@ -141,6 +138,15 @@ def calculate_metrics(
             heavy precipitation.
         results: Dictionary containing the retrieval results.
     """
+    estimation_metrics = [
+        Bias(),
+        MSE(),
+        Correlation(),
+        SpectralCoherence(window_size=32, scale=0.04)
+    ]
+    detection_metric = PRCurve()
+    heavy_detection_metric = PRCurve()
+
     targets = ["surface_precip"]
     y_pred = {key: results[key + "_mean"].data for key in targets}
     y_true = {key: results[key + "_ref"].data for key in targets}
@@ -148,12 +154,23 @@ def calculate_metrics(
         metric.calc(y_pred, y_true)
 
     targets = ["surface_precip"]
-    y_pred = {key: results["p_" + key + "_non_zero"].data for key in targets}
-    y_true = {key: results[key + "_ref"].data >= 1e-2 for key in targets}
+
+    y_pred = {}
+    y_true = {}
+    for key in targets:
+        ref = results[key + "_ref"].data
+        valid = np.isfinite(ref)
+        y_pred[key] = results["p_" + key + "_non_zero"].data[valid]
+        y_true[key] = ref[valid] >= 1e-2
     detection_metric.calc(y_pred, y_true)
 
-    y_pred = {key + "_heavy": results["p_" + key + "_heavy"].data for key in targets}
-    y_true = {key + "_heavy": results[key + "_ref"].data >= 1e1 for key in targets}
+    y_pred = {}
+    y_true = {}
+    for key in targets:
+        ref = results[key + "_ref"].data
+        valid = np.isfinite(ref)
+        y_pred[key + "_heavy"] = results["p_" + key + "_heavy"].data[valid]
+        y_true[key + "_heavy"] = ref[valid] >= 1e1
     heavy_detection_metric.calc(y_pred, y_true)
 
     return estimation_metrics, detection_metric, heavy_detection_metric
@@ -229,9 +246,6 @@ def process(model, dataset, output_path, n_processes=8):
 
         task = (pool.submit(
             calculate_metrics,
-            estimation_metrics,
-            detection_metric,
-            heavy_detection_metric,
             results
         ))
         task.add_done_callback(merge_results)
@@ -241,10 +255,10 @@ def process(model, dataset, output_path, n_processes=8):
         filename = date.strftime("results_%Y_%m_%d_%H%M.nc")
         results.to_netcdf(output_path / filename)
 
-        print(date)
+        LOGGER.info("Processing inputs @ %s", date)
+
         while tasks.qsize() >= n_processes:
             sleep(0.1)
-
 
     metrics = xr.merge(
         [metric.results() for metric in all_metrics]
