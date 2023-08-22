@@ -75,6 +75,8 @@ def get_optimizer_and_scheduler(
                 "set to 'True' but no previous optimizer is available."
             )
         optimizer = previous_optimizer
+        if "lr" in training_config.optimizer_kwargs:
+            optimizer.lr = training_config.optimizer_kwargs["lr"]
 
     else:
         optimizer_cls = getattr(torch.optim, training_config.optimizer)
@@ -229,6 +231,11 @@ def train(
         name=model_name,
         log_dir=output_path / "logs"
     )
+    if ckpt_path is not None:
+        ckpt_data = torch.load(ckpt_path)
+        stage = ckpt_data["stage"]
+        lightning_module.stage = stage
+
 
     devices = None
 
@@ -258,7 +265,12 @@ def train(
     lightning_module.optimizer = all_optimizers
     lightning_module.scheduler = all_schedulers
 
+
+
     for stage_ind, training_config in enumerate(training_configs):
+        if stage_ind < lightning_module.stage:
+            continue
+
         stage_callbacks = callbacks + all_callbacks[stage_ind]
         training_loader, validation_loader = create_data_loaders(
             mrnn.model_config,
@@ -271,6 +283,7 @@ def train(
             devices = -1
         else:
             devices = 8
+        lightning_module.stage_name = training_config.name
 
 
         trainer = pl.Trainer(
@@ -290,7 +303,6 @@ def train(
             val_dataloaders=validation_loader,
             ckpt_path=ckpt_path
         )
-        lightning_module.stage += 1
         mrnn.save(output_path / f"cimr_{model_name}.pckl")
 
 
