@@ -77,7 +77,8 @@ def retrieval_step(
         model_input,
         state,
         tile_size=256,
-        device="cuda"
+        device="cuda",
+        float_type=torch.float16
 ):
     """
     Run retrieval on given input.
@@ -94,9 +95,9 @@ def retrieval_step(
     """
     #quantiles = torch.tensor(model.quantiles).to(device)
 
-    with torch.autocast(device_type=device, dtype=torch.float16):
+    with torch.autocast(device_type=device, dtype=float_type):
 
-        x, y = model_input
+        x = model_input
         tiler = Tiler(x, tile_size=tile_size, overlap=64)
 
         means = {}
