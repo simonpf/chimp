@@ -68,7 +68,6 @@ def test_compile_encoder():
         channels=[16, 32, 64, 128],
         stage_depths=[2, 2, 4, 4],
         downsampling_factors=[2, 2, 2],
-        skip_connections=True
     )
 
     encoder = compile_encoder(
@@ -123,7 +122,6 @@ def test_compile_decoder():
         channels=[16, 32, 64, 128],
         stage_depths=[2, 2, 4, 4],
         downsampling_factors=[2, 2, 2],
-        skip_connections=True
     )
 
     decoder_config = DecoderConfig(
@@ -131,6 +129,7 @@ def test_compile_decoder():
         channels=[64, 32, 16, 16],
         stage_depths=[1, 1, 1, 1],
         upsampling_factors=[2, 2, 2, 2],
+        skip_connections=4
     )
 
     encoder = compile_encoder(
@@ -140,7 +139,7 @@ def test_compile_decoder():
     decoder = compile_decoder(
         input_configs=input_configs,
         output_configs=output_configs,
-        encoder_config=encoder_config,
+        encoder_configs=[encoder_config],
         decoder_config=decoder_config
     )
 
@@ -192,7 +191,6 @@ def test_compile_model():
         channels=[16, 32, 64, 128],
         stage_depths=[2, 2, 4, 4],
         downsampling_factors=[2, 2, 2],
-        skip_connections=True
     )
 
     decoder_config = DecoderConfig(
@@ -200,11 +198,12 @@ def test_compile_model():
         channels=[64, 32, 16, 16],
         stage_depths=[1, 1, 1, 1],
         upsampling_factors=[2, 2, 2, 2],
+        skip_connections=4
     )
     model_config = ModelConfig(
         input_configs,
         output_configs,
-        encoder_config,
+        [encoder_config],
         decoder_config
     )
 
@@ -261,7 +260,6 @@ def test_compile_mrnn():
         channels=[16, 32, 64, 128],
         stage_depths=[2, 2, 4, 4],
         downsampling_factors=[2, 2, 2],
-        skip_connections=True
     )
 
     decoder_config = DecoderConfig(
@@ -269,11 +267,12 @@ def test_compile_mrnn():
         channels=[64, 32, 16, 16],
         stage_depths=[1, 1, 1, 1],
         upsampling_factors=[2, 2, 2, 2],
+        skip_connections=4
     )
     model_config = ModelConfig(
         input_configs,
         output_configs,
-        encoder_config,
+        [encoder_config],
         decoder_config
     )
 
@@ -286,7 +285,7 @@ def test_load_config():
     Test the loading of a pre-defined configuration.
     """
     config = load_config("gremlin")
-    assert config.encoder_config.channels == [32, 32, 32, 32]
+    assert config.encoder_configs[0].channels == [32, 32, 32, 32]
 
     config.input_configs = [
         InputConfig(
@@ -314,7 +313,7 @@ def test_gremlin():
     Test the loading of a pre-defined configuration.
     """
     config = load_config("gremlin")
-    assert config.encoder_config.channels == [32, 32, 32, 32]
+    assert config.encoder_configs[0].channels == [32, 32, 32, 32]
 
     config.input_configs = [
         InputConfig(
@@ -377,6 +376,40 @@ def test_resnet18():
     print(y["surface_precip"].shape)
     assert y["surface_precip"].shape == (1, 256, 256)
 
+
+def test_convnext18():
+    """
+    Test the loading of the ConvNext18 configuration.
+    """
+    config = load_config("resnext18")
+
+    config.input_configs = [
+        InputConfig(
+            inputs.CPCIR,
+            stem_depth=1,
+            stem_kernel_size=3,
+            stem_downsampling=1
+        ),
+    ]
+    config.output_configs = [
+        OutputConfig(
+            reference.MRMS,
+            "surface_precip",
+            "mse"
+        ),
+    ]
+
+    model = compile_model(config)
+
+    x = {
+        "cpcir": torch.ones(
+            (1, 1, 256, 256)
+        )
+    }
+    y = model(x)
+    assert y["surface_precip"].shape == (1, 256, 256)
+
+
 def test_convnext18():
     """
     Test the loading of the ConvNext18 configuration.
@@ -407,113 +440,37 @@ def test_convnext18():
         )
     }
     y = model(x)
-    print(y["surface_precip"].shape)
     assert y["surface_precip"].shape == (1, 256, 256)
 
 
-def test_cimr_model():
+def test_dlax18():
     """
-    Test propagation of inputs through CIMR model to ensure that the
-    architecture is sound.
+    Test the loading of the DLAX18 configuration.
     """
-    dataset = SuperpositionDataset(
-        size=128,
-        n_steps=1
-    )
-    data_loader = DataLoader(
-        dataset,
-        batch_size=2
-    )
-    it = iter(data_loader)
-    x, y = next(it)
+    config = load_config("dlax18")
 
-    # Test with all inputs.
-    cimr = CIMRBaseline(n_stages=3, stage_depths=2)
-    y = cimr(x)
+    config.input_configs = [
+        InputConfig(
+            inputs.CPCIR,
+            stem_depth=1,
+            stem_kernel_size=3,
+            stem_downsampling=1
+        ),
+    ]
+    config.output_configs = [
+        OutputConfig(
+            reference.MRMS,
+            "surface_precip",
+            "mse"
+        ),
+    ]
 
-    # Test with subset of inputs.
-    for source in ["geo", "visir", "mw"]:
-        cimr = CIMRBaseline(n_stages=4, sources=[source], stage_depths=2)
-        y = cimr(x)
-        assert y.shape[-2] == 128
-        assert y.shape[-1] == 128
+    model = compile_model(config)
 
-
-def test_cimr_model_2():
-    """
-    Test propagation of inputs through CIMR model to ensure that the
-    architecture is sound.
-    """
-    inputs = ["cpcir", "gmi"]
-    reference_data = "mrms"
-    training_data = CIMRDataset(
-        TEST_DATA / "training_data",
-        reference_data=reference_data,
-        inputs=inputs,
-        sparse=True
-    )
-    data_loader = DataLoader(
-        training_data,
-        batch_size=8,
-        collate_fn=sparse_collate
-    )
-    it = iter(data_loader)
-    x, y = next(it)
-
-    # Test with all inputs.
-    cimr = CIMRBaselineV2(inputs=inputs, n_stages=3, stage_depths=2)
-    y = cimr(x)
-
-    # Test with subset of inputs.
-    for inpt in inputs:
-        cimr = CIMRBaselineV2(n_stages=4, inputs=[inpt], stage_depths=2)
-        y = cimr(x)["surface_precip"]
-        assert y.shape[-2] == 128
-        assert y.shape[-1] == 128
-
-
-def test_cimr_model_3():
-    """
-    Test propagation of inputs through CIMR model to ensure that the
-    architecture is sound.
-    """
-    inputs = ["cpcir", "gmi", "atms", "mhs"]
-    reference_data = "mrms"
-    training_data = CIMRDataset(
-        TEST_DATA / "training_data",
-        reference_data=reference_data,
-        inputs=inputs,
-        sparse=True
-    )
-    data_loader = DataLoader(
-        training_data,
-        batch_size=8,
-        collate_fn=sparse_collate
-    )
-    it = iter(data_loader)
-    x, y = next(it)
-
-    cimr = CIMRBaselineV3(inputs=inputs, reference_data=reference_data)
-
-    y = cimr(x)
-
-
-
-def test_cimr_sequence_model():
-    """
-    Test propagation of inputs through CIMR model to ensure that the
-    architecture is sound.
-    """
-    dataset = SuperpositionDataset(
-        size=256,
-        n_steps=2
-    )
-    data_loader = DataLoader(
-        dataset,
-        batch_size = 2
-    )
-    it = iter(data_loader)
-    x, y = next(it)
-
-    cimr = CIMRSeq(n_stages=5, stage_depths=1, aggregator_type="block")
-    y = cimr(x)
+    x = {
+        "cpcir": torch.ones(
+            (1, 1, 256, 256)
+        )
+    }
+    y = model(x)
+    assert y["surface_precip"].shape == (1, 256, 256)

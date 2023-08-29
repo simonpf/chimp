@@ -46,6 +46,7 @@ from cimr.data.reference import ReferenceData
 from cimr.stems import get_stem_factory
 from cimr.blocks import (
     get_block_factory,
+    get_stage_factory,
     get_downsampler_factory,
     get_upsampler_factory
 )
@@ -88,7 +89,6 @@ def compile_encoder(
     stage_depths = encoder_config.stage_depths
     downsampling_factors = encoder_config.downsampling_factors
     channels = encoder_config.channels
-    skip_connections = encoder_config.skip_connections
     block_type = encoder_config.block_type
 
     kwargs = encoder_config.block_factory_kwargs
@@ -96,7 +96,10 @@ def compile_encoder(
         block_type,
         factory_kwargs=kwargs
     )
-
+    stage_factory = get_stage_factory(
+        encoder_config.stage_architecture,
+        factory_kwargs={}
+    )
 
     inputs = {}
     scale = min(input_scales)
@@ -120,7 +123,8 @@ def compile_encoder(
         stages=stage_depths,
         downsampling_factors=downsampling_factors,
         downsampler_factory=downsampler_factory,
-        block_factory=block_factory
+        block_factory=block_factory,
+        stage_factory=stage_factory
     )
 
     return encoder
@@ -129,7 +133,7 @@ def compile_encoder(
 def compile_decoder(
         input_configs: List[OutputConfig],
         output_configs: List[OutputConfig],
-        encoder_config: EncoderConfig,
+        encoder_configs: List[EncoderConfig],
         decoder_config: DecoderConfig
 ) -> nn.Module:
     """
@@ -141,8 +145,8 @@ def compile_decoder(
             retrieval inputs.
         output_configs: A list of Output config objects representing the
             retrieval outputs.
-        encoder_config: An EncoderConfig object representing the encoder
-            configuration corresponding to this decoder.
+        encoder_configs: The list of encoder configs describing the
+            encoders in the model.
         decoder_config: A DecoderConfig object representing the decoder
             configuration.
 
@@ -160,7 +164,6 @@ def compile_decoder(
         for cfg in output_configs
     ]
 
-    downsampling_factors = encoder_config.downsampling_factors
     upsampling_factors = decoder_config.upsampling_factors
 
     output_scale = min(output_scales)
@@ -168,34 +171,17 @@ def compile_decoder(
     for f_up in upsampling_factors:
         base_scale *= f_up
 
+
     min_input_scale = min(input_scales)
-
     scale = base_scale
+    scales = []
 
-    skip_connections = 0
-    for stage_ind, (f_down, f_up) in enumerate(zip(
-            downsampling_factors[::-1],
-            upsampling_factors
-    )):
-        if f_down != f_up:
-            raise ValueError(
-                "Upsampling factors in decoder must match the corresponding "
-                " downsampling factors in the encoder but found an upsamling "
-                f" factor of {f_up} corresponding to a downsampling factor "
-                f" of {f_down} in layer {stage_ind + 1} of the decoder."
-            )
-        if scale >= min_input_scale:
-            skip_connections = stage_ind
+    for f_up in upsampling_factors:
+        scales.append(scale)
         scale /= f_up
+    scales.append(scale)
 
-    if scale >= min_input_scale:
-        skip_connections = encoder_config.n_stages
-
-    if not encoder_config.skip_connections:
-        skip_connections = 0
-
-
-    channels = encoder_config.channels[-1:] + decoder_config.channels
+    channels = encoder_configs[0].channels[-1:] + decoder_config.channels
     stage_depths = decoder_config.stage_depths
 
     kwargs = decoder_config.block_factory_kwargs
@@ -208,6 +194,15 @@ def compile_decoder(
         factory_kwargs=decoder_config.upsampler_factory_kwargs
     )
 
+    if decoder_config.architecture == "dla":
+        return DLADecoder(
+            channels=channels,
+            scales=scales,
+            aggregator_factory=block_factory,
+            upsampler_factory=upsampler_factory
+        )
+
+    skip_connections = decoder_config.skip_connections
     if skip_connections != 0:
         decoder = SparseSpatialDecoder(
             channels=channels,
@@ -218,8 +213,6 @@ def compile_decoder(
             upsampling_factors=upsampling_factors
         )
     else:
-        if skip_connections == 0:
-            skip_connections = False
         decoder = SpatialDecoder(
             channels=channels,
             stages=stage_depths,
@@ -244,12 +237,12 @@ def compile_model(model_config: ModelConfig) -> nn.Module:
     """
     encoder = compile_encoder(
         model_config.input_configs,
-        model_config.encoder_config
+        model_config.encoder_configs[0]
     )
     decoder = compile_decoder(
         model_config.input_configs,
         model_config.output_configs,
-        model_config.encoder_config,
+        model_config.encoder_configs,
         model_config.decoder_config
     )
 
@@ -283,7 +276,7 @@ def compile_model(model_config: ModelConfig) -> nn.Module:
         encoder,
         decoder,
         heads,
-        skip_connections=model_config.encoder_config.skip_connections
+        skip_connections=model_config.decoder_config.skip_connections > 0
     )
 
 
