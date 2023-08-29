@@ -32,64 +32,12 @@ ATMS_PRODUCTS = [
 ]
 
 
-BANDS = {
-    "mw_low": {
-        4: ("tbs_s1", 0),  # 23 GHz, V
-    },
-    "mw_90": {
-        0: ("tbs_s3", 0),  # 89 GHz, H
-    },
-    "mw_160": {
-        0: ("tbs_s4", 0),  # 166 GHz, H
-    },
-    "mw_183": {
-        0: ("tbs_s4", 5),  # 183 +/- 1
-        1: ("tbs_s4", 4),  # 183 +/- 1.8
-        2: ("tbs_s4", 3),  # 183 +/- 3
-        3: ("tbs_s4", 2),  # 183 +/- 4.5
-        4: ("tbs_s4", 1),  # 183 +/- 7
-    },
-}
-
-
-def resample_swaths(domain, scene):
-    """
-    Resample ATMS observations to 8 and 16 kilometer domains.
-
-    Args:
-        domain: A domain dict describing the domain for which to extract
-            the training data.
-        scene: An xarray.Dataset containing the observations to
-            resample.
-
-    Return:
-        A dict ``tbs_r`` containing the ``tbs_s1`` observations
-         resampled to 16-km resolution  and the ``tbs_s3`` and
-        ``tbs_s4`` observations resampled to 8-km resolution.
-    """
-    tbs_r = {}
-
-    suffix = "_s1"
-    lons = scene[f"longitude{suffix}"].data
-    lats = scene[f"latitude{suffix}"].data
-    swath = geometry.SwathDefinition(lons=lons, lats=lats)
-    tbs = scene[f"tbs{suffix}"].data
-    tbs_r[f"tbs{suffix}"] = kd_tree.resample_nearest(
-        swath, tbs, domain[16], radius_of_influence=16e3, fill_value=np.nan
-    )
-
-    for suffix in ["_s3", "_s4"]:
-        lons = scene[f"longitude{suffix}"].data
-        lats = scene[f"latitude{suffix}"].data
-        swath = geometry.SwathDefinition(lons=lons, lats=lats)
-        tbs = scene[f"tbs{suffix}"].data
-        tbs_r[f"tbs{suffix}"] = kd_tree.resample_nearest(
-            swath, tbs, domain[8], radius_of_influence=16e3, fill_value=np.nan
-        )
-    return tbs_r
-
-
-def save_scene(time, tbs_r, output_folder, time_step):
+def save_scene(
+        time: timedelta,
+        tbs_r: xr.Dataset,
+        output_folder: Path,
+        time_step: timedelta
+) -> None:
     """
     Save training data scene.
 
@@ -99,6 +47,8 @@ def save_scene(time, tbs_r, output_folder, time_step):
             training scene.
         tbs_r: A dict containing the resampled swaths.
         output_folder: The folder to which to write the training data.
+        time_step: A 'datetime.timedelta' object specifying the fundamental
+            time step of the retrieval.
     """
     minutes = time_step.seconds // 60
     time_15 = round_time(time, minutes=minutes)
@@ -128,7 +78,12 @@ def save_scene(time, tbs_r, output_folder, time_step):
     return None
 
 
-def process_file(domain, data, output_folder, time_step):
+def process_file(
+        domain: dict,
+        data: xr.Dataset,
+        output_folder: Path,
+        time_step: timedelta
+) -> None:
     """
     Extract training data from a single ATMS L1C file.
 
@@ -153,14 +108,14 @@ def process_file(domain, data, output_folder, time_step):
 
 
 def process_day(
-        domain,
-        year,
-        month,
-        day,
-        output_folder,
-        path=None,
-        time_step=timedelta(minutes=15)
-):
+        domain: dict,
+        year: int,
+        month: int,
+        day: int,
+        output_folder: Path,
+        path: Path = None,
+        time_step: timedelta = timedelta(minutes=15)
+) -> None:
     """
     Extract training data for a day of ATMS observations.
 
@@ -173,6 +128,8 @@ def process_day(
         output_folder: The folder to which to write the extracted
             observations.
         path: Not used, included for compatibility.
+        time_step: A datetime.timedelta object specifying the time step
+            of the retrieval.
     """
     output_folder = Path(output_folder) / "atms"
     if not output_folder.exists():
@@ -189,7 +146,7 @@ def process_day(
             # Check if swath covers ROI.
             swath = parse_swath(provider.download_metadata(filename))
             if swath.intersects(domain["roi_poly"].to_geometry()):
-                # Extract observations
+                # Extract observationsd
                 with TemporaryDirectory() as tmp:
                     tmp = Path(tmp)
                     provider.download_file(filename, tmp / filename)
