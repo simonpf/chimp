@@ -954,24 +954,12 @@ class CIMRDataset:
         times = sorted(self.keys[indices])
 
         for time in times:
-
             x, y = self.load_sample(
                 self.samples[time],
                 None,
                 None
             )
-
-            for inpt in self.inputs:
-                cut = 3 // (inpt.scale // 4)
-                x_i = x[inpt.name]
-                if cut > 0 and x_i is not None:
-                    x[inpt.name] = x_i[..., :-cut]
-            for key in y:
-                cut = 3 // (inpt.scale // 4)
-                y[key] = y[key][..., :-3]
-
             x = sparse_collate([x])
-
             yield time, x, y
 
 

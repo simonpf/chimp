@@ -17,7 +17,7 @@ from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from quantnn import metrics
 from torch.utils.data import DataLoader
 
-from cimr.data.training_data import CIMRDataset
+from cimr.data.training_data import CIMRDataset, sparse_collate
 
 
 class ResetParameters(Callback):
@@ -75,8 +75,6 @@ def get_optimizer_and_scheduler(
                 "set to 'True' but no previous optimizer is available."
             )
         optimizer = previous_optimizer
-        if "lr" in training_config.optimizer_kwargs:
-            optimizer.lr = training_config.optimizer_kwargs["lr"]
 
     else:
         optimizer_cls = getattr(torch.optim, training_config.optimizer)
@@ -162,7 +160,8 @@ def create_data_loaders(
         batch_size=training_config.batch_size,
         num_workers=training_config.data_loader_workers,
         worker_init_fn=training_data.init_rng,
-        pin_memory=True
+        pin_memory=True,
+        collate_fn=sparse_collate
     )
     if validation_data_path is None:
         return training_loader, None
@@ -183,7 +182,8 @@ def create_data_loaders(
         batch_size=training_config.batch_size,
         num_workers=training_config.data_loader_workers,
         worker_init_fn=validation_data.init_rng,
-        pin_memory=True
+        pin_memory=True,
+        collate_fn=sparse_collate
     )
     return training_loader, validation_loader
 
@@ -266,10 +266,17 @@ def train(
     lightning_module.scheduler = all_schedulers
 
 
-
     for stage_ind, training_config in enumerate(training_configs):
         if stage_ind < lightning_module.stage:
             continue
+
+        # Restore LR if optimizer is reused.
+        if training_config.reuse_optimizer:
+            if "lr" in training_config.optimizer_kwargs:
+                optim = lightning_module.optimizer[stage_ind]
+                lr = training_config.optimizer_kwargs["lr"]
+                for group in optim.param_groups:
+                    group["lr"] = lr
 
         stage_callbacks = callbacks + all_callbacks[stage_ind]
         training_loader, validation_loader = create_data_loaders(
@@ -284,7 +291,6 @@ def train(
         else:
             devices = 8
         lightning_module.stage_name = training_config.name
-
 
         trainer = pl.Trainer(
             default_root_dir=output_path,
@@ -304,6 +310,7 @@ def train(
             ckpt_path=ckpt_path
         )
         mrnn.save(output_path / f"cimr_{model_name}.pckl")
+        ckpt_path=None
 
 
 def find_most_recent_checkpoint(path: Path, model_name: str) -> Path:

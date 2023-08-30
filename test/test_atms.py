@@ -57,3 +57,6 @@ def test_process_file(atms_file):
 
     scenes = sorted(list(data_path.glob("*.nc")))
     assert len(scenes) > 0
+
+    scene = xr.load_dataset(scenes[0])
+    assert scene.channels.size == 9

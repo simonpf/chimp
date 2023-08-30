@@ -71,17 +71,38 @@ def test_training(tmp_path):
             {"lr": 1e-4},
             scheduler = "ReduceLROnPlateau",
             scheduler_kwargs = {"patience": 1, "min_lr": 1e-3},
-            minimum_lr = 1e-2
+            minimum_lr = 1e-2,
+            batch_size=1,
+            sample_rate=4
         ),
         TrainingConfig(
             "Stage 2",
             4,
             "SGD",
             {"lr": 1e-2},
-            scheduler = "ReduceLROnPlateau",
-            scheduler_kwargs = {"patience": 1, "min_lr": 1e-3},
-            reuse_optimizer=True,
-            minimum_lr = 1e-4
+            scheduler="CosineAnnealingLR",
+            scheduler_kwargs={
+                "T_max": 4,
+                "verbose": True
+            },
+            minimum_lr=1e-4,
+            batch_size=1,
+            sample_rate=4
+        ),
+        TrainingConfig(
+            "Stage 2",
+            4,
+            "SGD",
+            {"lr": 1e-2},
+            scheduler="CosineAnnealingLR",
+            scheduler_kwargs={
+                "T_max": 4,
+                "verbose": True
+            },
+            minimum_lr=1e-4,
+            batch_size=1,
+            sample_rate=4,
+            reuse_optimizer=True
         )
     ]
 
@@ -96,8 +117,18 @@ def test_training(tmp_path):
         tmp_path,
     )
 
-    assert (tmp_path / "cimr_test_model.pckl").exists()
+    ckpt_path = find_most_recent_checkpoint(tmp_path, "test_model")
+    print("CKPT PATH :: ", ckpt_path)
 
+    train(
+        "test_model",
+        mrnn,
+        training_configs,
+        TEST_DATA / "training_data",
+        TEST_DATA / "training_data",
+        tmp_path,
+        ckpt_path=ckpt_path
+    )
 
 def test_find_most_recent_checkpoint(tmp_path):
     """

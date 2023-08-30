@@ -16,9 +16,16 @@ from torch import nn
 from quantnn.models.pytorch import aggregators
 import quantnn.transformations
 import quantnn.models.pytorch.torchvision as blocks
+from quantnn.models.pytorch.aggregators import (
+    BlockAggregatorFactory,
+    SparseAggregatorFactory
+)
 from quantnn.models.pytorch.encoders import (
     MultiInputSpatialEncoder,
-    ParallelEncoder
+    SpatialEncoder,
+    ParallelEncoder,
+    DEFAULT_BLOCK_FACTORY,
+    DEFAULT_AGGREGATOR_FACTORY
 )
 from quantnn.models.pytorch.decoders import (
     SpatialDecoder,
@@ -59,6 +66,95 @@ SOURCES = {
     "geo": (11, 1),
     "mw": (9, 2)
 }
+
+
+class ParallelEncoder(nn.Module):
+    """
+    The parallel encoder handles multiple inputs by applying a separate
+    encoder to each input.
+    """
+    def __init__(
+            self,
+            inputs,
+            channels,
+            stages,
+            block_factory=None,
+            aggregator_factory=None,
+            channel_scaling=None,
+            max_channels=None,
+            stage_factory=None,
+            downsampler_factory=None,
+            downsampling_factors=None
+    ):
+        super().__init__()
+
+        if block_factory is None:
+            block_factory = DEFAULT_BLOCK_FACTORY
+
+        if aggregator_factory is None:
+            aggregator_factory = DEFAULT_AGGREGATOR_FACTORY
+
+
+        self.stems = nn.ModuleDict()
+        self.encoders = nn.ModuleDict()
+        for name, (stage, chans, stem_fac) in inputs.items():
+            chans_stage = channels[stage]
+            self.stems[name] = stem_fac(chans_stage)
+            self.encoders[name] = SpatialEncoder(
+                channels[stage:],
+                stages[stage:],
+                block_factory=block_factory,
+                channel_scaling=channel_scaling,
+                max_channels=max_channels,
+                stage_factory=stage_factory,
+                downsampler_factory=downsampler_factory,
+                downsampling_factors=downsampling_factors[stage:],
+            )
+
+
+        self.input_stages = {
+            name: inpt[0] for name, inpt in inputs.items()
+        }
+        base_ind = np.argmin(list(self.input_stages.values()))
+
+        input_names = list(inputs.keys())
+        self.base = input_names[base_ind]
+        del input_names[base_ind]
+        self.merged = input_names
+
+        self.aggregators = nn.ModuleDict()
+        for name in self.merged:
+            aggregators = []
+            stage = inputs[name][0]
+            for ind, n_chans in enumerate(channels[stage:]):
+                aggregators.append(aggregator_factory(n_chans, 2, n_chans))
+            self.aggregators[name] = nn.ModuleList(aggregators)
+
+
+    def forward(self, x, return_skips=True):
+        """
+        Forwards all input through their respective encoders and combines the
+        encoded features.
+        """
+        encodings = {}
+        for name, tensor in x.items():
+            stem = self.stems[name]
+            encoder = self.encoders[name]
+            y = forward(stem, tensor)
+            y = forward(encoder, y, return_skips=True)
+            encodings[name] = y
+
+        # Start with largest scale
+        y = encodings[self.base]
+
+        for name in self.merged:
+            if name in x:
+                aggregators = self.aggregators[name]
+                encs = encodings[name]
+                offs = self.input_stages[name]
+                for ind, agg in enumerate(aggregators):
+                    y[ind + offs] = agg(y[ind + offs], encs[ind])
+        return y
 
 
 
@@ -117,23 +213,39 @@ def compile_encoder(
         encoder_config.downsampler_factory_kwargs
     )
 
-    encoder = MultiInputSpatialEncoder(
-        inputs=inputs,
-        channels=channels,
-        stages=stage_depths,
-        downsampling_factors=downsampling_factors,
-        downsampler_factory=downsampler_factory,
-        block_factory=block_factory,
-        stage_factory=stage_factory
+    aggregator_factory = SparseAggregatorFactory(
+        BlockAggregatorFactory(block_factory)
     )
 
+    if encoder_config.combined:
+        encoder = MultiInputSpatialEncoder(
+            inputs=inputs,
+            channels=channels,
+            stages=stage_depths,
+            downsampling_factors=downsampling_factors,
+            downsampler_factory=downsampler_factory,
+            block_factory=block_factory,
+            stage_factory=stage_factory,
+            aggregator_factory=aggregator_factory
+        )
+    else:
+        encoder = ParallelEncoder(
+            inputs=inputs,
+            channels=channels,
+            stages=stage_depths,
+            downsampling_factors=downsampling_factors,
+            downsampler_factory=downsampler_factory,
+            block_factory=block_factory,
+            stage_factory=stage_factory,
+            aggregator_factory=aggregator_factory
+    )
     return encoder
 
 
 def compile_decoder(
         input_configs: List[OutputConfig],
         output_configs: List[OutputConfig],
-        encoder_configs: List[EncoderConfig],
+        encoder_config: EncoderConfig,
         decoder_config: DecoderConfig
 ) -> nn.Module:
     """
@@ -145,8 +257,8 @@ def compile_decoder(
             retrieval inputs.
         output_configs: A list of Output config objects representing the
             retrieval outputs.
-        encoder_configs: The list of encoder configs describing the
-            encoders in the model.
+        encoder_config: The encoder config describing the architecture
+            of the encoders in the model.
         decoder_config: A DecoderConfig object representing the decoder
             configuration.
 
@@ -181,7 +293,7 @@ def compile_decoder(
         scale /= f_up
     scales.append(scale)
 
-    channels = encoder_configs[0].channels[-1:] + decoder_config.channels
+    channels = encoder_config.channels[-1:] + decoder_config.channels
     stage_depths = decoder_config.stage_depths
 
     kwargs = decoder_config.block_factory_kwargs
@@ -237,12 +349,12 @@ def compile_model(model_config: ModelConfig) -> nn.Module:
     """
     encoder = compile_encoder(
         model_config.input_configs,
-        model_config.encoder_configs[0]
+        model_config.encoder_config
     )
     decoder = compile_decoder(
         model_config.input_configs,
         model_config.output_configs,
-        model_config.encoder_configs,
+        model_config.encoder_config,
         model_config.decoder_config
     )
 

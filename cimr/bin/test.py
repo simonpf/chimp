@@ -230,7 +230,7 @@ def process(model, dataset, output_path, n_processes=8):
     for time, x, y in input_iterator:
 
         start = default_timer()
-        results = retrieval_step(model, (x, y), state)
+        results = retrieval_step(model, x, state)
         end = default_timer()
         total_time += end - start
         n_iters += 1

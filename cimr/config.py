@@ -162,10 +162,11 @@ class EncoderConfig:
     channels: List[int]
     stage_depths: List[int]
     downsampling_factors: List[int]
-    skip_connections: bool
     block_factory_kwargs: Optional[dict] = None
     downsampler_factory: str = "max_pooling"
     downsampler_factory_kwargs: Optional[dict] = None
+    stage_architecture: str = "sequential"
+    combined: bool = True
 
     def __init__(
             self,
@@ -173,10 +174,11 @@ class EncoderConfig:
             channels: List[int],
             stage_depths: List[int],
             downsampling_factors: List[int],
-            skip_connections: bool,
             block_factory_kwargs: Optional[dict] = None,
             downsampler_factory: str = "max_pooling",
-            downsampler_factory_kwargs: Optional[dict] = None
+            downsampler_factory_kwargs: Optional[dict] = None,
+            stage_architecture: str = "sequential",
+            combined: bool = True
     ):
         if len(stage_depths) != len(downsampling_factors) + 1:
             raise ValueError(
@@ -192,10 +194,11 @@ class EncoderConfig:
         self.channels = channels
         self.stage_depths = stage_depths
         self.downsampling_factors = downsampling_factors
-        self.skip_connections = skip_connections
         self.block_factory_kwargs = block_factory_kwargs
         self.downsampler_factory = downsampler_factory
         self.downsampler_factory_kwargs = downsampler_factory_kwargs
+        self.stage_architecture = stage_architecture
+        self.combined = combined
 
     @property
     def n_stages(self):
@@ -228,7 +231,6 @@ def parse_encoder_config(section: SectionProxy) -> EncoderConfig:
             )
         args.append(_parse_list(conf, int))
 
-    skip_connections = section.getboolean("skip_connections")
     block_factory_kwargs = eval(
         section.get("block_factory_kwargs", "{}")
     )
@@ -236,14 +238,17 @@ def parse_encoder_config(section: SectionProxy) -> EncoderConfig:
     downsampler_factory_kwargs = eval(
         section.get("downsampler_factory_kwargs", "{}")
     )
+    stage_architecture = section.get("stage_architecture", "sequential")
+    combined = section.getboolean("combined", True)
 
     return EncoderConfig(
         block_type,
         *args,
-        skip_connections=skip_connections,
         block_factory_kwargs=block_factory_kwargs,
         downsampler_factory=downsampler_factory,
-        downsampler_factory_kwargs=downsampler_factory_kwargs
+        downsampler_factory_kwargs=downsampler_factory_kwargs,
+        stage_architecture=stage_architecture,
+        combined=combined
     )
 
 
@@ -259,6 +264,8 @@ class DecoderConfig:
     block_factory_kwargs: Optional[dict] = None
     upsampling_type: Optional[str] = "upsample"
     upsampler_factory_kwargs: Optional[dict] = None
+    architecture: str = "sequential"
+    skip_connections: int = 0
 
     def __init__(
             self,
@@ -268,7 +275,9 @@ class DecoderConfig:
             upsampling_factors,
             block_factory_kwargs : Optional[dict] = None,
             upsampling_type="upsample",
-            upsampler_factory_kwargs={}
+            upsampler_factory_kwargs={},
+            architecture: str = "sequential",
+            skip_connections: int = 0
     ):
         self.block_type = block_type
 
@@ -289,6 +298,8 @@ class DecoderConfig:
         self.block_factory_kwargs = block_factory_kwargs
         self.upsampling_type = upsampling_type
         self.upsampler_factory_kwargs = upsampler_factory_kwargs
+        self.architecture = architecture
+        self.skip_connections = skip_connections
 
     @property
     def n_stages(self):
@@ -327,13 +338,17 @@ def parse_decoder_config(section: SectionProxy) -> DecoderConfig:
     upsampler_factory_kwargs = eval(
         section.get("upsampler_factory_kwargs", "{}")
     )
+    architecture = section.get("architecture", "sequential")
+    skip_connections = section.getint("skip_connections", 0)
 
     return DecoderConfig(
         block_type,
         *args,
         block_factory_kwargs=block_factory_kwargs,
         upsampling_type=upsampling_type,
-        upsampler_factory_kwargs=upsampler_factory_kwargs
+        upsampler_factory_kwargs=upsampler_factory_kwargs,
+        architecture=architecture,
+        skip_connections=skip_connections
     )
 
 

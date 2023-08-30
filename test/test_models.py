@@ -91,6 +91,54 @@ def test_compile_encoder():
     assert y[-1].shape == (1, 128, 8, 8)
 
 
+def test_compile_parallel_encoder():
+    """
+    Test the compilation of an encoder with separate encoders for different
+    inputs.
+    """
+    input_configs = [
+        InputConfig(
+            inputs.GMI,
+            stem_depth=2,
+            stem_kernel_size=7,
+            stem_downsampling=2
+        ),
+        InputConfig(
+            inputs.SSMIS,
+            stem_depth=2,
+            stem_kernel_size=7,
+            stem_downsampling=1
+        )
+    ]
+
+    encoder_config = EncoderConfig(
+        "convnet",
+        channels=[16, 32, 64, 128],
+        stage_depths=[2, 2, 4, 4],
+        downsampling_factors=[2, 2, 2],
+        combined=False
+    )
+
+    encoder = compile_encoder(
+        input_configs=input_configs,
+        encoder_config=encoder_config
+    )
+
+    x = {
+        "gmi": sparse_collate([
+            torch.zeros((13, 64, 64), dtype=torch.float32),
+            None
+        ]),
+        "ssmis": sparse_collate([
+            None,
+            torch.zeros((11, 64, 64), dtype=torch.float32),
+        ])
+    }
+
+    y = encoder(x, return_skips=True)
+    assert len(y) == 4
+    assert y[-1].shape == (2, 128, 8, 8)
+
 def test_compile_decoder():
     """
     Test the compilation of the decoder.
@@ -139,7 +187,7 @@ def test_compile_decoder():
     decoder = compile_decoder(
         input_configs=input_configs,
         output_configs=output_configs,
-        encoder_configs=[encoder_config],
+        encoder_config=encoder_config,
         decoder_config=decoder_config
     )
 
@@ -203,7 +251,7 @@ def test_compile_model():
     model_config = ModelConfig(
         input_configs,
         output_configs,
-        [encoder_config],
+        encoder_config,
         decoder_config
     )
 
@@ -272,7 +320,7 @@ def test_compile_mrnn():
     model_config = ModelConfig(
         input_configs,
         output_configs,
-        [encoder_config],
+        encoder_config,
         decoder_config
     )
 
@@ -285,7 +333,7 @@ def test_load_config():
     Test the loading of a pre-defined configuration.
     """
     config = load_config("gremlin")
-    assert config.encoder_configs[0].channels == [32, 32, 32, 32]
+    assert config.encoder_config.channels == [32, 32, 32, 32]
 
     config.input_configs = [
         InputConfig(
@@ -313,7 +361,7 @@ def test_gremlin():
     Test the loading of a pre-defined configuration.
     """
     config = load_config("gremlin")
-    assert config.encoder_configs[0].channels == [32, 32, 32, 32]
+    assert config.encoder_config.channels == [32, 32, 32, 32]
 
     config.input_configs = [
         InputConfig(
@@ -373,7 +421,6 @@ def test_resnet18():
         )
     }
     y = model(x)
-    print(y["surface_precip"].shape)
     assert y["surface_precip"].shape == (1, 256, 256)
 
 
@@ -410,11 +457,11 @@ def test_convnext18():
     assert y["surface_precip"].shape == (1, 256, 256)
 
 
-def test_convnext18():
+def test_resnext18():
     """
     Test the loading of the ConvNext18 configuration.
     """
-    config = load_config("convnext18")
+    config = load_config("resnext18")
 
     config.input_configs = [
         InputConfig(

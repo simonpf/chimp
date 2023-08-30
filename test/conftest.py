@@ -1,12 +1,31 @@
+import os
 
 import pytest
 import numpy as np
+from quantnn.mrnn import MRNN
 from scipy.fft import idctn
 import xarray as xr
 
 from cimr import areas
 from cimr.data import mrms
 from cimr.data import cpcir
+
+from cimr.config import (
+    InputConfig,
+    OutputConfig,
+    EncoderConfig,
+    DecoderConfig,
+    ModelConfig
+)
+from cimr.data import inputs, reference
+from cimr.models import compile_mrnn
+
+
+HAS_PANSAT_PASSWORD = "PANSAT_PASSWORD" in os.environ
+NEEDS_PANSAT = pytest.mark.skipif(
+    not HAS_PANSAT_PASSWORD,
+    reason="PANSAT_PASSWORD not set."
+)
 
 
 def random_spectral_field(
@@ -156,3 +175,53 @@ def gmi_data(tmp_path):
 
 
     return tmp_path
+
+
+@pytest.fixture
+def cpcir_gmi_mrnn():
+
+    input_configs = [
+        InputConfig(
+            inputs.CPCIR,
+            stem_depth=1,
+            stem_kernel_size=3,
+            stem_downsampling=1
+        ),
+        InputConfig(
+            inputs.GMI,
+            stem_depth=2,
+            stem_kernel_size=7,
+            stem_downsampling=2
+        ),
+    ]
+    output_configs = [
+        OutputConfig(
+            reference.MRMS,
+            "surface_precip",
+            "quantile_loss",
+            quantiles=np.linspace(0, 1, 34)[1:-1]
+        ),
+    ]
+
+    encoder_config = EncoderConfig(
+        "convnet",
+        channels=[16, 32, 64, 128],
+        stage_depths=[2, 2, 4, 4],
+        downsampling_factors=[2, 2, 2],
+        skip_connections=True
+    )
+
+    decoder_config = DecoderConfig(
+        "convnet",
+        channels=[64, 32, 16, 16],
+        stage_depths=[1, 1, 1, 1],
+        upsampling_factors=[2, 2, 2, 2],
+    )
+    model_config = ModelConfig(
+        input_configs,
+        output_configs,
+        encoder_config,
+        decoder_config
+    )
+    mrnn = compile_mrnn(model_config)
+    return mrnn

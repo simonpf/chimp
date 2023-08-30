@@ -10,6 +10,7 @@ from cimr.config import (
     parse_model_config,
     parse_training_config
 )
+from cimr.training import get_optimizer_and_scheduler
 
 
 MODEL_CONFIG = """
@@ -71,7 +72,7 @@ def test_parse_model_config(tmp_path):
     assert output_config.loss == "quantile_loss"
     assert output_config.shape == (28,)
 
-    encoder_config = model_config.encoder_config
+    encoder_config = model_config.encoder_configs[0]
     assert encoder_config.block_type == "resnet"
     assert encoder_config.stage_depths == [2, 3, 3, 2]
     assert encoder_config.downsampling_factors == [2, 2, 2]
@@ -102,7 +103,12 @@ def test_parse_training_config(tmp_path):
     assert training_config[0].n_epochs == 20
 
     model = nn.Conv2d(10, 10, 3)
-    opt, scheduler = training_config[0].get_optimizer_and_scheduler(model)
+
+    opt, scheduler, clbks = get_optimizer_and_scheduler(
+        training_config[0],
+        model
+    )
 
     assert isinstance(opt, torch.optim.SGD)
     assert scheduler is None
+    assert len(clbks) == 0

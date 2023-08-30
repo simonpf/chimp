@@ -29,7 +29,7 @@ from cimr.data.resample import resample_tbs
 
 # The pansat products providing access to MHS L1C data.
 MHS_PRODUCTS = [
-    #l1c_noaa19_mhs,
+    l1c_noaa19_mhs,
     l1c_metopb_mhs,
     l1c_metopc_mhs,
 ]

@@ -5,9 +5,12 @@ cimr.blocks
 Defines factory functions for the creation of convolution blocks.
 """
 from quantnn.models.pytorch import factories
-from quantnn.models.pytorch.blocks import ConvBlockFactory
-from quantnn.models.pytorch import upsampling
-from quantnn.models.pytorch import torchvision
+from quantnn.models.pytorch.blocks import (
+    ConvBlockFactory,
+    ResNeXtBlockFactory
+)
+from quantnn.models.pytorch import upsampling, torchvision, stages
+from quantnn.models.pytorch.encoders import SequentialStageFactory
 
 
 def get_block_factory(
@@ -25,8 +28,12 @@ def get_block_factory(
         return torchvision.ResNetBlockFactory(
             **factory_kwargs
         )
+    elif name.lower() == "resnext":
+        return ResNeXtBlockFactory(
+            **factory_kwargs
+        )
     elif name.lower() == "convnext":
-        return torchvision.ConvNextBlockFactory(
+        return torchvision.ConvNeXtBlockFactory(
             **factory_kwargs
         )
     else:
@@ -83,4 +90,25 @@ def get_upsampler_factory(
         raise ValueError(
             f"Upsampling type '{upsampling_type}' is not known. Refer to "
             " the 'cimr.blocks' module for supported upsampling types."
+        )
+
+
+def get_stage_factory(
+        name,
+        factory_kwargs=None
+):
+    if factory_kwargs is None:
+        factory_kwargs = {}
+
+    if name.lower() in ["sequential"]:
+        return SequentialStageFactory(
+            **factory_kwargs
+        )
+    elif name.lower() == "dla":
+        return stages.AggregationTreeFactory(
+            **factory_kwargs
+        )
+        raise ValueError(
+            f"Stage architecture '{name}' is not known. Refer to the 'cimr.blocks' "
+            " module for supported blocks."
         )

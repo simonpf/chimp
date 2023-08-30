@@ -179,7 +179,7 @@ def run(args):
             LOGGER.info(
                 f"Continuing training from checkpoint at '{ckpt_path}'."
             )
-        else:
+        elif ckpt_path is not None:
             LOGGER.info(
                 f"Not continuing from checkpoint checkpoint '{ckpt_path}' "
                 " because --resume flag has not been set."
