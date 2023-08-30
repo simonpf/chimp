@@ -27,7 +27,6 @@ import xarray as xr
 import pandas as pd
 
 
-from cimr.areas import NORDIC_2
 from cimr.definitions import MASK
 from cimr.data.utils import get_inputs, get_reference_data
 from cimr.data import inputs, reference
@@ -664,12 +663,15 @@ class CIMRDataset:
         return x, y
 
 
-    def plot(self, key):
+    def plot(self, key, domain):
 
         sample = self.samples[key]
 
-        crs = NORDIC_2.to_cartopy_crs()
-        extent = NORDIC_2.area_extent
+        keys = list(domain.keys())
+        domain = domain[min(keys)]
+
+        crs = domain.to_cartopy_crs()
+        extent = domain.area_extent
         extent = (extent[0], extent[2], extent[1], extent[3])
         cmap = "plasma"
 
@@ -740,8 +742,8 @@ class CIMRDataset:
         indices = (self.keys >= start_time) * (self.keys <= end_time)
         keys = self.keys[indices]
 
-        crs = NORDIC_2.to_cartopy_crs()
-        extent = NORDIC_2.area_extent
+        crs = domain.to_cartopy_crs()
+        extent = domain.area_extent
         extent = (extent[0], extent[2], extent[1], extent[3])
 
         f = plt.figure(figsize=(10, 12))
