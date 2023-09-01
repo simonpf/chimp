@@ -142,13 +142,16 @@ class ParallelEncoder(nn.Module):
             encoder = self.encoders[name]
             y = forward(stem, tensor)
             y = forward(encoder, y, return_skips=True)
-            encodings[name] = y
+            if isinstance(y, list):
+                encodings[name] = y
+            else:
+                encodings[name] = None
 
         # Start with largest scale
         y = encodings[self.base]
 
         for name in self.merged:
-            if name in x:
+            if name in x and encodings[name] is not None:
                 aggregators = self.aggregators[name]
                 encs = encodings[name]
                 offs = self.input_stages[name]
@@ -514,7 +517,7 @@ class CIMRModel(nn.Module):
     def forward(self, x):
         y = self.encoder(x, return_skips=self.skip_connections)
         y = self.decoder(y)
-        y = {key: head(y) for key, head in self.heads.items()}
+        y = {key: forward(head, y) for key, head in self.heads.items()}
 
         return y
 

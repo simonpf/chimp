@@ -139,6 +139,20 @@ def test_compile_parallel_encoder():
     assert len(y) == 4
     assert y[-1].shape == (2, 128, 8, 8)
 
+    x = {
+        "gmi": sparse_collate([
+            None,
+            None
+        ]),
+        "ssmis": sparse_collate([
+            None,
+            None
+        ])
+    }
+
+    assert y is None
+
+
 def test_compile_decoder():
     """
     Test the compilation of the decoder.
