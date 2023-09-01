@@ -452,7 +452,7 @@ class CIMRDataset:
         self.sequence_starts = np.array(sequence_starts)
 
         self.validation = validation
-        if not self.validation:
+        if self.validation:
             self.augment = False
         self.init_rng()
 
@@ -623,7 +623,7 @@ class CIMRDataset:
             window_size = int(1.42 * self.window_size)
             rem = window_size % self.max_scale
             if rem != 0:
-                widow_size += self.max_scale - rem
+                window_size += self.max_scale - rem
         else:
             window_size = self.window_size
 
