@@ -114,7 +114,6 @@ def run(args):
     Args:
         args: The namespace object provided by the top-level parser.
     """
-    from cimr.areas import NORDIC
 
     #
     # Check and load inputs.
