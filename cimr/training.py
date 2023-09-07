@@ -243,7 +243,8 @@ def train(
         pl.callbacks.LearningRateMonitor(),
         pl.callbacks.ModelCheckpoint(
             dirpath=output_path,
-            filename=f"cimr_{model_name}"
+            filename=f"cimr_{model_name}",
+            verbose=True
         )
     ]
 
