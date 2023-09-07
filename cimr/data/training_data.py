@@ -532,7 +532,8 @@ class CIMRDataset:
                         rotate,
                         order=0,
                         axes=(-2, -1),
-                        reshape=False
+                        reshape=False,
+                        cval=np.nan
                     )
                     width = y_t.shape[-1]
                     if width > window_size:
@@ -589,9 +590,6 @@ class CIMRDataset:
                         x[inpt.name] = None
                         continue
 
-                if self.normalize:
-                    x_s = inpt.normalizer(x_s)
-
                 # Apply augmentation
                 if rotate is not None:
                     x_s = ndimage.rotate(
@@ -600,6 +598,7 @@ class CIMRDataset:
                         order=0,
                         reshape=False,
                         axes=(-2, -1),
+                        cval=np.nan
                     )
                     width = x_s.shape[-1]
                     if width > (window_size // scl):
@@ -608,6 +607,9 @@ class CIMRDataset:
                         x_s = x_s[..., d_l:d_r, d_l:d_r]
                 if flip:
                     x_s = np.flip(x_s, -1)
+
+                if self.normalize:
+                    x_s = inpt.normalizer(x_s)
 
                 x[inpt.name] = torch.tensor(x_s.copy())
         return x, y
