@@ -113,19 +113,17 @@ def resample_retrieval_targets(
         targets=None,
         radius_of_influence=15e3):
     """
-    Resample brightness temperatures (tbs) from swath to domain.
+    Resample retrieval targets.
 
     Args:
-        domain: pyresample.AreadDefinition defining the area to resample the
-            swath to.
-        data: An 'xarray.Dataset' containing the brightness temperatures,
-            potentially, in multiple swaths.
+        domain: pyresample.AreadDefinition defining the grid to resample the
+            target data to.
+        data: An 'xarray.Dataset' containing the retrieval targets.
         n_swaths: The number of swaths in the data.
         radius_of_influence: The radius of influence to use for the resampling.
 
     Return:
-        An 'xarray.Dataset' containing the resampled brightness temperatures
-        and the row and column indices of the swath centers.
+        An 'xarray.Dataset' containing the resampled target variables.
     """
     if targets is None:
         targets = ["surface_precip"]
