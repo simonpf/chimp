@@ -150,6 +150,7 @@ def test_compile_parallel_encoder():
         ])
     }
 
+    y = encoder(x, return_skips=True)
     assert y is None
 
 

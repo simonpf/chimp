@@ -9,6 +9,7 @@ from datetime import datetime
 from math import ceil
 import os
 from pathlib import Path
+from typing import Tuple, Optional
 
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
@@ -272,6 +273,47 @@ def load_microwave_obs(sample, dataset, normalize=True, rng=None):
     sample["mw_183"] = torch.as_tensor(x)
 
 
+def generate_input(
+        inpt: inputs.Input,
+        size: int,
+        policy: str,
+        rng: np.random.Generator
+):
+    """
+    Generate input values for missing inputs.
+
+    Args:
+        n_channels: The number of channels in the input data.
+        size: Side-length of the quadratic input array.
+        value: The value to fill the array with.
+        policy: The policy to use for the data generation.
+        rng: The random generator object to use to create random
+            arrays.
+
+    Return:
+        An numpy.ndarray containing replacement data.
+    """
+    if policy == "sparse":
+        return None
+    elif policy == "random":
+        return rng.normal(size=(n_channels, size, size))
+    elif policy == "mean":
+        return inpt.mean * np.ones(
+            shape=(inpt.n_channels, size, size),
+            dtype="float32"
+        )
+    elif policy == "missing":
+        return np.nan * np.ones(
+            shpare=(inpt.n_channels, size, size),
+            dtype="float32"
+        )
+
+    raise ValueError(
+        f"Missing input policy '{policy}' is not known. Choose between 'random'"
+        " 'mean' and 'constant'. "
+    )
+
+
 @dataclass
 class SampleRecord:
     """
@@ -340,7 +382,7 @@ class CIMRDataset:
         end_time=None,
         quality_threshold=0.8,
         augment=True,
-        sparse=True,
+        missing_input_policy="sparse",
         time_step=None,
         validation=False
     ):
@@ -362,9 +404,13 @@ class CIMRDataset:
                 the radar measurements.
             augment: Whether to apply random transformations to the training
                 inputs.
-            sparse: Whether to return ``None`` for inputs that are empty. This
-                this can be used together with 'PackedTensors' to handle missing
-                inputs.
+            missing_input_policy: A string indicating how to handle missing input
+                data. Options:
+                    'random': Missing data is replaced with Gaussian noise.
+                    'mean' Missing value is replaced with the mean of the
+                    input data.
+                    'missing': Missing data is replaced with NANs
+                    'sparse': Instead of a tensor 'None' is returned.
             time_step: Minimum time step between consecutive reference samples.
                 Can be used to sub-sample the reference data.
             validation: If 'True' sampling will reproduce identical scenes.
@@ -382,7 +428,7 @@ class CIMRDataset:
         self.normalize = normalize
         self.quality_threshold = quality_threshold
         self.augment = augment
-        self.sparse = sparse
+        self.missing_input_policy = missing_input_policy
 
         pattern = "*????????_??_??.nc"
 
@@ -475,25 +521,29 @@ class CIMRDataset:
 
     def load_sample(
             self,
-            files,
-            slices,
-            window_size,
-            forecast=False,
-            rotate=None,
-            flip=None,
+            files: Tuple[Path],
+            slices: Optional[Tuple[int]],
+            window_size: int,
+            forecast: bool = False,
+            rotate: Optional[float] = None,
+            flip: bool = False,
     ):
         """
         Load training sample.
 
         Args:
-            files: A list containing the reference data and inputs files
-                 containing the data to this sample.
+            files: A list containing the reference-data and input files
+                 containing the data from which to load this sample.
             slices: Tuple ``(i_start, i_end, j_start, j_end)`` defining
-                 defining the crop of the domain.
-            forecast: If 'True' inputs will be None.
-            flip_v: Whether or not to flip the data vertically.
-            flip_h: Whether or not to flip the data horizontally.
-            transpose: Whether or not to transpose the data.
+                defining the crop of the domain. If set to 'None', the full
+                domain is loaded.
+            window_size: The window size specified with respect to the
+                reference data.
+            forecast: If 'True', no input data will be loaded and all inputs
+                will be set to None.
+            rotate: If provided, should be float specifying the degree by which
+                to rotate the input.
+            flip: If 'True', input will be flipped along the last axis.
 
         Return:
             A tuple ``(x, y)`` containing two dictionaries ``x`` and ``y``
@@ -508,24 +558,20 @@ class CIMRDataset:
             row_slice = slice(0, None)
             col_slice = slice(0, None)
 
+        # Load reference data.
         y = {}
         with xr.open_dataset(files[0]) as data:
-
             qual = data[self.reference_data.quality_index]
             qual = qual.data[row_slice, col_slice]
             invalid = qual < self.quality_threshold
-
             for target in self.reference_data.targets:
                 y_t = data[target.name].data[row_slice, col_slice]
-
                 if target.lower_limit is not None:
                     y_t[y_t < 0] = np.nan
                     small = y_t < target.lower_limit
                     rnd = self.rng.uniform(-5, -3, small.sum())
                     y_t[small] = 10 ** rnd
-
                 y_t[invalid] = np.nan
-
                 if rotate is not None:
                     y_t = ndimage.rotate(
                         y_t,
@@ -542,26 +588,28 @@ class CIMRDataset:
                         y_t = y_t[..., d_l:d_r, d_l:d_r]
                 if flip:
                     y_t = np.flip(y_t, -1)
-
                 y[target.name] = np.nan_to_num(y_t, nan=MASK, copy=True)
 
+        # Load input data.
         x = {}
-
         for input_ind, inpt in enumerate(self.inputs):
-
             if files[input_ind + 1] is None:
-                if self.sparse:
-                    x_s = None
-                else:
-                    size = self.window_size * self.scales[inpt.names]
-                    n_channels = len(inpt.normalizer.stats)
-                    x_s = np.nan * np.zeros((n_channels, size, size))
-                    if self.normalize:
-                        x_s = inpt.normalizer(x_s)
+                value = 0.0
+                if self.missing_input_policy == "mean":
+                    value = inpt.mean
+                if self.missing_input_policy == "missing_value":
+                    value = np.nan
+
+                x_s = generate_input(
+                    inpt,
+                    self.scales[inpt.names] * self.window_size,
+                    self.missing_input_policy,
+                    self.rng
+                )
+                if not x_s is None and self.normalize:
+                    x_s = inpt.normalizer(x_s)
                 x[inpt.name] = x_s
                 continue
-
-
             scl = self.scales[inpt.name]
             if slices is not None:
                 row_slice = slice(int(i_start / scl), int(i_end / scl))
@@ -569,28 +617,17 @@ class CIMRDataset:
             else:
                 row_slice = slice(0, None)
                 col_slice = slice(0, None)
-
             with xr.open_dataset(files[input_ind + 1]) as data:
-
                 vars = inpt.variables
                 if isinstance(vars, str):
                     x_s = data[vars].data[..., row_slice, col_slice]
                     # Expand dims in case of single-channel inputs.
                     if x_s.ndim < 3:
                         x_s = x_s[None]
-
                 else:
                     x_s = np.stack(
                         [data[vrbl].data[row_slice, col_slice] for vrbl in vars]
                     )
-
-                if self.sparse:
-                    missing_fraction = np.isnan(x_s).mean()
-                    if missing_fraction > 0.95:
-                        x[inpt.name] = None
-                        continue
-
-                # Apply augmentation
                 if rotate is not None:
                     x_s = ndimage.rotate(
                         x_s,

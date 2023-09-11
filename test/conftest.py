@@ -81,9 +81,11 @@ def mrms_surface_precip_data(tmp_path):
     for time in times:
 
         rqi = random_spectral_field((lats.size, lons.size), 10)
-        rqi = rqi - rqi.min() / (rqi.max() - rqi.min())
+        rqi += rqi.min()
+        med = np.median(rqi)
+        rqi = np.minimum(rqi, med) / med
 
-        sp = random_spectral_field((lats.size, lons.size), 10)
+        sp = random_spectral_field((lats.size, lons.size), 10).astype("float32")
 
         filename = mrms.get_output_filename(time)
         dataset = xr.Dataset({
@@ -122,7 +124,7 @@ def cpcir_data(tmp_path):
         tbs = random_spectral_field(
             (lats.size, lons.size),
             10
-        )[None]
+        )[None].astype("float32")
         filename = cpcir.get_output_filename(time.item(), 30)
         dataset = xr.Dataset({
             "time": ((), time),
@@ -158,7 +160,7 @@ def gmi_data(tmp_path):
         tbs = random_spectral_field(
             (lats.size, lons.size),
             10
-        )[None]
+        )[None].astype("float32")
 
         time_py = time.item()
         year = time_py.year

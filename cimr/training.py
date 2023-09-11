@@ -290,7 +290,7 @@ def train(
         if training_config.accelerator in ["cuda", "gpu"]:
             devices = -1
         else:
-            devices = 8
+            devices = 1
         lightning_module.stage_name = training_config.name
 
         trainer = pl.Trainer(
