@@ -181,12 +181,17 @@ def run(args):
             return 1
 
     n_procs = args.n_processes
+    include_scan_time = args.include_scan_time
     pool = ThreadPoolExecutor(max_workers=n_procs)
 
     tasks = []
     for day in days:
         args = [domain, year, month, day, output]
-        kwargs = {"path": path, "time_step": time_step}
+        kwargs = {
+            "path": path,
+            "time_step": time_step,
+            "include_scan_time": include_scan_time
+        }
         if conditional is not None:
             kwargs["conditional"] = conditional
         tasks.append(pool.submit(module.process_day, *args, **kwargs))
