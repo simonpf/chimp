@@ -109,18 +109,18 @@ def test_training_find_files(cpcir_data, mrms_surface_precip_data):
 
 
 
-def test_sparse_data(cpcir_data, mrms_surface_precip_data):
+def test_sparse_data(cpcir_data, gmi_data, mrms_surface_precip_data):
     """
     Test that missing inputs are set to None.
     """
     training_data = CIMRDataset(
-        TEST_DATA / "training_data",
+        cpcir_data,
         reference_data="mrms",
         inputs=["cpcir", "gmi"],
-        sparse=True,
+        missing_input_policy="sparse",
         window_size = 128
     )
-    x, y = training_data[0]
+    x, y = training_data[1]
     assert x["gmi"] is None
     assert x["cpcir"].shape[1:] == (128, 128)
 
@@ -136,7 +136,7 @@ def test_pretrain_dataset(cpcir_data, gmi_data, mrms_surface_precip_data):
             cpcir_data,
             reference_data="mrms",
             inputs=inputs,
-            sparse=True
+            missing_input_policy="sparse"
         )
         assert len(training_data.sequence_starts) == 24
 
@@ -157,7 +157,7 @@ def test_full_domain(cpcir_data, gmi_data, mrms_surface_precip_data):
             cpcir_data,
             reference_data="mrms",
             inputs=inputs,
-            sparse=True
+            missing_input_policy="sparse"
         )
 
         iter = training_data.full_domain()

@@ -277,7 +277,7 @@ def generate_input(
         inpt: inputs.Input,
         size: int,
         policy: str,
-        rng: np.random.Generator
+        rng: np.random.Generator,
 ):
     """
     Generate input values for missing inputs.
@@ -298,15 +298,15 @@ def generate_input(
     elif policy == "random":
         return rng.normal(size=(n_channels, size, size))
     elif policy == "mean":
-        return inpt.mean * np.ones(
+        return inpt.normalizer(inpt.mean * np.ones(
             shape=(inpt.n_channels, size, size),
             dtype="float32"
-        )
+        ))
     elif policy == "missing":
-        return np.nan * np.ones(
+        return inpt.normalizer(np.nan * np.ones(
             shpare=(inpt.n_channels, size, size),
             dtype="float32"
-        )
+        ))
 
     raise ValueError(
         f"Missing input policy '{policy}' is not known. Choose between 'random'"
@@ -454,7 +454,7 @@ class CIMRDataset:
         }
 
         with xr.open_dataset(reference_files[0]) as ref_data:
-            base_size = self.reference_data.scale
+            base_scale = self.reference_data.scale
 
         self.scales = {}
         self.max_scale = 0
@@ -466,7 +466,7 @@ class CIMRDataset:
 
                 if scale is None:
                     with xr.open_dataset(src_file) as src_data:
-                        scale = inpt.scale // base_size
+                        scale = inpt.scale // base_scale
                         self.scales[inpt.name] = scale
                         self.max_scale = max(self.max_scale, scale)
 
@@ -593,23 +593,18 @@ class CIMRDataset:
         # Load input data.
         x = {}
         for input_ind, inpt in enumerate(self.inputs):
-            if files[input_ind + 1] is None:
-                value = 0.0
-                if self.missing_input_policy == "mean":
-                    value = inpt.mean
-                if self.missing_input_policy == "missing_value":
-                    value = np.nan
 
+            # Input is missing: Apply missing value policy.
+            if files[input_ind + 1] is None:
                 x_s = generate_input(
                     inpt,
-                    self.scales[inpt.names] * self.window_size,
+                    self.window_size // self.scales[inpt.name],
                     self.missing_input_policy,
                     self.rng
                 )
-                if not x_s is None and self.normalize:
-                    x_s = inpt.normalizer(x_s)
                 x[inpt.name] = x_s
                 continue
+
             scl = self.scales[inpt.name]
             if slices is not None:
                 row_slice = slice(int(i_start / scl), int(i_end / scl))
@@ -984,7 +979,6 @@ class CIMRDataset:
 
     def full_domain(self, start_time=None, end_time=None):
 
-
         indices = np.ones(self.keys.size, dtype="bool")
         if start_time is not None:
             indices = indices * (self.keys >= start_time)
@@ -1080,7 +1074,7 @@ class CIMRPretrainDataset(CIMRDataset):
         end_time=None,
         quality_threshold=0.8,
         augment=True,
-        sparse=True,
+        missing_input_policy="sparse",
         time_step=None
     ):
         super().__init__(
@@ -1096,7 +1090,7 @@ class CIMRPretrainDataset(CIMRDataset):
             end_time=end_time,
             quality_threshold=quality_threshold,
             augment=augment,
-            sparse=sparse,
+            missing_input_policy=missing_input_policy,
             time_step=time_step
         )
         samples_by_input = [[] for _ in inputs]
@@ -1159,20 +1153,18 @@ class CIMRPretrainDataset(CIMRDataset):
         ys = []
 
         if self.augment:
-            flip_v = self.rng.random() > 0.5
-            flip_h = self.rng.random() > 0.5
-            transpose= self.rng.random() > 0.5
+            ang = -180 + 360 * self.rng.random()
+            flip = self.rng.random() > 0.5
         else:
-            flip_v = False
-            flip_h = False
-            transpose = False
+            ang = None
+            flip = False
 
         x, y = self.load_sample(
             self.samples[key],
             slices,
-            flip_v=flip_v,
-            flip_h=flip_h,
-            transpose=transpose
+            self.window_size,
+            rotate=ang,
+            flip=flip
         )
 
         has_input = any((x[inpt.name] is not None for inpt in self.inputs))

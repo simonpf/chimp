@@ -3,6 +3,7 @@ Tests for the cimr.processing module.
 """
 from pathlib import Path
 
+import numpy as np
 from quantnn.qrnn import QRNN
 import torch
 
@@ -22,6 +23,9 @@ def test_retrieval_step(
         gmi_data,
         cpcir_gmi_mrnn
 ):
+    """
+    Test performing a single retrieval step.
+    """
     data_path = mrms_surface_precip_data
     model = cpcir_gmi_mrnn
     input_data = CIMRDataset(
