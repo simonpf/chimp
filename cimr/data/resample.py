@@ -43,7 +43,13 @@ def resample_swath_center(domain, lons, lats, radius_of_influence=15e3):
     return row_indices, col_indices
 
 
-def resample_tbs(domain, data, n_swaths=None, radius_of_influence=15e3):
+def resample_tbs(
+        domain,
+        data,
+        n_swaths=None,
+        radius_of_influence=15e3,
+        include_scan_time=True
+):
     """
     Resample brightness temperatures (tbs) from swath to domain.
 
@@ -54,6 +60,8 @@ def resample_tbs(domain, data, n_swaths=None, radius_of_influence=15e3):
             potentially, in multiple swaths.
         n_swaths: The number of swaths in the data.
         radius_of_influence: The radius of influence to use for the resampling.
+        include_scan_time: Flag indicating whether or not to include the
+            scan time in the results.
 
     Return:
         An 'xarray.Dataset' containing the resampled brightness temperatures
@@ -66,6 +74,7 @@ def resample_tbs(domain, data, n_swaths=None, radius_of_influence=15e3):
         no_swaths = False
 
     swath_tbs = []
+    scan_time = None
 
     for swath_ind in range(1, n_swaths + 1):
 
@@ -98,12 +107,28 @@ def resample_tbs(domain, data, n_swaths=None, radius_of_influence=15e3):
         )
         swath_tbs.append(tbs)
 
+        if swath_ind == 1 and include_scan_time:
+            scan_time = data["scan_time"].data[..., None]
+            scan_time = np.broadcast_to(scan_time, lons.shape)
+            scan_time = kd_tree.resample_nearest(
+                swath,
+                scan_time,
+                domain,
+                radius_of_influence=radius_of_influence,
+                fill_value=np.datetime64("NAT")
+            )
+
+
     tbs = np.concatenate(swath_tbs, -1)
     dataset = xr.Dataset({
         "tbs": (("y", "x", "channels"), tbs),
         "swath_center_row_inds": (("swath_centers",), row_inds),
         "swath_center_col_inds": (("swath_centers",), col_inds),
     })
+
+    if scan_time is not None:
+        dataset["scan_time"] = (("y", "x"), scan_time)
+
     return dataset
 
 

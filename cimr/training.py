@@ -301,8 +301,8 @@ def train(
             precision=training_config.precision,
             logger=lightning_module.tensorboard,
             callbacks=stage_callbacks,
-            num_sanity_val_steps=0
-            #strategy=pl.strategies.DDPStrategy(find_unused_parameters=True),
+            num_sanity_val_steps=0,
+            strategy=pl.strategies.DDPStrategy(find_unused_parameters=True),
         )
         trainer.fit(
             model=lightning_module,

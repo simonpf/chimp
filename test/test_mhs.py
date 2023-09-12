@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import xarray as xr
 
-from cimr.areas import NORDIC
+from cimr.areas import NORDICS
 from cimr.data.mhs import (
     MHS_PRODUCTS,
     resample_swaths,
@@ -21,7 +21,7 @@ def test_resampling():
     """
     Ensure that resampling produces valid brightness temperatures.
     """
-    domain = NORDIC
+    domain = NORDICS
     product = MHS_PRODUCTS[0]
     data = product.open(data_path / "obs" / mhs_file)
     tbs_r = resample_swaths(domain, data)
@@ -34,7 +34,7 @@ def test_process_file(tmp_path):
     Enusre that processing a single file produces a training data file
     with the expected input.
     """
-    domain = NORDIC
+    domain = NORDICS
     product = MHS_PRODUCTS[0]
     data = product.open(data_path / "obs" / mhs_file)
     process_file(domain, data, tmp_path)

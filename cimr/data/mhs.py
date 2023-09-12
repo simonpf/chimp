@@ -112,7 +112,13 @@ def save_scene(time, tbs_r, output_folder, time_step):
     return None
 
 
-def process_file(domain, data, output_folder, time_step):
+def process_file(
+        domain,
+        data,
+        output_folder,
+        time_step,
+        include_scan_time=False
+):
     """
     Extract training data from a single MHS L1C file.
 
@@ -122,12 +128,21 @@ def process_file(domain, data, output_folder, time_step):
         data: An 'xarray.Dataset' containing the L1C data.
         output_folder: Path to the root of the directory tree to which
             to write the training data.
+        time_step: The time step used for the discretization of the input
+            data.
+        include_scan_time: Boolean flag indicating whether or not to include
+            the resampled scan time in the extracted retrieval input.
     """
     data = data.copy()
     scenes = find_overpasses(domain["roi"], data)
 
     for scene in scenes:
-        tbs_r = resample_tbs(domain[16], data, radius_of_influence=64e3)
+        tbs_r = resample_tbs(
+            domain[16],
+            data,
+            radius_of_influence=64e3,
+            include_scan_time=include_scan_time
+        )
         time = scene.scan_time.mean().data.item()
         tbs_r.attrs = scene.attrs
         save_scene(time, tbs_r, output_folder, time_step)
@@ -140,7 +155,9 @@ def process_day(
         day,
         output_folder,
         path=None,
-        time_step=timedelta(minutes=15)):
+        time_step=timedelta(minutes=15),
+        include_scan_time=False
+):
     """
     Extract training data for a day of MHS observations.
 
@@ -151,6 +168,10 @@ def process_day(
         output_folder: The folder to which to write the extracted
             observations.
         path: Not used, included for compatibility.
+        time_step: The time step used for the time discretization of
+            the input data.
+        include_scan_time: Whether or not to include the scan time
+            in the retrieval input.
     """
     output_folder = Path(output_folder) / "mhs"
     if not output_folder.exists():
@@ -176,4 +197,10 @@ def process_day(
                     tmp = Path(tmp)
                     provider.download_file(filename, tmp / filename)
                     data = product.open(tmp / filename)
-                    process_file(domain, data, output_folder, time_step)
+                    process_file(
+                        domain,
+                        data,
+                        output_folder,
+                        time_step,
+                        include_scan_time
+                    )

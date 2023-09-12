@@ -157,10 +157,10 @@ def gmi_data(tmp_path):
 
     for time in times:
 
-        tbs = random_spectral_field(
-            (lats.size, lons.size),
-            10
-        )[None].astype("float32")
+        tbs = np.stack([
+            random_spectral_field((lats.size, lons.size), 10)
+            for _ in range(13)
+        ])
 
         time_py = time.item()
         year = time_py.year
@@ -181,7 +181,9 @@ def gmi_data(tmp_path):
 
 @pytest.fixture
 def cpcir_gmi_mrnn():
-
+    """
+    Fixture providing a CIMR retrieval model for CPCIR and GMI input.
+    """
     input_configs = [
         InputConfig(
             inputs.CPCIR,
@@ -210,14 +212,15 @@ def cpcir_gmi_mrnn():
         channels=[16, 32, 64, 128],
         stage_depths=[2, 2, 4, 4],
         downsampling_factors=[2, 2, 2],
-        skip_connections=True
+        combined=False
     )
 
     decoder_config = DecoderConfig(
         "convnet",
-        channels=[64, 32, 16, 16],
-        stage_depths=[1, 1, 1, 1],
-        upsampling_factors=[2, 2, 2, 2],
+        channels=[64, 32, 16],
+        stage_depths=[1, 1, 1],
+        upsampling_factors=[2, 2, 2],
+        skip_connections=True,
     )
     model_config = ModelConfig(
         input_configs,

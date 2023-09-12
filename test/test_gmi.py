@@ -7,7 +7,7 @@ from datetime import timedelta
 import numpy as np
 import xarray as xr
 
-from cimr.areas import NORDIC
+from cimr.areas import NORDICS
 from cimr.data.gmi import (
     l1c_gpm_gmi_r,
     resample_swaths,
@@ -22,7 +22,7 @@ def test_process_file(tmp_path):
     Ensure that processing a single file produces a training data file
     with the expected input.
     """
-    domain = NORDIC
+    domain = NORDICS
     product = l1c_gpm_gmi_r
     data = product.open(data_path / "obs" / gmi_file)
     process_file(domain, data, tmp_path, timedelta(minutes=15))
@@ -34,6 +34,6 @@ def test_process_file(tmp_path):
 
     tbs = data["tbs"]
     assert tbs.shape[0] == 13
-    assert NORDIC[8].shape == tbs.shape[1:]
+    assert NORDICS[8].shape == tbs.shape[1:]
     for i in range(13):
         assert np.any(tbs.data[i])

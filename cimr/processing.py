@@ -93,24 +93,26 @@ def retrieval_step(
         An ``xarray.Dataset`` containing the retrieval results and the
         crreutn internal state of the retrieval.
     """
-    #quantiles = torch.tensor(model.quantiles).to(device)
 
-    with torch.autocast(device_type=device, dtype=float_type):
+    x = model_input
+    tiler = Tiler(x, tile_size=tile_size, overlap=64)
 
-        x = model_input
-        tiler = Tiler(x, tile_size=tile_size, overlap=64)
+    means = {}
 
-        means = {}
+    output_names = list(model.losses.keys())
 
-        output_names = list(model.losses.keys())
+    model.model.eval()
 
-        model.model.eval()
+    def predict_fun(x_t):
 
-        def predict_fun(x_t):
+        results = {}
 
-            results = {}
+        x_t = {
+            name: tensor.to(dtype=float_type) for name, tensor in x_t.items()
+        }
 
-            with torch.no_grad():
+        with torch.no_grad():
+            with torch.autocast(device_type=device, dtype=float_type):
                 y_pred = model.model(x_t)
                 if isinstance(y_pred, PackedTensor):
                     y_pred = y_pred._t
@@ -138,9 +140,9 @@ def retrieval_step(
                             1e1,
                         )
 
-                    results[key + "_mean"] = y_mean_k.cpu().numpy()[0]
-                    results["p_" + key + "_non_zero"] = p_non_zero.cpu().numpy()[0]
-                    results["p_" + key + "_heavy"] = p_heavy.cpu().numpy()[0]
+                    results[key + "_mean"] = y_mean_k.float().cpu().numpy()[0]
+                    results["p_" + key + "_non_zero"] = p_non_zero.float().cpu().numpy()[0]
+                    results["p_" + key + "_heavy"] = p_heavy.float().cpu().numpy()[0]
 
             return results
 

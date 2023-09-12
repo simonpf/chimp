@@ -293,7 +293,7 @@ def compile_decoder(
 
     for f_up in upsampling_factors:
         scales.append(scale)
-        scale /= f_up
+        scale //= f_up
     scales.append(scale)
 
     channels = encoder_config.channels[-1:] + decoder_config.channels
@@ -318,7 +318,7 @@ def compile_decoder(
         )
 
     skip_connections = decoder_config.skip_connections
-    if skip_connections != 0:
+    if skip_connections:
         decoder = SparseSpatialDecoder(
             channels=channels,
             stages=stage_depths,

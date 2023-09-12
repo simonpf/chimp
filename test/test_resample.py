@@ -4,7 +4,7 @@ import xarray as xr
 
 from cimr.areas import CONUS_4
 from cimr.data.resample import resample_swath_center, resample_tbs
-from cimr.areas import NORDIC
+from cimr.areas import NORDICS
 from cimr.data.gmi import (
     l1c_gpm_gmi_r,
 )
@@ -18,7 +18,6 @@ def test_resample_swath_center():
     Ensure that resampling the longitude and latitude coordinates of a
     rectangular domain returns a vertical line at the center of the domain.
     """
-
     lons, lats = CONUS_4.get_lonlats()
     row_indices, col_indices = resample_swath_center(
         CONUS_4,
@@ -43,11 +42,18 @@ def test_resample_gmi_tbs():
     """
     Test resampling of GMI TBS.
     """
-    domain = NORDIC
+    domain = NORDICS
     product = l1c_gpm_gmi_r
     data = product.open(data_path / "obs" / gmi_file)
-    tbs_r = resample_tbs(domain[8], data, 2, radius_of_influence=15e3)
+    tbs_r = resample_tbs(
+        domain[8],
+        data,
+        2,
+        radius_of_influence=15e3,
+        include_scan_time=True
+    )
 
     assert tbs_r.channels.size == 13
     assert np.any(np.isfinite(tbs_r["tbs"]))
     assert tbs_r.swath_centers.size > 0
+    assert "scan_time" in tbs_r

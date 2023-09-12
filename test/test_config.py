@@ -72,7 +72,7 @@ def test_parse_model_config(tmp_path):
     assert output_config.loss == "quantile_loss"
     assert output_config.shape == (28,)
 
-    encoder_config = model_config.encoder_configs[0]
+    encoder_config = model_config.encoder_config
     assert encoder_config.block_type == "resnet"
     assert encoder_config.stage_depths == [2, 3, 3, 2]
     assert encoder_config.downsampling_factors == [2, 2, 2]

@@ -345,9 +345,9 @@ class Tiler:
             }
         res = results_t
 
-        ds_row = self.tile_size[0] // res.shape[-2]
-        ds_col = self.tile_size[1] // res.shape[-1]
-        shape = res.shape[:-2] + (self.m // ds_row, self.n // ds_col)
+        ds_row = self.tile_size[0] / res.shape[-2]
+        ds_col = self.tile_size[1] / res.shape[-1]
+        shape = res.shape[:-2] + (int(self.m / ds_row), int(self.n / ds_col))
         return np.zeros(shape, dtype=res.dtype)
 
 

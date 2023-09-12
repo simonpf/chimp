@@ -104,6 +104,11 @@ def add_parser(subparsers):
         default=1,
         help="The number of processes to use for the data extraction.",
     )
+    parser.add_argument(
+        "--include_scan_time", action="store_true",
+        help="Include resampled scan time in retrieval inputs."
+
+    )
     parser.set_defaults(func=run)
 
 

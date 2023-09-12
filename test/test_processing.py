@@ -29,7 +29,10 @@ def test_retrieval_step(
         inputs=["cpcir", "gmi"],
         reference_data="mrms"
     )
-    data_iterator = input_data.full_domain()
+    data_iterator = input_data.full_domain(
+        start_time=np.datetime64("2020-01-01T04:00:00"),
+        end_time=np.datetime64("2020-01-01T06:10:00"),
+    )
     for time, x, y in data_iterator:
         retrieval_step(
             model,
