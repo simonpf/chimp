@@ -127,7 +127,7 @@ class ParallelEncoder(nn.Module):
             aggregators = []
             stage = inputs[name][0]
             for ind, n_chans in enumerate(channels[stage:]):
-                aggregators.append(aggregator_factory(n_chans, 2, n_chans))
+                aggregators.append(aggregator_factory((n_chans,) * 2, n_chans))
             self.aggregators[name] = nn.ModuleList(aggregators)
 
 
@@ -309,11 +309,15 @@ def compile_decoder(
         factory_kwargs=decoder_config.upsampler_factory_kwargs
     )
 
+
     if decoder_config.architecture == "dla":
+        aggregator_factory = BlockAggregatorFactory(
+            ConvBlockFactory(kernel_size=3)
+        )
         return DLADecoder(
             channels=channels,
             scales=scales,
-            aggregator_factory=block_factory,
+            aggregator_factory=aggregator_factory,
             upsampler_factory=upsampler_factory
         )
 
