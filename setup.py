@@ -18,6 +18,7 @@ setup(
     author="Simon Pfreundschuh",
     author_email="simon.pfreundschuh@chalmers.se",
     install_requires=[
+        "rich",
         "torch",
         "pytorch-lightning",
         "numpy",
