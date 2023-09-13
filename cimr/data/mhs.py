@@ -98,10 +98,10 @@ def save_scene(time, tbs_r, output_folder, time_step):
     tbs_r = tbs_r.transpose("channels", "y", "x", "swath_centers")
 
     comp = {
-        "dtype": "int16",
+        "dtype": "uint16",
         "scale_factor": 0.01,
         "zlib": True,
-        "_FillValue": -99,
+        "_FillValue": 2 ** 16 - 1
     }
     encoding = {
         "tbs": comp,
