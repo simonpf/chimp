@@ -61,7 +61,16 @@ def save_scene(time, tbs_r, output_folder, time_step):
     return None
 
 
-def process_file(domain, data, output_folder, time_step):
+def process_file(
+        domain: dict,
+        year: int,
+        month: int,
+        day: int,
+        output_folder: Path,
+        path: Path = Optional[None],
+        time_step: timedelta = timedelta(minutes=15),
+        include_scan_time=False
+) -> None:
     """
     Extract training data from a single AMSR2 L1C file.
 
@@ -72,6 +81,8 @@ def process_file(domain, data, output_folder, time_step):
         output_folder: Path to the root of the directory tree to which
             to write the training data.
         time_step: The time step between consecutive retrieval steps.
+        include_scan_time: If set to 'True', the resampled scan time will
+            be included in the extracted training input.
     """
     data = data.copy()
     data["latitude"] = data["latitude_s1"]
@@ -83,7 +94,8 @@ def process_file(domain, data, output_folder, time_step):
             domain[8],
             data,
             radius_of_influence=10e3,
-            n_swaths=6
+            n_swaths=6,
+            include_scan_time=include_scan_time
         )
         time = scene.scan_time.mean().data.item()
         tbs_r.attrs = scene.attrs
@@ -91,15 +103,15 @@ def process_file(domain, data, output_folder, time_step):
 
 
 def process_day(
-        domain,
-        year,
-        month,
-        day,
-        output_folder,
-        path=None,
-        time_step=timedelta(minutes=15)
-
-):
+        domain: dict,
+        year: int,
+        month: int,
+        day: int,
+        output_folder: Path,
+        path: Path = Optional[None],
+        time_step: timedelta = timedelta(minutes=15),
+        include_scan_time=False
+) -> None:
     """
     Extract AMSR2 input observations for the CIMR retrieval.
 
@@ -113,6 +125,8 @@ def process_day(
             the training data.
         path: Not used, included for compatibility.
         time_step: The time step between consecutive retrieval steps.
+        include_scan_time: If set to 'True', the resampled scan time will
+            be included in the extracted training input.
     """
     output_folder = Path(output_folder) / "amsr2"
     if not output_folder.exists():
@@ -132,4 +146,10 @@ def process_day(
                 tmp = Path(tmp)
                 provider.download_file(filename, tmp / filename)
                 data = l1c_gcomw1_amsr2.open(tmp / filename)
-                process_file(domain, data, output_folder, time_step)
+                process_file(
+                    domain,
+                    data,
+                    output_folder,
+                    time_step,
+                    include_scan_time=include_scan_time
+                )

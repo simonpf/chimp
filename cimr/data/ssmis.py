@@ -8,6 +8,8 @@ the CIMR training data generation.
 from datetime import datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Optional
+
 import numpy as np
 from pansat.roi import find_overpasses
 from pansat.metadata import parse_swath
@@ -157,7 +159,12 @@ def save_scene(time, tbs_r, output_folder, time_step):
     return None
 
 
-def process_file(domain, data, output_folder, time_step):
+def process_file(
+        domain: dict,
+        data: xr.Dataset, output_folder: Path,
+        time_step: timedelta,
+        include_scan_time: bool = False
+):
     """
     Extract training data from a single SSMIS L1C file.
 
@@ -176,20 +183,27 @@ def process_file(domain, data, output_folder, time_step):
     scenes = find_overpasses(domain["roi"], data)
 
     for scene in scenes:
-        tbs_r = resample_tbs(domain[8], data, n_swaths=4, radius_of_influence=32e3)
+        tbs_r = resample_tbs(
+            domain[8],
+            data,
+            n_swaths=4,
+            radius_of_influence=32e3,
+            include_scan_time=include_scan_time
+        )
         time = scene.scan_time.mean().data.item()
         tbs_r.attrs = scene.attrs
         save_scene(time, tbs_r, output_folder, time_step)
 
 
 def process_day(
-        domain,
-        year,
-        month,
-        day,
-        output_folder,
-        path=None,
-        time_step=timedelta(minutes=15)
+        domain: dict,
+        year: int,
+        month: int,
+        day: int,
+        output_folder: Path,
+        path: Path = Optional[None],
+        time_step: timedelta = timedelta(minutes=15),
+        include_scan_time=False
 ):
     """
     Extract SSMIS input observations for training the CIMR retrieval.
@@ -204,6 +218,8 @@ def process_day(
             the training data.
         path: Not used, included for compatibility.
         time_step: The temporal resolution of the retrieval.
+        include_scan_time: If set to 'True', the resampled scan time will
+            be included in the extracted training input.
     """
     output_folder = Path(output_folder) / "ssmis"
     if not output_folder.exists():
@@ -223,7 +239,12 @@ def process_day(
                 # Extract observations
                 with TemporaryDirectory() as tmp:
                     tmp = Path(tmp)
-                    print("processing: ", filename)
                     provider.download_file(filename, tmp / filename)
                     data = product.open(tmp / filename)
-                    process_file(domain, data, output_folder, time_step)
+                    process_file(
+                        domain,
+                        data,
+                        output_folder,
+                        time_step,
+                        include_scan_time=include_scan_time
+                    )

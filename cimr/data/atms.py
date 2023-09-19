@@ -8,6 +8,7 @@ the CIMR training data generation.
 from datetime import datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Optional
 
 import numpy as np
 from pansat.roi import find_overpasses
@@ -64,10 +65,10 @@ def save_scene(
     tbs_r = tbs_r.transpose("channels", "y", "x", "swath_centers")
 
     comp = {
-        "dtype": "int16",
+        "dtype": "uint16",
         "scale_factor": 0.01,
         "zlib": True,
-        "_FillValue": -99,
+        "_FillValue": 2 ** 16 - 1,
     }
     encoding = {
         "tbs": comp,
@@ -81,8 +82,9 @@ def save_scene(
 def process_file(
         domain: dict,
         data: xr.Dataset,
-        output_folder: Path,
-        time_step: timedelta
+        output_folder : Path,
+        time_step: timedelta,
+        include_scan_time: bool = False
 ) -> None:
     """
     Extract training data from a single ATMS L1C file.
@@ -93,6 +95,10 @@ def process_file(
         data: An 'xarray.Dataset' containing the L1C data.
         output_folder: Path to the root of the directory tree to which
             to write the training data.
+        time_step: The time step used for the discretization of the input
+            data.
+        include_scan_time: Boolean flag indicating whether or not to include
+            the resampled scan time in the extracted retrieval input.
     """
     data = data.copy()
     data["latitude"] = data["latitude_s1"]
@@ -101,7 +107,13 @@ def process_file(
     scenes = find_overpasses(domain["roi"], data)
 
     for scene in scenes:
-        tbs_r = resample_tbs(domain[16], data, n_swaths=4, radius_of_influence=64e3)
+        tbs_r = resample_tbs(
+            domain[16],
+            data,
+            n_swaths=4,
+            radius_of_influence=64e3,
+            include_scan_time=include_scan_time
+        )
         time = scene.scan_time.mean().data.item()
         tbs_r.attrs = scene.attrs
         save_scene(time, tbs_r, output_folder, time_step)
@@ -113,8 +125,9 @@ def process_day(
         month: int,
         day: int,
         output_folder: Path,
-        path: Path = None,
-        time_step: timedelta = timedelta(minutes=15)
+        path: Path = Optional[None],
+        time_step: timedelta = timedelta(minutes=15),
+        include_scan_time=False
 ) -> None:
     """
     Extract training data for a day of ATMS observations.
@@ -130,6 +143,8 @@ def process_day(
         path: Not used, included for compatibility.
         time_step: A datetime.timedelta object specifying the time step
             of the retrieval.
+        include_scan_time: If set to 'True', the resampled scan time will
+            be included in the extracted training input.
     """
     output_folder = Path(output_folder) / "atms"
     if not output_folder.exists():
@@ -151,4 +166,10 @@ def process_day(
                     tmp = Path(tmp)
                     provider.download_file(filename, tmp / filename)
                     data = product.open(tmp / filename)
-                    process_file(domain, data, output_folder, time_step)
+                    process_file(
+                        domain,
+                        data,
+                        output_folder,
+                        time_step,
+                        include_scan_time=include_scan_time
+                    )

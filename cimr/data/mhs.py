@@ -8,6 +8,8 @@ the CIMR training data generation.
 from datetime import datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Optional
+
 import numpy as np
 from pansat.roi import find_overpasses
 from pansat.metadata import parse_swath
@@ -113,12 +115,12 @@ def save_scene(time, tbs_r, output_folder, time_step):
 
 
 def process_file(
-        domain,
-        data,
-        output_folder,
-        time_step,
-        include_scan_time=False
-):
+        domain : dict,
+        data : xr.Dataset,
+        output_folder : Path,
+        time_step : timedelta,
+        include_scan_time: bool = False
+) -> None:
     """
     Extract training data from a single MHS L1C file.
 
@@ -149,15 +151,15 @@ def process_file(
 
 
 def process_day(
-        domain,
-        year,
-        month,
-        day,
-        output_folder,
-        path=None,
+        domain: dict,
+        year: int,
+        month: int,
+        day: int,
+        output_folder: Path,
+        path: Optional[Path] = None,
         time_step=timedelta(minutes=15),
         include_scan_time=False
-):
+) -> None:
     """
     Extract training data for a day of MHS observations.
 
@@ -187,12 +189,12 @@ def process_day(
 
 
         for filename in product_files:
-            # Check if swath covers ROI.
 
+            # Check if swath covers ROI.
             swath = parse_swath(provider.download_metadata(filename))
             if swath.intersects(domain["roi_poly"].to_geometry()):
-                # Extract observations
 
+                # Extract observations
                 with TemporaryDirectory() as tmp:
                     tmp = Path(tmp)
                     provider.download_file(filename, tmp / filename)

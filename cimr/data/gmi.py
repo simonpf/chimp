@@ -8,6 +8,7 @@ the CIMR training data generation.
 from datetime import datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Optional
 
 import numpy as np
 from pansat.roi import find_overpasses
@@ -20,30 +21,6 @@ import xarray as xr
 from cimr.utils import round_time
 from cimr.data.utils import make_microwave_band_array
 from cimr.data.resample import resample_tbs
-
-BANDS = {
-    "mw_low": {
-        0: ("tbs_s1", 1),  # 10.65 GHz, H
-        1: ("tbs_s1", 0),  # 10.65 GHz, V
-        2: ("tbs_s1", 3),  # 19 GHz, H
-        3: ("tbs_s1", 2),  # 19 GHz, V
-        4: ("tbs_s1", 4),  # 23 GHz, V
-        5: ("tbs_s1", 6),  # 37 GHz, H
-        6: ("tbs_s1", 5),  # 37 GHz, V
-    },
-    "mw_90": {
-        0: ("tbs_s2", 1),  # 89 GHz, H
-        1: ("tbs_s2", 0),  # 89 GHz, V
-    },
-    "mw_160": {
-        0: ("tbs_s2", 3),  # 166 GHz, H
-        1: ("tbs_s2", 2),  # 166 GHz, V
-    },
-    "mw_183": {
-        2: ("tbs_s2", 4),  # 183 +/- 3
-        4: ("tbs_s2", 5),  # 183 +/- 7
-    },
-}
 
 
 def resample_swaths(domain, scene):
@@ -126,7 +103,13 @@ def save_scene(time, tbs_r, output_folder, time_step):
     return None
 
 
-def process_file(domain, data, output_folder, time_step):
+def process_file(
+        domain: dict,
+        data: xr.Dataset,
+        output_folder : Path,
+        time_step: timedelta,
+        include_scan_time: bool = False
+):
     """
     Extract training data from a single GMI L1C file.
 
@@ -145,21 +128,27 @@ def process_file(domain, data, output_folder, time_step):
     scenes = find_overpasses(domain["roi"], data)
 
     for scene in scenes:
-        tbs_r = resample_tbs(domain[8], data, n_swaths=2, radius_of_influence=15e3)
+        tbs_r = resample_tbs(
+            domain[8],
+            data,
+            n_swaths=2,
+            radius_of_influence=15e3,
+            include_scan_time=include_scan_time
+        )
         time = scene.scan_time.mean().data.item()
         tbs_r.attrs = scene.attrs
         save_scene(time, tbs_r, output_folder, time_step)
 
 
 def process_day(
-        domain,
-        year,
-        month,
-        day,
-        output_folder,
-        path=None,
-        time_step=timedelta(minutes=15)
-
+        domain: dict,
+        year: int,
+        month: int,
+        day: int,
+        output_folder: Path,
+        path: Path = Optional[None],
+        time_step: timedelta = timedelta(minutes=15),
+        include_scan_time=False
 ):
     """
     Extract GMI input observations for the CIMR retrieval.
@@ -174,6 +163,8 @@ def process_day(
             the training data.
         path: Not used, included for compatibility.
         time_step: The time step between consecutive retrieval steps.
+        include_scan_time: If set to 'True', the resampled scan time will
+            be included in the extracted training input.
     """
     output_folder = Path(output_folder) / "gmi"
     if not output_folder.exists():
@@ -193,4 +184,10 @@ def process_day(
                 tmp = Path(tmp)
                 provider.download_file(filename, tmp / filename)
                 data = l1c_gpm_gmi_r.open(tmp / filename)
-                process_file(domain, data, output_folder, time_step)
+                process_file(
+                    domain,
+                    data,
+                    output_folder,
+                    time_step,
+                    include_scan_time=include_scan_time
+                )
