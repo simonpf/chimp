@@ -238,7 +238,7 @@ def run(args):
 
     inpt = getattr(inputs, args.source.upper(), None)
     if inpt is None:
-        LOGGER.ERROR(
+        LOGGER.error(
             f"Provided input '{args.source}' is not a know input or reference "
             " data source."
         )
@@ -246,7 +246,7 @@ def run(args):
 
     path = Path(args.path)
     if not path.exists():
-        LOGGER.ERROR(
+        LOGGER.error(
             f"Provided path '{path}' does not exist."
         )
 
@@ -254,7 +254,7 @@ def run(args):
     stats = process_files(inpt, files, args.n_processes)
 
     if stats is None:
-        LOGGER.ERROR(
+        LOGGER.error(
             f"No files found in the provided data folder {path}."
         )
         return 1
