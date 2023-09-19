@@ -61,6 +61,9 @@ def test_collate_recursive():
 
 
 def test_sparse_collate():
+    """
+    Test collate function for sparse data.
+    """
     x = torch.ones((1))
     y = 2.0 * torch.ones((1))
     b = [(x, y), (None, y), (x, None), (None, None)]
@@ -164,3 +167,19 @@ def test_full_domain(cpcir_data, gmi_data, mrms_surface_precip_data):
         time, x, y = next(iter)
 
         assert x["cpcir"].shape[-2:] == (960, 1920)
+
+
+def test_missing_input_policies(cpcir_data, gmi_data, mrms_surface_precip_data):
+    """
+    Test that missing inputs are handled correctly.
+    """
+    training_data = CIMRDataset(
+        cpcir_data,
+        reference_data="mrms",
+        inputs=["cpcir", "gmi"],
+        missing_input_policy="sparse",
+        window_size = 128
+    )
+    x, y = training_data[1]
+    assert x["gmi"] is None
+    assert x["cpcir"].shape[1:] == (128, 128)

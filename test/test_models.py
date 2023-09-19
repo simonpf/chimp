@@ -88,7 +88,7 @@ def test_compile_encoder():
 
     y = encoder(x, return_skips=True)
     assert len(y) == 4
-    assert y[-1].shape == (1, 128, 8, 8)
+    assert y[3].shape == (1, 128, 8, 8)
 
 
 def test_compile_parallel_encoder():
@@ -137,7 +137,7 @@ def test_compile_parallel_encoder():
 
     y = encoder(x, return_skips=True)
     assert len(y) == 4
-    assert y[-1].shape == (2, 128, 8, 8)
+    assert y[3].shape == (2, 128, 8, 8)
 
     x = {
         "gmi": sparse_collate([

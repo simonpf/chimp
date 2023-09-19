@@ -142,7 +142,7 @@ class ParallelEncoder(nn.Module):
             encoder = self.encoders[name]
             y = forward(stem, tensor)
             y = forward(encoder, y, return_skips=True)
-            if isinstance(y, list):
+            if isinstance(y, dict):
                 encodings[name] = y
             else:
                 encodings[name] = None
@@ -315,14 +315,23 @@ def compile_decoder(
             ConvBlockFactory(kernel_size=3)
         )
         return DLADecoder(
-            channels=channels,
+            inputs=channels,
             scales=scales,
             aggregator_factory=aggregator_factory,
-            upsampler_factory=upsampler_factory
+            upsampler_factory=upsampler_factory,
+            channels=channels
         )
 
     skip_connections = decoder_config.skip_connections
-    if skip_connections:
+    if skip_connections > 0:
+        stage_diff = (
+            len(decoder_config.channels) - len(encoder_config.channels) + 1
+        )
+        skip_connections = {
+            ind + stage_diff: chans
+            for ind, chans in enumerate(encoder_config.channels)
+        }
+
         decoder = SparseSpatialDecoder(
             channels=channels,
             stages=stage_depths,
