@@ -41,7 +41,6 @@ block_type = resnet
 stage_depths = 2 3 3 2
 channels = 16 32 64 128
 downsampling_factors = 2 2 2
-skip_connections = False
 
 [decoder]
 type = decoder
@@ -49,6 +48,7 @@ block_type = resnet
 channels = 64 32 16 16
 stage_depths = 1 1 1 1
 upsampling_factors = 2 2 2 2
+skip_connections = -1
 
 """
 
@@ -76,11 +76,11 @@ def test_parse_model_config(tmp_path):
     assert encoder_config.block_type == "resnet"
     assert encoder_config.stage_depths == [2, 3, 3, 2]
     assert encoder_config.downsampling_factors == [2, 2, 2]
-    assert encoder_config.skip_connections == False
 
     decoder_config = model_config.decoder_config
     assert decoder_config.block_type == "resnet"
     assert decoder_config.stage_depths == [1, 1, 1, 1]
+    assert decoder_config.skip_connections < 0
 
 
 TRAINING_CONFIG = """
