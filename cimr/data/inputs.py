@@ -5,7 +5,7 @@ cimr.data.inputs
 Defines a dataclass to represent input data sources.
 """
 from dataclasses import dataclass
-from typing import Union, List
+from typing import Union, List, Optional
 
 import numpy as np
 from quantnn.normalizer import Normalizer, MinMaxNormalizer
@@ -99,6 +99,7 @@ class Input:
     scale: int
     variables: Union[str, List[str]]
     normalizer: Normalizer
+    mean : Optional[np.array] = None
 
     @property
     def n_channels(self):
@@ -157,6 +158,11 @@ NORMALIZER_ATMS.stats = {
     7: (100, 290),
     8: (110, 290),
 }
+MEANS_ATMS = np.array([
+    238.66225432, 231.23515187, 254.60181577, 268.60674832,
+    266.81132495, 263.05214856, 258.46545914, 251.43006749,
+    244.87598689
+])
 ATMS = Input("atms", 16, "tbs", NORMALIZER_ATMS)
 
 ###############################################################################
