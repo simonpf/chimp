@@ -23,8 +23,9 @@ DOMAIN = NORDICS
 ATMS_PRODUCT = l1c_noaa20_atms
 
 
-@pytest.fixture
-def atms_file(tmp_path):
+@pytest.fixture(scope="session")
+def atms_file(tmp_path_factory):
+    path = tmp_path_factory.mktemp("data")
     start_time = datetime(2020, 1, 1)
     end_time = datetime(2020, 1, 2)
     provider = GesdiscProvider(ATMS_PRODUCT)
@@ -35,8 +36,8 @@ def atms_file(tmp_path):
         if swath.intersects(DOMAIN["roi_poly"].to_geometry()):
             break
 
-    provider.download_file(filename, tmp_path / filename)
-    return tmp_path / filename
+    provider.download_file(filename, path / filename)
+    return path / filename
 
 
 @pytest.mark.slow
