@@ -1,5 +1,8 @@
 import numpy as np
+import os
 from pathlib import Path
+
+import pytest
 import xarray as xr
 
 from cimr.areas import CONUS_4
@@ -11,6 +14,14 @@ from cimr.data.gmi import (
 
 data_path = Path(__file__).parent / "data"
 gmi_file = "1C-R.GPM.GMI.XCAL2016-C.20200501-S075828-E093100.035075.V07A.HDF5"
+
+
+TEST_DATA = os.environ.get("CIMR_TEST_DATA", None)
+if TEST_DATA is not None:
+    TEST_DATA = Path(TEST_DATA)
+NEEDS_TEST_DATA = pytest.mark.skipif(
+    TEST_DATA is None, reason="Needs 'CCIC_TEST_DATA'."
+)
 
 
 def test_resample_swath_center():
@@ -38,6 +49,7 @@ def test_resample_swath_center():
     assert len(row_indices) == 0
 
 
+@NEEDS_TEST_DATA
 def test_resample_gmi_tbs():
     """
     Test resampling of GMI TBS.
