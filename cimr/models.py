@@ -324,21 +324,15 @@ def compile_decoder(
 
     skip_connections = decoder_config.skip_connections
     if skip_connections > 0:
-        stage_diff = (
-            len(decoder_config.channels) - len(encoder_config.channels) + 1
-        )
-        skip_connections = {
-            ind + stage_diff: chans
-            for ind, chans in enumerate(encoder_config.channels)
-        }
-
+        base_scale = len(encoder_config.channels) - 1
         decoder = SparseSpatialDecoder(
             channels=channels,
             stages=stage_depths,
             block_factory=block_factory,
             skip_connections=skip_connections,
             upsampler_factory=upsampler_factory,
-            upsampling_factors=upsampling_factors
+            upsampling_factors=upsampling_factors,
+            base_scale=base_scale
         )
     else:
         decoder = SpatialDecoder(
@@ -347,7 +341,8 @@ def compile_decoder(
             block_factory=block_factory,
             skip_connections=skip_connections,
             upsampler_factory=upsampler_factory,
-            upsampling_factors=upsampling_factors
+            upsampling_factors=upsampling_factors,
+            base_scale=base_scale
         )
 
     return decoder
