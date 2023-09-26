@@ -19,6 +19,7 @@ NORDICS_1 = pyresample.load_area(Path(__file__).parent / "cimr_nordic_1.yml")
 NORDICS_2 = pyresample.load_area(Path(__file__).parent / "cimr_nordic_2.yml")
 NORDICS_4 = pyresample.load_area(Path(__file__).parent / "cimr_nordic_4.yml")
 NORDICS_8 = pyresample.load_area(Path(__file__).parent / "cimr_nordic_8.yml")
+NORDICS_16 = pyresample.load_area(Path(__file__).parent / "cimr_nordic_16.yml")
 ROI_NORDICS = ROI(
     -9.05380216185029,
     51.77251844681491,
@@ -38,6 +39,7 @@ NORDICS = {
     2: NORDICS_2,
     4: NORDICS_4,
     8: NORDICS_8,
+    16: NORDICS_16,
     "roi": ROI_NORDICS,
     "roi_poly": ROI_POLY_NORDICS
 }

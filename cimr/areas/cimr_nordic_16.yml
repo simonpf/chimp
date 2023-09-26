@@ -11,8 +11,8 @@ CIMR_NORDIC:
     no_defs: null
     type: crs
   shape:
-    height: 564
-    width: 452
+    height: 141
+    width: 113
   area_extent:
     lower_left_xy: [-745322.8983833211, -3996217.269197446]
     upper_right_xy: [1062901.0232376591, -1747948.2287755085]
