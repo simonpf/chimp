@@ -336,7 +336,7 @@ def find_most_recent_checkpoint(path: Path, model_name: str) -> Path:
     if len(checkpoint_files) == 1:
         return checkpoint_files[0]
 
-    checkpoint_regexp = re.compile(f"cimr_{model_name}(-v\d*)?.ckpt")
+    checkpoint_regexp = re.compile(rf"cimr_{model_name}(-v\d*)?.ckpt")
     versions = []
     for checkpoint_file in checkpoint_files:
         match = checkpoint_regexp.match(checkpoint_file.name)
