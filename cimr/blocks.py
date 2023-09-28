@@ -86,6 +86,8 @@ def get_upsampler_factory(
         return upsampling.BilinearFactory()
     elif upsampling_type == "upsample":
         return upsampling.UpsampleFactory(**factory_kwargs)
+    elif upsampling_type in ["upconv", "upconvolution"]:
+        return upsampling.UpConvolutionFactory(**factory_kwargs)
     else:
         raise ValueError(
             f"Upsampling type '{upsampling_type}' is not known. Refer to "
