@@ -77,7 +77,7 @@ def parse_input_config(section: SectionProxy) -> InputConfig:
             "Each input section must have a 'name' entry."
         )
     inpt = get_input(name)
-    stem_type = section.get("stem_type", "standard")
+    stem_type = section.get("stem_type", "basic")
     stem_depth = section.getint("stem_depth", 1)
     stem_kernel_size = section.getint("stem_kernel_size", 3)
     stem_downsampling = section.getint("stem_downsampling", 1)
