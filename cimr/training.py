@@ -6,11 +6,11 @@ Module implementing training functionality.
 """
 from pathlib import Path
 import re
+from typing import Optional, Tuple
 
 import numpy as np
 import pytorch_lightning as pl
 import torch
-from torch import nn
 
 from pytorch_lightning.callbacks import Callback
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
@@ -48,7 +48,7 @@ def get_optimizer_and_scheduler(
         previous_optimizer=None
 ):
     """
-    Return torch optimizer and and learning-rate scheduler objects
+    Return torch optimizer, learning-rate scheduler and callback objects
     corresponding to this configuration.
 
     Args:
@@ -124,12 +124,24 @@ def get_optimizer_and_scheduler(
 
 
 def create_data_loaders(
-        model_config,
-        training_config,
-        training_data_path,
-        validation_data_path
-):
+        model_config: "cimr.config.ModelConfig",
+        training_config: "cimr.config.TrainingConfig",
+        training_data_path: Path,
+        validation_data_path: Optional[Path]
+) -> Tuple[DataLoader, Optional[DataLoader]]:
+    """
+    Create pytorch Dataloaders for training and validation data.
 
+    Args:
+        model_config: Dataclass specifying the model configuration. This
+            is required to infer which input and reference data to load.
+        training_config: Dataclass specifying the training configuration,
+            which defines how many processes to use for the data loading.
+        training_data_path: The path pointing to the folder containing
+            the training data.
+        validation_data_path: The path pointing to the folder containing
+            the validation data.
+    """
     inputs = []
     for inpt_cfg in model_config.input_configs:
         inputs.append(inpt_cfg.input_data)
