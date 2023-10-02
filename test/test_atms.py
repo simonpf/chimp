@@ -44,7 +44,7 @@ def atms_file(tmp_path_factory):
 @NEEDS_PANSAT
 def test_process_file(atms_file):
     """
-    Enusre that processing a single file produces a training data file
+    Ensure that processing a single file produces a training data file
     with the expected input.
     """
     data_path = atms_file.parent

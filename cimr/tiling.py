@@ -96,6 +96,10 @@ class Tiler:
         self.x = x
         self.wrap_columns = wrap_columns
         m, n = parse_shape(x)
+        if m == 0 and n == 0:
+            raise RuntimeError(
+                "Input data is empty."
+            )
         self.m = m
         self.n = n
 

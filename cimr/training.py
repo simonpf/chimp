@@ -251,12 +251,15 @@ def train(
 
     devices = None
 
+    pl.callbacks.ModelCheckpoint.CHECKPOINT_NAME_LAST = f"cimr_{model_name}"
     callbacks = [
         pl.callbacks.LearningRateMonitor(),
         pl.callbacks.ModelCheckpoint(
             dirpath=output_path,
             filename=f"cimr_{model_name}",
-            verbose=True
+            verbose=True,
+            save_top_k=0,
+            save_last=True
         )
     ]
 
@@ -315,12 +318,13 @@ def train(
             callbacks=stage_callbacks,
             num_sanity_val_steps=0,
             strategy=pl.strategies.DDPStrategy(find_unused_parameters=True),
+            enable_progress_bar=False,
         )
         trainer.fit(
             model=lightning_module,
             train_dataloaders=training_loader,
             val_dataloaders=validation_loader,
-            ckpt_path=ckpt_path
+            ckpt_path=ckpt_path,
         )
         mrnn.save(output_path / f"cimr_{model_name}.pckl")
         ckpt_path=None

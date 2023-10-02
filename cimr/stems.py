@@ -58,20 +58,18 @@ def get_stem_factory(input_config: InputConfig):
                 padding=padding
             )
         return factory
-    elif input_config.stem_type == "resnet":
+    elif input_config.stem_type in ["resnet", "resnext"]:
         if not stride == 2:
             raise ValueError(
-                "Stem stride for a ResNet stem must be 2."
+                "Stem stride for a ResNet/ResNeXt stem must be 2."
             )
         def factory(n_chans_out):
-            return nn.Sequential(
-                nn.Conv2d(
-                    n_chans_in,
-                    n_chans_out,
-                    kernel_size=7,
-                    stride=2,
-                    padding=3
-                )
+            return nn.Conv2d(
+                n_chans_in,
+                n_chans_out,
+                kernel_size=7,
+                stride=2,
+                padding=3
             )
         return factory
 

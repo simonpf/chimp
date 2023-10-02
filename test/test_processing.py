@@ -24,14 +24,15 @@ def test_retrieval_step(
         cpcir_gmi_mrnn
 ):
     """
-    Test performing a single retrieval step.
+    Test performing the retrieval over multiple time steps.
     """
     data_path = mrms_surface_precip_data
     model = cpcir_gmi_mrnn
     input_data = CIMRDataset(
         data_path,
         inputs=["cpcir", "gmi"],
-        reference_data="mrms"
+        reference_data="mrms",
+        missing_input_policy="random"
     )
     data_iterator = input_data.full_domain(
         start_time=np.datetime64("2020-01-01T04:00:00"),

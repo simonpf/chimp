@@ -275,7 +275,7 @@ def load_microwave_obs(sample, dataset, normalize=True, rng=None):
 
 def generate_input(
         inpt: inputs.Input,
-        size: int,
+        size: Tuple[int],
         policy: str,
         rng: np.random.Generator,
 ):
@@ -283,7 +283,7 @@ def generate_input(
     Generate input values for missing inputs.
 
     Args:
-        n_channels: The number of channels in the input data.
+        inpt: The input object for which to generate the input.
         size: Side-length of the quadratic input array.
         value: The value to fill the array with.
         policy: The policy to use for the data generation.
@@ -296,7 +296,7 @@ def generate_input(
     if policy == "sparse":
         return None
     elif policy == "random":
-        return rng.normal(size=(n_channels, size, size))
+        return rng.normal(size=(inpt.n_channels,) + size)
     elif policy == "mean":
         return inpt.normalizer(inpt.mean * np.ones(
             shape=(inpt.n_channels, size, size),
@@ -550,6 +550,9 @@ class CIMRDataset:
             with ``x`` containing the training inputs and ``y`` the
             corresponding outputs.
         """
+        if isinstance(window_size, int):
+            window_size = (window_size,) * 2
+
         if slices is not None:
             i_start, i_end, j_start, j_end = slices
             row_slice = slice(i_start, i_end)
@@ -566,6 +569,11 @@ class CIMRDataset:
             invalid = qual < self.quality_threshold
             for target in self.reference_data.targets:
                 y_t = data[target.name].data[row_slice, col_slice]
+
+                # Set window size here if it is None
+                if window_size is None:
+                    window_size = y_t.shape[-2:]
+
                 if target.lower_limit is not None:
                     y_t[y_t < 0] = np.nan
                     small = y_t < target.lower_limit
@@ -581,11 +589,18 @@ class CIMRDataset:
                         reshape=False,
                         cval=np.nan
                     )
+
+                    height = y_t.shape[-2]
+                    if height > window_size[0]:
+                        d_l = (height - window_size[0]) // 2
+                        d_r = d_l + window_size[0]
+                        y_t = y_t[..., d_l:d_r, :]
                     width = y_t.shape[-1]
-                    if width > window_size:
-                        d_l = (width - window_size) // 2
-                        d_r = d_l + window_size
-                        y_t = y_t[..., d_l:d_r, d_l:d_r]
+                    if width > window_size[1]:
+                        d_l = (width - window_size[1]) // 2
+                        d_r = d_l + window_size[1]
+                        y_t = y_t[..., d_l:d_r]
+
                 if flip:
                     y_t = np.flip(y_t, -1)
                 y[target.name] = np.nan_to_num(y_t, nan=MASK, copy=True)
@@ -598,7 +613,7 @@ class CIMRDataset:
             if files[input_ind + 1] is None:
                 x_s = generate_input(
                     inpt,
-                    self.window_size // self.scales[inpt.name],
+                    tuple([size // self.scales[inpt.name] for size in window_size]),
                     self.missing_input_policy,
                     self.rng
                 )
@@ -632,11 +647,16 @@ class CIMRDataset:
                         axes=(-2, -1),
                         cval=np.nan
                     )
+                    height = x_s.shape[-2]
+                    if height > window_size[0] // scl:
+                        d_l = (height - window_size[0] // scl) // 2
+                        d_r = d_l + window_size[0] // scl
+                        x_s = x_s[..., d_l:d_r, :]
                     width = x_s.shape[-1]
-                    if width > (window_size // scl):
-                        d_l = (width - window_size // scl) // 2
-                        d_r = d_l + window_size // scl
-                        x_s = x_s[..., d_l:d_r, d_l:d_r]
+                    if width > window_size[1] // scl:
+                        d_l = (width - window_size[1] // scl) // 2
+                        d_r = d_l + window_size[1] // scl
+                        x_s = x_s[..., d_l:d_r]
                 if flip:
                     x_s = np.flip(x_s, -1)
 

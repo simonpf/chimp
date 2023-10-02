@@ -158,7 +158,7 @@ def process_day(
         output_folder: Path,
         path: Optional[Path] = None,
         time_step=timedelta(minutes=15),
-        include_scan_time=False
+        include_scan_time=False,
 ) -> None:
     """
     Extract training data for a day of MHS observations.

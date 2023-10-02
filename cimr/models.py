@@ -14,6 +14,7 @@ import numpy as np
 import torch
 from torch import nn
 from quantnn.models.pytorch import aggregators
+from quantnn.models.pytorch.base import ParamCount
 import quantnn.transformations
 import quantnn.models.pytorch.torchvision as blocks
 from quantnn.models.pytorch.aggregators import (
@@ -25,7 +26,8 @@ from quantnn.models.pytorch.encoders import (
     SpatialEncoder,
     ParallelEncoder,
     DEFAULT_BLOCK_FACTORY,
-    DEFAULT_AGGREGATOR_FACTORY
+    DEFAULT_AGGREGATOR_FACTORY,
+    StageConfig
 )
 from quantnn.models.pytorch.decoders import (
     SpatialDecoder,
@@ -68,7 +70,7 @@ SOURCES = {
 }
 
 
-class ParallelEncoder(nn.Module):
+class ParallelEncoder(nn.Module, ParamCount):
     """
     The parallel encoder handles multiple inputs by applying a separate
     encoder to each input.
@@ -93,7 +95,6 @@ class ParallelEncoder(nn.Module):
 
         if aggregator_factory is None:
             aggregator_factory = DEFAULT_AGGREGATOR_FACTORY
-
 
         self.stems = nn.ModuleDict()
         self.encoders = nn.ModuleDict()
@@ -220,11 +221,25 @@ def compile_encoder(
         BlockAggregatorFactory(block_factory)
     )
 
+    # Compile stage configs
+    stage_configs = []
+    for ind, stage_depth in enumerate(stage_depths):
+        block_kwargs = {}
+        if encoder_config.attention_heads is not None:
+            block_kwargs["n_heads"] = encoder_config.attention_heads[ind]
+        stage_configs.append(
+            StageConfig(
+                stage_depth,
+                block_kwargs=block_kwargs
+            )
+        )
+
+
     if encoder_config.combined:
         encoder = MultiInputSpatialEncoder(
             inputs=inputs,
             channels=channels,
-            stages=stage_depths,
+            stages=stage_configs,
             downsampling_factors=downsampling_factors,
             downsampler_factory=downsampler_factory,
             block_factory=block_factory,
@@ -235,7 +250,7 @@ def compile_encoder(
         encoder = ParallelEncoder(
             inputs=inputs,
             channels=channels,
-            stages=stage_depths,
+            stages=stage_configs,
             downsampling_factors=downsampling_factors,
             downsampler_factory=downsampler_factory,
             block_factory=block_factory,

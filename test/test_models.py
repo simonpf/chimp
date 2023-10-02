@@ -406,6 +406,40 @@ def test_gremlin():
     assert y["surface_precip"].shape == (1, 128, 128)
 
 
+def test_unet():
+    """
+    Test the loading of a pre-defined configuration.
+    """
+    config = load_config("unet")
+
+    config.input_configs = [
+        InputConfig(
+            inputs.CPCIR,
+            stem_depth=1,
+            stem_kernel_size=3,
+            stem_downsampling=1
+        ),
+    ]
+    config.output_configs = [
+        OutputConfig(
+            reference.MRMS,
+            "surface_precip",
+            "mse",
+            quantiles=np.linspace(0, 1, 34)[1:-1]
+        ),
+    ]
+
+    model = compile_model(config)
+
+    x = {
+        "cpcir": torch.ones(
+            (1, 1, 128, 128)
+        )
+    }
+    y = model(x)
+    assert y["surface_precip"].shape == (1, 128, 128)
+
+
 def test_resnet18():
     """
     Test the loading of the ResNet18 configuration.
@@ -472,18 +506,16 @@ def test_convnext18():
     assert y["surface_precip"].shape == (1, 256, 256)
 
 
-def test_resnext18():
+def test_resnext50():
     """
     Test the loading of the ConvNext18 configuration.
     """
-    config = load_config("resnext18")
-
+    config = load_config("resnext_50")
     config.input_configs = [
         InputConfig(
             inputs.CPCIR,
-            stem_depth=1,
-            stem_kernel_size=3,
-            stem_downsampling=1
+            stem_type="resnext",
+            stem_downsampling=2
         ),
     ]
     config.output_configs = [
