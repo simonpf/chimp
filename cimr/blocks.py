@@ -7,9 +7,15 @@ Defines factory functions for the creation of convolution blocks.
 from quantnn.models.pytorch import factories
 from quantnn.models.pytorch.blocks import (
     ConvBlockFactory,
-    ResNeXtBlockFactory
+    ResNeXtBlockFactory,
+    ConvNextBlockFactory
 )
-from quantnn.models.pytorch import upsampling, torchvision, stages
+from quantnn.models.pytorch import (
+    upsampling,
+    torchvision,
+    stages,
+    downsampling
+)
 from quantnn.models.pytorch.encoders import SequentialStageFactory
 
 
@@ -33,7 +39,11 @@ def get_block_factory(
             **factory_kwargs
         )
     elif name.lower() == "convnext":
-        return torchvision.ConvNeXtBlockFactory(
+        return ConvNextBlockFactory(
+            **factory_kwargs
+        )
+    elif name.lower() == "swin_transformer":
+        return torchvision.SwinBlockFactory(
             **factory_kwargs
         )
     else:
@@ -54,6 +64,10 @@ def get_downsampler_factory(
         return None
     elif name.lower() in ["max_pooling"]:
         return factories.MaxPooling(
+            **factory_kwargs
+        )
+    elif name.lower() == "swin_transformer":
+        return downsampling.PatchMergingFactory(
             **factory_kwargs
         )
     else:

@@ -537,6 +537,37 @@ def test_resnext50():
     assert y["surface_precip"].shape == (1, 256, 256)
 
 
+def test_swin_transformer():
+    """
+    Test the loading of the ConvNext18 configuration.
+    """
+    config = load_config("swin_t")
+    config.input_configs = [
+        InputConfig(
+            inputs.CPCIR,
+            stem_type="swin",
+            stem_downsampling=4
+        ),
+    ]
+    config.output_configs = [
+        OutputConfig(
+            reference.MRMS,
+            "surface_precip",
+            "mse"
+        ),
+    ]
+
+    model = compile_model(config)
+
+    x = {
+        "cpcir": torch.ones(
+            (1, 1, 256, 256)
+        )
+    }
+    y = model(x)
+    assert y["surface_precip"].shape == (1, 256, 256)
+
+
 def test_dlax18():
     """
     Test the loading of the DLAX18 configuration.

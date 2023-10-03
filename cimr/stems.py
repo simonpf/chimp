@@ -72,6 +72,19 @@ def get_stem_factory(input_config: InputConfig):
                 padding=3
             )
         return factory
+    elif input_config.stem_type in ["swin"]:
+        if not stride == 4:
+            raise ValueError(
+                "Stem stride for a swin transformer stem must be 4."
+            )
+        def factory(n_chans_out):
+            return nn.Conv2d(
+                n_chans_in,
+                n_chans_out,
+                kernel_size=4,
+                stride=4,
+            )
+        return factory
 
     raise ValueError(
         "Stem type '%s' is not known.",
