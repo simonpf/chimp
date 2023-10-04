@@ -43,11 +43,12 @@ class InputConfig:
     """
     Specification of the input handling of a CIMR model.
     """
+
     input_data: Input
     stem_type: str = "basic"
     stem_depth: int = 1
     stem_kernel_size: int = 3
-    stem_downsampling: Optional[int] = None
+    stem_downsampling: int = 1
 
     @property
     def scale(self):
@@ -73,9 +74,7 @@ def parse_input_config(section: SectionProxy) -> InputConfig:
     """
     name = section.get("name", None)
     if name is None:
-        raise ValueError(
-            "Each input section must have a 'name' entry."
-        )
+        raise ValueError("Each input section must have a 'name' entry.")
     inpt = get_input(name)
     stem_type = section.get("stem_type", "basic")
     stem_depth = section.getint("stem_depth", 1)
@@ -86,7 +85,7 @@ def parse_input_config(section: SectionProxy) -> InputConfig:
         stem_type=stem_type,
         stem_depth=stem_depth,
         stem_kernel_size=stem_kernel_size,
-        stem_downsampling=stem_downsampling
+        stem_downsampling=stem_downsampling,
     )
 
 
@@ -95,6 +94,7 @@ class OutputConfig:
     """
     Specification of the outputs of  handling of a CIMR model.
     """
+
     reference_data: ReferenceData
     variable: str
     loss: str
@@ -121,16 +121,12 @@ def parse_output_config(section: SectionProxy) -> OutputConfig:
     """
     reference_data = section.get("reference_data", None)
     if reference_data is None:
-        raise ValueError(
-            "Each input section must have a 'reference_data' entry."
-        )
+        raise ValueError("Each input section must have a 'reference_data' entry.")
     reference_data = get_reference_data(reference_data)
 
     variable = section.get("variable", None)
     if variable is None:
-        raise ValueError(
-            "Every output section must have a 'variable' entry."
-        )
+        raise ValueError("Every output section must have a 'variable' entry.")
 
     loss = section.get("loss", "quantile_loss")
     shape = eval(section.get("shape", "()"))
@@ -149,7 +145,7 @@ def parse_output_config(section: SectionProxy) -> OutputConfig:
         shape=shape,
         quantiles=quantiles,
         bins=bins,
-        transformation=transformation
+        transformation=transformation,
     )
 
 
@@ -158,6 +154,7 @@ class EncoderConfig:
     """
     Specification of the encoder of a CIMR model.
     """
+
     block_type: str
     channels: List[int]
     stage_depths: List[int]
@@ -170,17 +167,17 @@ class EncoderConfig:
     attention_heads: Optional[List[int]] = None
 
     def __init__(
-            self,
-            block_type: str,
-            channels: List[int],
-            stage_depths: List[int],
-            downsampling_factors: List[int],
-            block_factory_kwargs: Optional[dict] = None,
-            downsampler_factory: str = "max_pooling",
-            downsampler_factory_kwargs: Optional[dict] = None,
-            stage_architecture: str = "sequential",
-            combined: bool = True,
-            attention_heads: Optional[List[int]] = None
+        self,
+        block_type: str,
+        channels: List[int],
+        stage_depths: List[int],
+        downsampling_factors: List[int],
+        block_factory_kwargs: Optional[dict] = None,
+        downsampler_factory: str = "max_pooling",
+        downsampler_factory_kwargs: Optional[dict] = None,
+        stage_architecture: str = "sequential",
+        combined: bool = True,
+        attention_heads: Optional[List[int]] = None,
     ):
         if len(stage_depths) != len(downsampling_factors) + 1:
             raise ValueError(
@@ -205,7 +202,7 @@ class EncoderConfig:
 
     @property
     def n_stages(self):
-        """ The number of stages in the encoder. """
+        """The number of stages in the encoder."""
         return len(self.stage_depths)
 
 
@@ -229,18 +226,13 @@ def parse_encoder_config(section: SectionProxy) -> EncoderConfig:
         conf = section.get(key, None)
         if conf is None:
             raise ValueError(
-                "'encoder' section of model config must contain a list "
-                f"of '{key}'.",
+                "'encoder' section of model config must contain a list " f"of '{key}'.",
             )
         args.append(_parse_list(conf, int))
 
-    block_factory_kwargs = eval(
-        section.get("block_factory_kwargs", "{}")
-    )
+    block_factory_kwargs = eval(section.get("block_factory_kwargs", "{}"))
     downsampler_factory = section.get("downsampler_factory", "max_pooling")
-    downsampler_factory_kwargs = eval(
-        section.get("downsampler_factory_kwargs", "{}")
-    )
+    downsampler_factory_kwargs = eval(section.get("downsampler_factory_kwargs", "{}"))
     stage_architecture = section.get("stage_architecture", "sequential")
     combined = section.getboolean("combined", True)
 
@@ -258,7 +250,7 @@ def parse_encoder_config(section: SectionProxy) -> EncoderConfig:
         downsampler_factory_kwargs=downsampler_factory_kwargs,
         stage_architecture=stage_architecture,
         combined=combined,
-        attention_heads=attention_heads
+        attention_heads=attention_heads,
     )
 
 
@@ -267,6 +259,7 @@ class DecoderConfig:
     """
     Specification of the decoder of a CIMR model.
     """
+
     block_type: str
     channels: List[int]
     stage_depths: List[int]
@@ -278,16 +271,16 @@ class DecoderConfig:
     skip_connections: int = 0
 
     def __init__(
-            self,
-            block_type,
-            channels,
-            stage_depths,
-            upsampling_factors,
-            block_factory_kwargs : Optional[dict] = None,
-            upsampling_type="upsample",
-            upsampler_factory_kwargs={},
-            architecture: str = "sequential",
-            skip_connections: int = 0
+        self,
+        block_type,
+        channels,
+        stage_depths,
+        upsampling_factors,
+        block_factory_kwargs: Optional[dict] = None,
+        upsampling_type="upsample",
+        upsampler_factory_kwargs={},
+        architecture: str = "sequential",
+        skip_connections: int = 0,
     ):
         self.block_type = block_type
 
@@ -313,8 +306,9 @@ class DecoderConfig:
 
     @property
     def n_stages(self):
-        """ The number of stages in the decoder. """
+        """The number of stages in the decoder."""
         return len(self.stage_depths)
+
 
 def parse_decoder_config(section: SectionProxy) -> DecoderConfig:
     """
@@ -337,17 +331,12 @@ def parse_decoder_config(section: SectionProxy) -> DecoderConfig:
         conf = section.get(key, None)
         if conf is None:
             raise ValueError(
-                "'decoder' section of model config must contain a list "
-                f"of '{key}'.",
+                "'decoder' section of model config must contain a list " f"of '{key}'.",
             )
         args.append(_parse_list(conf, int))
 
-    block_factory_kwargs = eval(
-        section.get("block_factory_kwargs", "None")
-    )
-    upsampler_factory_kwargs = eval(
-        section.get("upsampler_factory_kwargs", "{}")
-    )
+    block_factory_kwargs = eval(section.get("block_factory_kwargs", "None"))
+    upsampler_factory_kwargs = eval(section.get("upsampler_factory_kwargs", "{}"))
     architecture = section.get("architecture", "sequential")
     skip_connections = section.getint("skip_connections", 0)
 
@@ -358,7 +347,7 @@ def parse_decoder_config(section: SectionProxy) -> DecoderConfig:
         upsampling_type=upsampling_type,
         upsampler_factory_kwargs=upsampler_factory_kwargs,
         architecture=architecture,
-        skip_connections=skip_connections
+        skip_connections=skip_connections,
     )
 
 
@@ -367,6 +356,7 @@ class ModelConfig:
     """
     Configuration of a CIMR retrieval model.
     """
+
     input_configs: List[InputConfig]
     output_configs: List[OutputConfig]
     encoder_config: EncoderConfig
@@ -415,6 +405,7 @@ def parse_model_config(path: Union[str, Path]):
     for section_name in parser.sections():
         if section_name == "base":
             from cimr import models
+
             name = parser[section_name].get("name")
             parser.read(get_model_config(name))
 
@@ -430,27 +421,22 @@ def parse_model_config(path: Union[str, Path]):
             output_configs.append(parse_output_config(sec))
         elif sec_type == "encoder":
             if encoder_config is not None:
-                raise ValueError(
-                    "Model config contains multiple encoder sections."
-                )
+                raise ValueError("Model config contains multiple encoder sections.")
             encoder_config = parse_encoder_config(sec)
         elif sec_type == "decoder":
             if decoder_config is not None:
-                raise ValueError(
-                    "Model config contains multiple decoder sections."
-                )
+                raise ValueError("Model config contains multiple decoder sections.")
             decoder_config = parse_decoder_config(sec)
         else:
             raise ValueError(
-                "Model config file contains unknown section of type '%s'",
-                sec_type
+                "Model config file contains unknown section of type '%s'", sec_type
             )
 
     return ModelConfig(
         input_configs=input_configs,
         output_configs=output_configs,
         encoder_config=encoder_config,
-        decoder_config=decoder_config
+        decoder_config=decoder_config,
     )
 
 
@@ -459,6 +445,7 @@ class TrainingConfig:
     """
     A description of a training regime.
     """
+
     name: str
     n_epochs: int
     optimizer: str
@@ -499,7 +486,6 @@ def parse_training_config(path: Union[str, Path]):
     training_configs = []
 
     for section_name in parser.sections():
-
         sec = parser[section_name]
 
         n_epochs = sec.getint("n_epochs", 1)
@@ -515,20 +501,22 @@ def parse_training_config(path: Union[str, Path]):
         reuse_optimizer = sec.getboolean("reuse_optimizer", False)
         stepwise_scheduling = sec.getboolean("stepwise_scheduling", False)
 
-        training_configs.append(TrainingConfig(
-            name=section_name,
-            n_epochs=n_epochs,
-            optimizer=optimizer,
-            optimizer_kwargs=optimizer_kwargs,
-            scheduler=scheduler,
-            scheduler_kwargs=scheduler_kwargs,
-            precision=precision,
-            sample_rate=sample_rate,
-            batch_size=batch_size,
-            data_loader_workers=data_loader_workers,
-            minimum_lr=minimum_lr,
-            reuse_optimizer=reuse_optimizer,
-            stepwise_scheduling=stepwise_scheduling
-        ))
+        training_configs.append(
+            TrainingConfig(
+                name=section_name,
+                n_epochs=n_epochs,
+                optimizer=optimizer,
+                optimizer_kwargs=optimizer_kwargs,
+                scheduler=scheduler,
+                scheduler_kwargs=scheduler_kwargs,
+                precision=precision,
+                sample_rate=sample_rate,
+                batch_size=batch_size,
+                data_loader_workers=data_loader_workers,
+                minimum_lr=minimum_lr,
+                reuse_optimizer=reuse_optimizer,
+                stepwise_scheduling=stepwise_scheduling,
+            )
+        )
 
     return training_configs
