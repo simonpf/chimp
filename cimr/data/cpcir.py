@@ -110,7 +110,8 @@ def process_day(
         output_folder,
         path=None,
         time_step=timedelta(minutes=15),
-        conditional=None
+        conditional=None,
+        include_scan_time=False
 ):
     """
     Extract CPCIR input observations for the CIMR retrieval.
@@ -129,6 +130,7 @@ def process_day(
             samples from another datasource. In this case, CPCIR input
             data will only be extracted for the times at which samples
             of the other dataset are available.
+        include_scan_time: Ignored. Included for compatibility.
     """
     output_folder = Path(output_folder) / "cpcir"
     if not output_folder.exists():

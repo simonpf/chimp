@@ -148,7 +148,9 @@ def process_day(
         day,
         output_folder,
         path=None,
-        time_step=timedelta(minutes=15)):
+        time_step=timedelta(minutes=15),
+        include_scan_time=False
+):
     """
     Extract training data from a day of MRMS measurements.
 
@@ -161,6 +163,7 @@ def process_day(
         path: Not used, included for compatibility.
         time_step: Time step defining the temporal resolution at which to extract
             training samples.
+        include_scan_time: Ignored. Included for compatibility.
     """
     output_folder = Path(output_folder) / "mrms"
     if not output_folder.exists():
