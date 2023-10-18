@@ -24,7 +24,8 @@ from quantnn.models.pytorch.aggregators import (
 from quantnn.models.pytorch.encoders import (
     MultiInputSpatialEncoder,
     SpatialEncoder,
-    ParallelEncoder,
+    CascadingEncoder,
+    DenseCascadingEncoder,
     DEFAULT_BLOCK_FACTORY,
     DEFAULT_AGGREGATOR_FACTORY,
     StageConfig
@@ -86,7 +87,8 @@ class ParallelEncoder(nn.Module, ParamCount):
             max_channels=None,
             stage_factory=None,
             downsampler_factory=None,
-            downsampling_factors=None
+            downsampling_factors=None,
+            encoder_type="standard"
     ):
         super().__init__()
 
@@ -96,12 +98,21 @@ class ParallelEncoder(nn.Module, ParamCount):
         if aggregator_factory is None:
             aggregator_factory = DEFAULT_AGGREGATOR_FACTORY
 
+        if encoder_type == "standard":
+            encoder_class = SpatialEncoder
+        elif encoder_type == "cascading":
+            encoder_class = CascadingEncoder
+        elif encoder_type == "dense_cascading":
+            encoder_class = DenseCascadingEncoder
+
         self.stems = nn.ModuleDict()
         self.encoders = nn.ModuleDict()
         for name, (stage, chans, stem_fac) in inputs.items():
             chans_stage = channels[stage]
             self.stems[name] = stem_fac(chans_stage)
-            self.encoders[name] = SpatialEncoder(
+
+
+            self.encoders[name] = encoder_class(
                 channels[stage:],
                 stages[stage:],
                 block_factory=block_factory,
@@ -159,8 +170,6 @@ class ParallelEncoder(nn.Module, ParamCount):
                 for ind, agg in enumerate(aggregators):
                     y[ind + offs] = agg(y[ind + offs], encs[ind])
         return y
-
-
 
 def compile_encoder(
         input_configs: List[InputConfig],
@@ -255,7 +264,8 @@ def compile_encoder(
             downsampler_factory=downsampler_factory,
             block_factory=block_factory,
             stage_factory=stage_factory,
-            aggregator_factory=aggregator_factory
+            aggregator_factory=aggregator_factory,
+            encoder_type=encoder_config.encoder_type
     )
     return encoder
 

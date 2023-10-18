@@ -165,6 +165,7 @@ class EncoderConfig:
     stage_architecture: str = "sequential"
     combined: bool = True
     attention_heads: Optional[List[int]] = None
+    encoder_type: str = "standard"
 
     def __init__(
         self,
@@ -178,6 +179,7 @@ class EncoderConfig:
         stage_architecture: str = "sequential",
         combined: bool = True,
         attention_heads: Optional[List[int]] = None,
+        encoder_type: str = "standard"
     ):
         if len(stage_depths) != len(downsampling_factors) + 1:
             raise ValueError(
@@ -199,6 +201,7 @@ class EncoderConfig:
         self.stage_architecture = stage_architecture
         self.combined = combined
         self.attention_heads = attention_heads
+        self.encoder_type = encoder_type
 
     @property
     def n_stages(self):
@@ -235,6 +238,7 @@ def parse_encoder_config(section: SectionProxy) -> EncoderConfig:
     downsampler_factory_kwargs = eval(section.get("downsampler_factory_kwargs", "{}"))
     stage_architecture = section.get("stage_architecture", "sequential")
     combined = section.getboolean("combined", True)
+    encoder_type = section.get("encoder_type", "standard")
 
     conf = section.get("attention_heads", None)
     if conf is not None:
@@ -251,6 +255,7 @@ def parse_encoder_config(section: SectionProxy) -> EncoderConfig:
         stage_architecture=stage_architecture,
         combined=combined,
         attention_heads=attention_heads,
+        encoder_type=encoder_type
     )
 
 

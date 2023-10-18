@@ -537,6 +537,222 @@ def test_resnext50():
     assert y["surface_precip"].shape == (1, 256, 256)
 
 
+def test_cresnext_s():
+    """
+    Test the loading of the ConvNext18 configuration.
+    """
+    config = load_config("cresnext_s")
+    config.input_configs = [
+        InputConfig(
+            inputs.CPCIR,
+            stem_type="basic",
+            stem_downsampling=1
+        ),
+    ]
+    config.output_configs = [
+        OutputConfig(
+            reference.MRMS,
+            "surface_precip",
+            "mse"
+        ),
+    ]
+
+    model = compile_model(config)
+
+    x = {
+        "cpcir": torch.ones(
+            (1, 1, 256, 256)
+        )
+    }
+    y = model(x)
+    assert y["surface_precip"].shape == (1, 256, 256)
+
+
+def test_dcresnext_s():
+    """
+    Test the loading of the ConvNext18 configuration.
+    """
+    config = load_config("dcresnext_s")
+    config.input_configs = [
+        InputConfig(
+            inputs.CPCIR,
+            stem_type="basic",
+            stem_downsampling=1
+        ),
+    ]
+    config.output_configs = [
+        OutputConfig(
+            reference.MRMS,
+            "surface_precip",
+            "mse"
+        ),
+    ]
+
+    model = compile_model(config)
+
+    x = {
+        "cpcir": torch.ones(
+            (1, 1, 256, 256)
+        )
+    }
+    y = model(x)
+    assert y["surface_precip"].shape == (1, 256, 256)
+
+
+def test_swin_t():
+    """
+    Test the Swin-T architecture.
+    """
+    config = load_config("swin_t")
+    config.input_configs = [
+        InputConfig(
+            inputs.CPCIR,
+            stem_type="swin",
+            stem_downsampling=4
+        ),
+    ]
+    config.output_configs = [
+        OutputConfig(
+            reference.MRMS,
+            "surface_precip",
+            "mse"
+        ),
+    ]
+
+    model = compile_model(config)
+
+    x = {
+        "cpcir": torch.ones(
+            (1, 1, 256, 256)
+        )
+    }
+    y = model(x)
+    assert y["surface_precip"].shape == (1, 256, 256)
+
+
+def test_swin_s():
+    """
+    Test the Swin-s architecture.
+    """
+    config = load_config("swin_s")
+    config.input_configs = [
+        InputConfig(
+            inputs.CPCIR,
+            stem_type="basic",
+            stem_downsampling=1
+        ),
+    ]
+    config.output_configs = [
+        OutputConfig(
+            reference.MRMS,
+            "surface_precip",
+            "mse"
+        ),
+    ]
+
+    model = compile_model(config)
+
+    x = {
+        "cpcir": torch.ones(
+            (1, 1, 256, 256)
+        )
+    }
+    y = model(x)
+    assert y["surface_precip"].shape == (1, 256, 256)
+
+def test_convnext_t():
+    """
+    Test the loading of the ConvNext-T configuration.
+    """
+    config = load_config("convnext_t")
+    config.input_configs = [
+        InputConfig(
+            inputs.CPCIR,
+            stem_type="convnext",
+            stem_downsampling=4
+        ),
+    ]
+    config.output_configs = [
+        OutputConfig(
+            reference.MRMS,
+            "surface_precip",
+            "mse"
+        ),
+    ]
+    model = compile_model(config)
+
+    x = {
+        "cpcir": torch.ones(
+            (1, 1, 256, 256)
+        )
+    }
+    y = model(x)
+    assert y["surface_precip"].shape == (1, 256, 256)
+
+
+def test_convnext_t():
+    """
+    Test the loading of the ConvNext-S configuration.
+    """
+    config = load_config("convnext_s")
+    config.input_configs = [
+        InputConfig(
+            inputs.CPCIR,
+            stem_type="basic",
+            stem_downsampling=1
+        ),
+    ]
+    config.output_configs = [
+        OutputConfig(
+            reference.MRMS,
+            "surface_precip",
+            "mse"
+        ),
+    ]
+    model = compile_model(config)
+
+    x = {
+        "cpcir": torch.ones(
+            (1, 1, 256, 256)
+        )
+    }
+    y = model(x)
+    assert y["surface_precip"].shape == (1, 256, 256)
+
+
+def test_dlax18():
+    """
+    Test the loading of the DLAX18 configuration.
+    """
+    config = load_config("dlax18")
+
+    config.input_configs = [
+        InputConfig(
+            inputs.CPCIR,
+            stem_depth=1,
+            stem_kernel_size=3,
+            stem_downsampling=1
+        ),
+    ]
+    config.output_configs = [
+        OutputConfig(
+            reference.MRMS,
+            "surface_precip",
+            "mse"
+        ),
+    ]
+
+    model = compile_model(config)
+
+    x = {
+        "cpcir": torch.ones(
+            (1, 1, 256, 256)
+        )
+    }
+    y = model(x)
+    assert y["surface_precip"].shape == (1, 256, 256)
+
+
 def test_swin_transformer():
     """
     Test the loading of the ConvNext18 configuration.
