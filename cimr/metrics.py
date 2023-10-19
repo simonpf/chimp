@@ -280,7 +280,7 @@ class PRCurve(MetricBase):
 
         if self._thresholds is None:
             y_max = y_pred.max()
-            if y_max <= 1.0:
+            if np.isnan(y_max) or y_max <= 1.0:
                 self._thresholds = np.linspace(0, 1, self.n_points)
             else:
                 thresh_max = y_pred.max() * self.thresh_multiplier
@@ -290,7 +290,7 @@ class PRCurve(MetricBase):
         y_pred = y_pred[valid]
         y_true = y_true[valid]
 
-        preds = y_pred > self._thresholds[..., None]
+        preds = y_pred >= self._thresholds[..., None]
 
         results[0] += (preds * y_true).sum(-1)
         results[1] += (preds * ~y_true).sum(-1)
