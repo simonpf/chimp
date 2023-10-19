@@ -109,10 +109,7 @@ class ParallelEncoder(nn.Module, ParamCount):
         self.encoders = nn.ModuleDict()
         for name, (stage, chans, stem_fac) in inputs.items():
             chans_stage = channels[stage]
-            self.stems[name] = stem_fac(chans_stage)
-
-
-            self.encoders[name] = encoder_class(
+            enc = encoder_class(
                 channels[stage:],
                 stages[stage:],
                 block_factory=block_factory,
@@ -122,7 +119,11 @@ class ParallelEncoder(nn.Module, ParamCount):
                 downsampler_factory=downsampler_factory,
                 downsampling_factors=downsampling_factors[stage:],
             )
-
+            self.encoders[name] = enc
+            if hasattr(enc, "input_channels"):
+                self.stems[name] = stem_fac(enc.input_channels)
+            else:
+                self.stems[name] = stem_fac(chans_stage)
 
         self.input_stages = {
             name: inpt[0] for name, inpt in inputs.items()
