@@ -187,13 +187,14 @@ class MSE(MetricBase):
     """
     def __init__(self):
         super().__init__()
-        self.shape = (3,)
+        self.shape = (4,)
 
     def accumulate(self, y_pred, y_true, results):
         valid = np.isfinite(y_pred) * np.isfinite(y_true)
         results[0] += ((y_pred[valid] - y_true[valid]) ** 2).sum()
         results[1] += y_true[valid].sum()
         results[2] += valid.sum()
+        results[3] += (y_true[valid] ** 2).sum()
 
     def results(self):
         if isinstance(self._results, dict):
@@ -201,7 +202,8 @@ class MSE(MetricBase):
             for key, results in self._results.items():
                 mse = results[0] / results[2]
                 mses[key + "_mse"] = mse
-                rel_mse = results[0] / results[1]
+                sigma = results[3] / results[2] - (results[1] / results[2]) ** 2
+                rel_mse = results[0] / results[2] / sigma
                 mses[key + "_rel_mse"] = rel_mse
             return xr.Dataset(mses)
 
