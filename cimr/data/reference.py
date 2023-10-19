@@ -92,3 +92,13 @@ MRMS = ReferenceData(
     [RetrievalTarget("surface_precip", 1e-3)],
     "rqi"
 )
+
+MRMS_W_TYPE = ReferenceData(
+    "mrms",
+    4,
+    [
+        RetrievalTarget("surface_precip", 1e-3),
+        RetrievalTarget("precip_type", None),
+    ],
+    "rqi"
+)

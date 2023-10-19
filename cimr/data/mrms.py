@@ -19,7 +19,9 @@ from pyproj import Transformer
 from pyresample.geometry import AreaDefinition
 from scipy.stats import binned_statistic_2d
 from pansat.download.providers import IowaStateProvider
-from pansat.products.ground_based.mrms import mrms_precip_rate, mrms_radar_quality_index
+from pansat.products.ground_based import mrms
+from pansat.time import TimeRange
+
 from pansat.time import to_datetime64
 import xarray as xr
 
@@ -29,8 +31,16 @@ from cimr import areas
 
 LOGGER = logging.getLogger(__name__)
 
+PRECIP_TYPES = {
+    "No rain": [0.0],
+    "Stratiform": [1.0, 2.0, 10.0, 91.0],
+    "Convective": [6.0, 96.0],
+    "Hail": [7.0],
+    "Snow": [3.0, 4.0],
+}
 
-def resample_mrms_data(dataset):
+
+def resample_mrms_data(dataset: xr.Dataset) -> xr.Dataset:
     """
     Resample MRMS data to CIMR grid.
 
@@ -74,11 +84,32 @@ def resample_mrms_data(dataset):
         bins=(lat_bins, lon_bins)
     )[0][::-1]
 
+    precip_flag = dataset.precip_type.data
+    precip_type_cts = []
+    names = []
+    for name, flags in PRECIP_TYPES.items():
+        type_field = None
+        for type_flag in flags:
+            if type_field is None:
+                type_field = np.isclose(precip_flag, type_flag)
+            else:
+                type_field += np.isclose(precip_flag, type_flag)
+        cts = binned_statistic_2d(
+            lats[valid],
+            lons[valid],
+            type_field[valid],
+            bins=(lat_bins, lon_bins)
+        )[0][::-1]
+        precip_type_cts.append(cts)
+    precip_type_cts = np.argmax(np.stack(precip_type_cts), axis=0)
+    precip_type_cts = np.nan_to_num(precip_type_cts, nan=-1).astype("int8")
+
     dataset_r = xr.Dataset({
         "latitude": (("latitude"), lats_out),
         "longitude": (("longitude"), lons_out),
         "surface_precip": (("latitude", "longitude"), surface_precip),
         "rqi": (("latitude", "longitude"), rqi),
+        "precip_type": (("latitude", "longitude"), precip_type_cts),
         "time": ((), dataset.time.data)
     })
     return dataset_r
@@ -114,7 +145,6 @@ def save_file(dataset, output_folder):
         output_folder: The folder to which to write the training data.
 
     """
-
     filename = get_output_filename(dataset.time.data.item())
     output_filename = Path(output_folder) / filename
 
@@ -136,6 +166,11 @@ def save_file(dataset, output_folder):
         "dtype": "int8",
         "zlib": True,
         "_FillValue": -1
+    }
+
+    encoding["precip_type"] = {
+        "dtype": "uint8",
+        "zlib": True
     }
 
     dataset.to_netcdf(output_filename, encoding=encoding)
@@ -169,38 +204,40 @@ def process_day(
     if not output_folder.exists():
         output_folder.mkdir(parents=True, exist_ok=True)
 
-
-    precip_rate_provider = IowaStateProvider(mrms_precip_rate)
-    rqi_provider = IowaStateProvider(mrms_radar_quality_index)
-
     start_time = datetime(year, month, day)
-    end_time = datetime(year, month, day) + timedelta(hours=23, minutes=59)
+    end_time = datetime(year, month, day) + timedelta(hours=24)
     time = start_time
     files = []
     while time < end_time:
         output_filename = get_output_filename(to_datetime64(time))
+        time_range = TimeRange(time, time)
         if not (output_folder / output_filename).exists():
             files += zip(
-                precip_rate_provider.get_files_in_range(time, time, start_inclusive=True)[-1:],
-                rqi_provider.get_files_in_range(time, time, start_inclusive=True)[-1:]
+                mrms.precip_rate.find_files(time_range)[-1:],
+                mrms.radar_quality_index.find_files(time_range)[-1:],
+                mrms.precip_flag.find_files(time_range)
             )
         time = time + time_step
 
-    for precip_rate_file, rqi_file in files:
+    for precip_rate_file, rqi_file, precip_flag_file in files:
         with TemporaryDirectory() as tmp:
             try:
-                precip_rate_file = Path(tmp) / precip_rate_file
-                precip_rate_provider.download_file(precip_rate_file.name, precip_rate_file)
+                precip_rate_file = precip_rate_file.download(destination=tmp)
+                rqi_file = rqi_file.download(destination=tmp)
+                precip_flag_file = precip_flag_file.download(destination=tmp)
 
-                rqi_file = Path(tmp) / rqi_file
-                rqi_provider.download_file(rqi_file.name, rqi_file)
+                precip_rate_data = mrms.precip_rate.open(precip_rate_file)
+                rqi_data = mrms.radar_quality_index.open(rqi_file)
+                precip_flag_data = mrms.precip_flag.open(precip_flag_file)
 
-                precip_rate_data = mrms_precip_rate.open(precip_rate_file)
-                rqi_data = mrms_radar_quality_index.open(rqi_file)
-
-                dataset = xr.merge([precip_rate_data, rqi_data], compat="override").rename({
+                dataset = xr.merge(
+                    [precip_rate_data, rqi_data, precip_flag_data],
+                    compat="override"
+                )
+                dataset = dataset.rename({
                     "precip_rate": "surface_precip",
-                    "radar_quality_index": "rqi"
+                    "radar_quality_index": "rqi",
+                    "precip_flag": "precip_type"
                 })
                 dataset = resample_mrms_data(dataset)
                 save_file(dataset, output_folder)

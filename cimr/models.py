@@ -50,8 +50,8 @@ from cimr.config import (
     ModelConfig,
     parse_model_config
 )
-from cimr.data.utils import get_input, get_inputs, get_reference_data
-from cimr.data.inputs import Input
+from cimr.data.utils import  get_reference_data
+from cimr.input_data import get_input
 from cimr.data.reference import ReferenceData
 from cimr.stems import get_stem_factory
 from cimr.blocks import (
@@ -456,6 +456,8 @@ def compile_mrnn(model_config: ModelConfig) -> mrnn.MRNN:
             loss = mrnn.Density(output_config.bins)
         elif output_config.loss == "mse":
             loss = mrnn.MSE()
+        elif output_config.loss == "classification":
+            loss = mrnn.Classification(output_config.n_classes)
         losses[output_config.variable] = loss
 
         transform = output_config.transformation

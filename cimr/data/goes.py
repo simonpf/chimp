@@ -169,10 +169,11 @@ def process_day(
         day,
         output_folder,
         path=None,
-        time_step=timedelta(minutes=15)
+        time_step=timedelta(minutes=15),
+        include_scan_time=False
 ):
     """
-    Extract training data from a day of SEVIRI observations.
+    Extract training data from a day of GOES observations.
 
     Args:
         year: The year

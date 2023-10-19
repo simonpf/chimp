@@ -60,7 +60,7 @@ def generate_input(
 
 
 def scale_slices(
-        slices: Union[Tuple[slice, slice], None],
+        slices: Union[Tuple[slice, slice], Tuple[int, int, int, int], None],
         rel_scale: float
 ) -> Tuple[slice, slice]:
     """
@@ -68,14 +68,23 @@ def scale_slices(
 
     Args:
         slices: A tuple containing row- and column-slices defining the
-            input region to extract with respect to the reference data. If
-            'None', slices corresponding to the full
+            input region to extract with respect to the reference data.
+            The tuple can also be of length 4 and contain the start and
+            stop values for the rows followed by those for the columns.
+            If 'None', slices corresponding to the full row and column
+            extent will be returned.
         scale: The scale of the input data relative to the reference data.
 
     Return:
         A tuple contining the slices scaled to match the relative scale of
         the input data.
     """
+    if len(slices) == 4:
+        slices = (
+            slice(slices[0], slices[1]),
+            slice(slices[2], slices[3])
+        )
+
     if slices is None:
         return (slice(0, None), slice(0, None))
 

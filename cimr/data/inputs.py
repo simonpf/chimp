@@ -5,6 +5,7 @@ cimr.data.inputs
 Defines a dataclass to represent input data sources.
 """
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Union, List, Optional
 
 import numpy as np
@@ -104,6 +105,67 @@ class Input:
     @property
     def n_channels(self):
         return len(self.normalizer.stats)
+
+    def load_sample(
+            self,
+            input_file: Path,
+            crop_size: int,
+            rng: np.random.Generator
+            missing_input_policy: str
+    ):
+        # Input is missing: Apply missing value policy.
+        if input_file is None:
+            x_s = generate_input(
+                inpt,
+                tuple([size // self.scales[inpt.name] for size in window_size]),
+                missing_input_policy,
+                rng
+            )
+            x[inpt.name] = x_s
+            continue
+
+        scl = self.scales[inpt.name]
+        if slices is not None:
+            row_slice = slice(int(i_start / scl), int(i_end / scl))
+            col_slice = slice(int(j_start / scl), int(j_end / scl))
+        else:
+            row_slice = slice(0, None)
+            col_slice = slice(0, None)
+        with xr.open_dataset(files[input_ind + 1]) as data:
+            vars = inpt.variables
+            if isinstance(vars, str):
+                x_s = data[vars].data[..., row_slice, col_slice]
+                # Expand dims in case of single-channel inputs.
+                if x_s.ndim < 3:
+                    x_s = x_s[None]
+            else:
+                x_s = np.stack(
+                    [data[vrbl].data[row_slice, col_slice] for vrbl in vars]
+                )
+            if rotate is not None:
+                x_s = ndimage.rotate(
+                    x_s,
+                    rotate,
+                    order=0,
+                    reshape=False,
+                    axes=(-2, -1),
+                    cval=np.nan
+                )
+                height = x_s.shape[-2]
+                if height > window_size[0] // scl:
+                    d_l = (height - window_size[0] // scl) // 2
+                    d_r = d_l + window_size[0] // scl
+                    x_s = x_s[..., d_l:d_r, :]
+                width = x_s.shape[-1]
+                if width > window_size[1] // scl:
+                    d_l = (width - window_size[1] // scl) // 2
+                    d_r = d_l + window_size[1] // scl
+                    x_s = x_s[..., d_l:d_r]
+            if flip:
+                x_s = np.flip(x_s, -1)
+
+            if self.normalize:
+                x_s = inpt.normalizer(x_s)
 
 ###############################################################################
 # GMI

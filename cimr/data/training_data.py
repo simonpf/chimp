@@ -29,7 +29,8 @@ import pandas as pd
 
 
 from cimr.definitions import MASK
-from cimr.data.utils import get_inputs, get_reference_data
+from cimr.data.utils import get_reference_data
+from cimr.input_data import get_input
 from cimr.data import inputs, reference
 
 ###############################################################################
@@ -421,7 +422,7 @@ class CIMRDataset:
 
         if inputs is None:
             inputs = ["visir", "geo", "mw"]
-        self.inputs = get_inputs(inputs)
+        self.inputs = [get_input(inpt) for inpt in inputs]
 
         self.n_inputs = len(inputs)
         self.sample_rate = sample_rate
@@ -453,8 +454,8 @@ class CIMRDataset:
             time, ref_file in zip(times, reference_files)
         }
 
-        with xr.open_dataset(reference_files[0]) as ref_data:
-            base_scale = self.reference_data.scale
+        self.base_scale = self.reference_data.scale
+
 
         self.scales = {}
         self.max_scale = 0
@@ -466,7 +467,7 @@ class CIMRDataset:
 
                 if scale is None:
                     with xr.open_dataset(src_file) as src_data:
-                        scale = inpt.scale // base_scale
+                        scale = inpt.scale // self.base_scale
                         self.scales[inpt.name] = scale
                         self.max_scale = max(self.max_scale, scale)
 
@@ -568,7 +569,10 @@ class CIMRDataset:
             qual = qual.data[row_slice, col_slice]
             invalid = qual < self.quality_threshold
             for target in self.reference_data.targets:
+
                 y_t = data[target.name].data[row_slice, col_slice]
+                if not np.issubdtype(y_t.dtype, np.floating):
+                    y_t = y_t.astype(np.int64)
 
                 # Set window size here if it is None
                 if window_size is None:
@@ -579,7 +583,7 @@ class CIMRDataset:
                     small = y_t < target.lower_limit
                     rnd = self.rng.uniform(-5, -3, small.sum())
                     y_t[small] = 10 ** rnd
-                y_t[invalid] = np.nan
+                y_t[invalid] = MASK
                 if rotate is not None:
                     y_t = ndimage.rotate(
                         y_t,
@@ -603,67 +607,27 @@ class CIMRDataset:
 
                 if flip:
                     y_t = np.flip(y_t, -1)
-                y[target.name] = np.nan_to_num(y_t, nan=MASK, copy=True)
+
+                if np.issubdtype(y_t.dtype, np.floating):
+                    y_t = np.nan_to_num(y_t, nan=MASK, copy=True)
+                y[target.name] = y_t
 
         # Load input data.
         x = {}
         for input_ind, inpt in enumerate(self.inputs):
+            input_file = files[input_ind + 1]
+            x_s = inpt.load_sample(
+                input_file,
+                window_size,
+                self.base_scale,
+                slices,
+                self.rng,
+                self.missing_input_policy,
+                rotate=rotate,
+                flip=flip
+            )
+            x[inpt.name] = torch.tensor(x_s)
 
-            # Input is missing: Apply missing value policy.
-            if files[input_ind + 1] is None:
-                x_s = generate_input(
-                    inpt,
-                    tuple([size // self.scales[inpt.name] for size in window_size]),
-                    self.missing_input_policy,
-                    self.rng
-                )
-                x[inpt.name] = x_s
-                continue
-
-            scl = self.scales[inpt.name]
-            if slices is not None:
-                row_slice = slice(int(i_start / scl), int(i_end / scl))
-                col_slice = slice(int(j_start / scl), int(j_end / scl))
-            else:
-                row_slice = slice(0, None)
-                col_slice = slice(0, None)
-            with xr.open_dataset(files[input_ind + 1]) as data:
-                vars = inpt.variables
-                if isinstance(vars, str):
-                    x_s = data[vars].data[..., row_slice, col_slice]
-                    # Expand dims in case of single-channel inputs.
-                    if x_s.ndim < 3:
-                        x_s = x_s[None]
-                else:
-                    x_s = np.stack(
-                        [data[vrbl].data[row_slice, col_slice] for vrbl in vars]
-                    )
-                if rotate is not None:
-                    x_s = ndimage.rotate(
-                        x_s,
-                        rotate,
-                        order=0,
-                        reshape=False,
-                        axes=(-2, -1),
-                        cval=np.nan
-                    )
-                    height = x_s.shape[-2]
-                    if height > window_size[0] // scl:
-                        d_l = (height - window_size[0] // scl) // 2
-                        d_r = d_l + window_size[0] // scl
-                        x_s = x_s[..., d_l:d_r, :]
-                    width = x_s.shape[-1]
-                    if width > window_size[1] // scl:
-                        d_l = (width - window_size[1] // scl) // 2
-                        d_r = d_l + window_size[1] // scl
-                        x_s = x_s[..., d_l:d_r]
-                if flip:
-                    x_s = np.flip(x_s, -1)
-
-                if self.normalize:
-                    x_s = inpt.normalizer(x_s)
-
-                x[inpt.name] = torch.tensor(x_s.copy())
         return x, y
 
     def __getitem__(self, index):

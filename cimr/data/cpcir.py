@@ -11,7 +11,7 @@ from tempfile import TemporaryDirectory
 
 import numpy as np
 from pansat.products.satellite.gpm import gpm_mergeir
-from pansat.download.providers import Disc2Provider
+#from pansat.download.providers import Disc2Provider
 from pansat.time import to_datetime64
 from pyresample import geometry, kd_tree, create_area_def
 import xarray as xr
@@ -19,7 +19,7 @@ import xarray as xr
 from cimr.utils import get_available_times, round_time
 
 
-PROVIDER = Disc2Provider(gpm_mergeir)
+#PROVIDER = Disc2Provider(gpm_mergeir)
 CPCIR_GRID = create_area_def(
     "cpcir_area",
     {"proj": "longlat", "datum": "WGS84"},

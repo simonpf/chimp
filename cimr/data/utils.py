@@ -11,7 +11,7 @@ import numpy as np
 import xarray as xr
 
 from cimr.definitions import N_CHANS
-from cimr.data import inputs, reference
+from cimr.data import reference
 
 
 def make_microwave_band_array(domain, band):
@@ -36,51 +36,6 @@ def make_microwave_band_array(domain, band):
     shape = shape + (n_chans,)
 
     return xr.DataArray(np.nan * np.ones(shape, dtype=np.float32))
-
-
-def get_input(inpt: Union[str, inputs.Input]) -> inputs.Input:
-    """
-    Parse input object.
-
-    For simplicity retrieval inputs can be specified as strings
-    or 'cimr.data.inputs.Input' object. This function replaces
-    traverses the given list of inputs and replaces strings with
-    the corresponding predefined 'Input' object.
-
-    Args:
-        input_list: List containing strings of 'cimr.data.inputs.Input'
-            objects.
-
-    Return:
-        A new list containing only 'cimr.data.inputs.Input' objects.
-    """
-    if isinstance(inpt, inputs.Input):
-        return inpt
-
-    try:
-        inpt_obj = getattr(inputs, inpt.upper())
-    except AttributeError:
-        raise ValueError(f"The input '{inpt}' is not known.")
-    return inpt_obj
-
-
-def get_inputs(input_list: List[Union[str, inputs.Input]]) -> List[inputs.Input]:
-    """
-    Parse input object.
-
-    For simplicity retrieval inputs can be specified as strings
-    or 'cimr.data.inputs.Input' object. This function replaces
-    traverses the given list of inputs and replaces strings with
-    the corresponding predefined 'Input' object.
-
-    Args:
-        input_list: List containing strings of 'cimr.data.inputs.Input'
-            objects.
-
-    Return:
-        A new list containing only 'cimr.data.inputs.Input' objects.
-    """
-    return [get_input(inpt) for inpt in input_list]
 
 
 def get_reference_data(ref):

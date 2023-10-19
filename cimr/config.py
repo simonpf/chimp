@@ -14,9 +14,9 @@ import numpy as np
 import torch
 from torch import nn
 
-from cimr.data.inputs import Input
+from cimr.input_data import Input, get_input
 from cimr.data.reference import ReferenceData
-from cimr.data.utils import get_input, get_reference_data
+from cimr.data.utils import get_reference_data
 
 
 def _parse_list(values, constr=int):
@@ -102,6 +102,7 @@ class OutputConfig:
     quantiles: Optional[str] = None
     bins: Optional[str] = None
     transformation: Optional[str] = None
+    n_classes: Optional[int] = None
 
     @property
     def scale(self):
@@ -137,6 +138,7 @@ def parse_output_config(section: SectionProxy) -> OutputConfig:
     if bins is not None:
         bins = eval(bins)
     transformation = section.get("transformation", None)
+    n_classes = section.getint("n_classes", None)
 
     return OutputConfig(
         reference_data=reference_data,
@@ -146,6 +148,7 @@ def parse_output_config(section: SectionProxy) -> OutputConfig:
         quantiles=quantiles,
         bins=bins,
         transformation=transformation,
+        n_classes=n_classes
     )
 
 
