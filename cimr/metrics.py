@@ -202,8 +202,8 @@ class MSE(MetricBase):
             for key, results in self._results.items():
                 mse = results[0] / results[2]
                 mses[key + "_mse"] = mse
-                sigma = results[3] / results[2] - (results[1] / results[2]) ** 2
-                rel_mse = results[0] / results[2] / sigma
+                sigma2 = results[3] / results[2] - (results[1] / results[2]) ** 2
+                rel_mse = results[0] / results[2] / sigma2
                 mses[key + "_rel_mse"] = rel_mse
             return xr.Dataset(mses)
 
