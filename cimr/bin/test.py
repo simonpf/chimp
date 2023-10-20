@@ -215,16 +215,18 @@ def process(model, dataset, output_path, n_processes=8):
     tasks = Queue(maxsize=n_processes)
 
     def merge_results(future):
-        metrics_f = future.result()
-        estimation_metrics_f = metrics_f[0]
-        detection_metric_f = metrics_f[1]
-        heavy_detection_metric_f = metrics_f[2]
+        try:
+            metrics_f = future.result()
+            estimation_metrics_f = metrics_f[0]
+            detection_metric_f = metrics_f[1]
+            heavy_detection_metric_f = metrics_f[2]
 
-        for metric, metric_f in zip(estimation_metrics, estimation_metrics_f):
-            metric.merge(metric_f)
-        detection_metric.merge(detection_metric_f)
-        heavy_detection_metric.merge(heavy_detection_metric_f)
-        tasks.get()
+            for metric, metric_f in zip(estimation_metrics, estimation_metrics_f):
+                metric.merge(metric_f)
+            detection_metric.merge(detection_metric_f)
+            heavy_detection_metric.merge(heavy_detection_metric_f)
+        finally:
+            tasks.get()
 
 
     for time, x, y in input_iterator:
@@ -260,10 +262,15 @@ def process(model, dataset, output_path, n_processes=8):
         while tasks.qsize() >= n_processes:
             sleep(0.1)
 
+    # Wait for processing to finish.
+    while tasks.qsize() > 0:
+        sleep(0.1)
+
     metrics = xr.merge(
         [metric.results() for metric in all_metrics]
     )
     metrics["retrieval_time"] = total_time / n_iters
+    metrics["n_params"] = model.model.n_params
     metrics.to_netcdf(output_path / "metrics.nc")
 
 

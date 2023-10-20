@@ -16,7 +16,8 @@ from rich.progress import track
 import xarray as xr
 
 
-import cimr.input_data
+import cimr
+import cimr.data
 from cimr.logging import CONSOLE
 
 
@@ -130,7 +131,7 @@ class InputDataStatistics:
         dataset.to_netcdf(path)
 
 
-def process_file(inpt: cimr.input_data.Input, input_file: Path) -> InputDataStatistics:
+def process_file(inpt: cimr.data.Input, input_file: Path) -> InputDataStatistics:
     """
     Calculate input data statistics for a single file.
 
@@ -149,7 +150,7 @@ def process_file(inpt: cimr.input_data.Input, input_file: Path) -> InputDataStat
 
 
 def process_files(
-        inpt : cimr.input_data.Input,
+        inpt : cimr.data.Input,
         files : List[Path],
         n_processes : int
 ) -> InputDataStatistics:
