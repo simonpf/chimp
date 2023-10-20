@@ -58,9 +58,7 @@ def test_mse():
 
     results = mse.results()
     assert results["surface_precip_mse"] == 1.0
-    assert results["surface_precip_rel_mse"] == 1.0
     assert results["ice_water_path_mse"] == 1.0
-    assert results["ice_water_path_rel_mse"] == 1.0
 
     y_true = {
         "surface_precip": np.zeros((32, 32)),

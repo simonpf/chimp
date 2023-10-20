@@ -17,7 +17,7 @@ from cimr.config import (
     DecoderConfig,
     ModelConfig
 )
-from cimr.data import inputs, reference
+from cimr.data import input, reference
 from cimr.models import compile_mrnn
 
 
@@ -186,13 +186,13 @@ def cpcir_gmi_mrnn():
     """
     input_configs = [
         InputConfig(
-            inputs.CPCIR,
+            input.CPCIR,
             stem_depth=1,
             stem_kernel_size=3,
             stem_downsampling=1
         ),
         InputConfig(
-            inputs.GMI,
+            input.GMI,
             stem_depth=2,
             stem_kernel_size=7,
             stem_downsampling=2

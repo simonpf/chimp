@@ -15,7 +15,7 @@ from conftest import (
 
 from cimr import models
 from cimr.config import TrainingConfig
-from cimr.data import inputs, reference
+from cimr.data import input, reference
 from cimr.data.training_data import CIMRDataset
 from cimr.models import compile_mrnn
 from cimr.training import (
@@ -45,7 +45,7 @@ def test_training(
     model_config = models.load_config("gremlin")
     model_config.input_configs = [
         models.InputConfig(
-            inputs.CPCIR,
+            input.CPCIR,
             stem_depth=1,
             stem_kernel_size=3,
             stem_downsampling=1

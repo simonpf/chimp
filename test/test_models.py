@@ -21,7 +21,7 @@ from cimr.config import (
     DecoderConfig,
     ModelConfig
 )
-from cimr.data import inputs, reference
+from cimr.data import input, reference
 from cimr.models import (
     compile_encoder,
     compile_decoder,
@@ -50,13 +50,13 @@ def test_compile_encoder():
     """
     input_configs = [
         InputConfig(
-            inputs.GMI,
+            input.GMI,
             stem_depth=2,
             stem_kernel_size=7,
             stem_downsampling=2
         ),
         InputConfig(
-            inputs.SSMIS,
+            input.SSMIS,
             stem_depth=2,
             stem_kernel_size=7,
             stem_downsampling=1
@@ -98,13 +98,13 @@ def test_compile_parallel_encoder():
     """
     input_configs = [
         InputConfig(
-            inputs.GMI,
+            input.GMI,
             stem_depth=2,
             stem_kernel_size=7,
             stem_downsampling=2
         ),
         InputConfig(
-            inputs.SSMIS,
+            input.SSMIS,
             stem_depth=2,
             stem_kernel_size=7,
             stem_downsampling=1
@@ -160,13 +160,13 @@ def test_compile_decoder():
     """
     input_configs = [
         InputConfig(
-            inputs.GMI,
+            input.GMI,
             stem_depth=2,
             stem_kernel_size=7,
             stem_downsampling=2
         ),
         InputConfig(
-            inputs.SSMIS,
+            input.SSMIS,
             stem_depth=2,
             stem_kernel_size=7,
             stem_downsampling=1
@@ -228,13 +228,13 @@ def test_compile_model():
     """
     input_configs = [
         InputConfig(
-            inputs.GMI,
+            input.GMI,
             stem_depth=2,
             stem_kernel_size=7,
             stem_downsampling=2
         ),
         InputConfig(
-            inputs.SSMIS,
+            input.SSMIS,
             stem_depth=2,
             stem_kernel_size=7,
             stem_downsampling=1
@@ -297,13 +297,13 @@ def test_compile_mrnn():
     """
     input_configs = [
         InputConfig(
-            inputs.GMI,
+            input.GMI,
             stem_depth=2,
             stem_kernel_size=7,
             stem_downsampling=2
         ),
         InputConfig(
-            inputs.SSMIS,
+            input.SSMIS,
             stem_depth=2,
             stem_kernel_size=7,
             stem_downsampling=1
@@ -352,7 +352,7 @@ def test_load_config():
 
     config.input_configs = [
         InputConfig(
-            inputs.CPCIR,
+            input.CPCIR,
             stem_depth=1,
             stem_kernel_size=3,
             stem_downsampling=1
@@ -380,7 +380,7 @@ def test_gremlin():
 
     config.input_configs = [
         InputConfig(
-            inputs.CPCIR,
+            input.CPCIR,
             stem_depth=1,
             stem_kernel_size=3,
             stem_downsampling=1
@@ -414,7 +414,7 @@ def test_unet():
 
     config.input_configs = [
         InputConfig(
-            inputs.CPCIR,
+            input.CPCIR,
             stem_depth=1,
             stem_kernel_size=3,
             stem_downsampling=1
@@ -448,7 +448,7 @@ def test_resnet18():
 
     config.input_configs = [
         InputConfig(
-            inputs.CPCIR,
+            input.CPCIR,
             stem_depth=1,
             stem_kernel_size=3,
             stem_downsampling=1
@@ -481,7 +481,7 @@ def test_convnext18():
 
     config.input_configs = [
         InputConfig(
-            inputs.CPCIR,
+            input.CPCIR,
             stem_depth=1,
             stem_kernel_size=3,
             stem_downsampling=1
@@ -513,7 +513,7 @@ def test_resnext50():
     config = load_config("resnext_50")
     config.input_configs = [
         InputConfig(
-            inputs.CPCIR,
+            input.CPCIR,
             stem_type="resnext",
             stem_downsampling=2
         ),
@@ -544,7 +544,7 @@ def test_cresnext_s():
     config = load_config("cresnext_s")
     config.input_configs = [
         InputConfig(
-            inputs.CPCIR,
+            input.CPCIR,
             stem_type="basic",
             stem_downsampling=1
         ),
@@ -575,7 +575,7 @@ def test_dcresnext_s():
     config = load_config("dcresnext_s")
     config.input_configs = [
         InputConfig(
-            inputs.CPCIR,
+            input.CPCIR,
             stem_type="basic",
             stem_downsampling=1
         ),
@@ -606,7 +606,7 @@ def test_swin_t():
     config = load_config("swin_t")
     config.input_configs = [
         InputConfig(
-            inputs.CPCIR,
+            input.CPCIR,
             stem_type="swin",
             stem_downsampling=4
         ),
@@ -637,7 +637,7 @@ def test_swin_s():
     config = load_config("swin_s")
     config.input_configs = [
         InputConfig(
-            inputs.CPCIR,
+            input.CPCIR,
             stem_type="basic",
             stem_downsampling=1
         ),
@@ -667,7 +667,7 @@ def test_convnext_t():
     config = load_config("convnext_t")
     config.input_configs = [
         InputConfig(
-            inputs.CPCIR,
+            input.CPCIR,
             stem_type="convnext",
             stem_downsampling=4
         ),
@@ -697,7 +697,7 @@ def test_convnext_t():
     config = load_config("convnext_s")
     config.input_configs = [
         InputConfig(
-            inputs.CPCIR,
+            input.CPCIR,
             stem_type="basic",
             stem_downsampling=1
         ),
@@ -728,7 +728,7 @@ def test_dlax18():
 
     config.input_configs = [
         InputConfig(
-            inputs.CPCIR,
+            input.CPCIR,
             stem_depth=1,
             stem_kernel_size=3,
             stem_downsampling=1
@@ -760,7 +760,7 @@ def test_swin_transformer():
     config = load_config("swin_t")
     config.input_configs = [
         InputConfig(
-            inputs.CPCIR,
+            input.CPCIR,
             stem_type="swin",
             stem_downsampling=4
         ),
@@ -791,7 +791,7 @@ def test_convnext_t():
     config = load_config("convnext_t")
     config.input_configs = [
         InputConfig(
-            inputs.CPCIR,
+            input.CPCIR,
             stem_type="convnext",
             stem_downsampling=4
         ),
@@ -821,7 +821,7 @@ def test_convnext_t():
     config = load_config("convnext_s")
     config.input_configs = [
         InputConfig(
-            inputs.CPCIR,
+            input.CPCIR,
             stem_type="basic",
             stem_downsampling=1
         ),
@@ -852,7 +852,7 @@ def test_dlax18():
 
     config.input_configs = [
         InputConfig(
-            inputs.CPCIR,
+            input.CPCIR,
             stem_depth=1,
             stem_kernel_size=3,
             stem_downsampling=1

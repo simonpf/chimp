@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import pyresample
 
-from pansat.roi import ROI, PolygonROI
+from pansat.geometry import Polygon, LonLatRect
 
 ###############################################################################
 # Nordics
@@ -20,14 +20,14 @@ NORDICS_2 = pyresample.load_area(Path(__file__).parent / "cimr_nordic_2.yml")
 NORDICS_4 = pyresample.load_area(Path(__file__).parent / "cimr_nordic_4.yml")
 NORDICS_8 = pyresample.load_area(Path(__file__).parent / "cimr_nordic_8.yml")
 NORDICS_16 = pyresample.load_area(Path(__file__).parent / "cimr_nordic_16.yml")
-ROI_NORDICS = ROI(
+ROI_NORDICS = LonLatRect(
     -9.05380216185029,
     51.77251844681491,
     45.24074941367874,
     73.3321989854415
 )
 _lons, _lats = NORDICS_8.get_lonlats()
-ROI_POLY_NORDICS =  PolygonROI(np.array([
+ROI_POLY_NORDICS =  Polygon(np.array([
     [_lons[0, 0], _lats[0, 0]],
     [_lons[0, -1], _lats[0, -1]],
     [_lons[-1, -1], _lats[-1, -1]],
@@ -51,14 +51,14 @@ NORDICS = {
 CONUS_4 = pyresample.load_area(Path(__file__).parent / "cimr_conus_4.yml")
 CONUS_8 = pyresample.load_area(Path(__file__).parent / "cimr_conus_8.yml")
 CONUS_16 = pyresample.load_area(Path(__file__).parent / "cimr_conus_16.yml")
-ROI_CONUS = ROI(
+ROI_CONUS = LonLatRect(
     -129.995,
     20.005,
     -60.005,
     54.995
 )
 _lons, _lats = CONUS_8.get_lonlats()
-ROI_POLY_CONUS =  PolygonROI(np.array([
+ROI_POLY_CONUS =  Polygon(np.array([
     [_lons[0, 0], _lats[0, 0]],
     [_lons[0, -1], _lats[0, -1]],
     [_lons[-1, -1], _lats[-1, -1]],
