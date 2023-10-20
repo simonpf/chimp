@@ -153,8 +153,43 @@ def get_inputs(input_list: List[Union[str, InputBase]]) -> List[InputBase]:
     return [get_input(inpt) for inpt in input_list]
 
 
+class MinMaxNormalized:
+    """
+    Mixin' class provides a quantnn.normalizer.MinMaxNormalizer with
+    statistics read from a file.
+    """
+    def __init__(self, stats_file):
+        self._stats_file = stats_file
+        self._normalizer = None
+
+    @property
+    def normalizer(self):
+        """
+        Cached access to normalizer.
+
+        On first access this will trigger a read of the corresponding
+        stats file.
+        """
+        if self._normalizer is None:
+            path = Path(__file__).parent / "stats"
+            stats_file = path / f"{self._stats_file}.txt"
+            if not stats_file.exists():
+                raise RuntimeError(
+                    f"Could not find the stats file {stats_file}."
+                )
+            stats = np.loadtxt(stats_file, skiprows=1)
+            norm = MinMaxNormalizer(
+                np.ones((stats.shape[0], 1, 1)),
+                feature_axis=0
+            )
+            for chan_ind in range(stats.shape[0]):
+                norm.stats[chan_ind] = tuple(stats[chan_ind])
+            self._normalizer = norm
+        return self._normalizer
+
+
 @dataclass
-class Input(InputBase):
+class Input(InputBase, MinMaxNormalized):
     """
     Record holding the paths of the files for a single training
     sample.
@@ -162,7 +197,6 @@ class Input(InputBase):
     name: str
     scale: int
     variables: Union[str, List[str]]
-    normalizer: Normalizer
     mean: Optional[np.array] = None
     n_dim: int = 2
 
@@ -171,11 +205,12 @@ class Input(InputBase):
             name: str,
             scale: int,
             variables: Union[str, List[str]],
-            normalizer: Normalizer,
             mean: Optional[np.array] = None,
             n_dim: int = 2
     ):
-        super().__init__(name)
+        InputBase.__init__(self, name)
+        MinMaxNormalized.__init__(self, name)
+
         self.name = name
         self.scale = scale
         self.variables = variables
@@ -285,133 +320,28 @@ class Input(InputBase):
         return x_s
 
 
-###############################################################################
-# GMI
-###############################################################################
 
-NORMALIZER_GMI = MinMaxNormalizer(np.ones((12, 1, 1)), feature_axis=0)
-NORMALIZER_GMI.stats = {
-    0: (150, 330),
-    1: (70, 330),
-    2: (160, 330),
-    3: (80, 330),
-    4: (170, 320),
-    5: (170, 320),
-    6: (110, 320),
-    7: (80, 310),
-    8: (80, 320),
-    9: (80, 310),
-    10: (70, 310),
-    11: (80, 300),
-    12: (80, 300),
-}
-GMI = Input("gmi", 8, "tbs", NORMALIZER_GMI)
-
-###############################################################################
-# MHS
-###############################################################################
-
-NORMALIZER_MHS = MinMaxNormalizer(np.ones((5, 1, 1)), feature_axis=0)
-NORMALIZER_MHS.stats = {
-    0: (80, 310),
-    1: (80, 310),
-    2: (100, 290),
-    3: (90, 290),
-    4: (90, 300),
-}
-MHS = Input("mhs", 16, "tbs", NORMALIZER_MHS)
+GMI = Input("gmi", 8, "tbs")
 
 
-###############################################################################
-# ATMS
-###############################################################################
+MHS = Input("mhs", 16, "tbs")
 
-NORMALIZER_ATMS = MinMaxNormalizer(np.ones((9, 1, 1)), feature_axis=0)
-NORMALIZER_ATMS.stats = {
-    0: (130, 320),
-    1: (140, 320),
-    2: (140, 320),
-    3: (90, 320),
-    4: (90, 310),
-    5: (90, 310),
-    6: (100, 300),
-    7: (100, 290),
-    8: (110, 290),
-}
+
 MEANS_ATMS = np.array([
     238.66225432, 231.23515187, 254.60181577, 268.60674832,
     266.81132495, 263.05214856, 258.46545914, 251.43006749,
     244.87598689
 ])
-ATMS = Input("atms", 16, "tbs", NORMALIZER_ATMS)
+ATMS = Input("atms", 16, "tbs")
 
-###############################################################################
-# SSMIS
-###############################################################################
+SSMIS = Input("ssmis", 8, "tbs")
 
-NORMALIZER_SSMIS = MinMaxNormalizer(np.ones((11, 1, 1)), feature_axis=0)
-NORMALIZER_SSMIS.stats = {
-    0: (100, 330),
-    1: (70, 330),
-    2: (110, 320),
-    3: (170, 320),
-    4: (120, 310),
-    5: (80, 290),
-    6: (80, 290),
-    7: (70, 320),
-    8: (70, 310),
-    9: (70, 320),
-    10: (60, 310),
-}
-SSMIS = Input("ssmis", 8, "tbs", NORMALIZER_SSMIS)
+AMSR2 = Input("amsr2", 8, "tbs")
 
-###############################################################################
-# AMSR2
-###############################################################################
-
-NORMALIZER_AMSR2 = MinMaxNormalizer(np.ones((11, 1, 1)), feature_axis=0)
-NORMALIZER_AMSR2.stats = {
-    0: (60, 330),
-    1: (70, 330),
-    2: (80, 330),
-    3: (60, 330),
-    4: (150, 320),
-    5: (100, 310),
-    6: (90, 320),
-    7: (90, 320),
-    8: (50, 330),
-    9: (50, 320),
-    10: (50, 320),
-    11: (50, 320),
-}
-AMSR2 = Input("amsr2", 8, "tbs", NORMALIZER_AMSR2)
-
-###############################################################################
-# CPCIR
-###############################################################################
-
-NORMALIZER_CPCIR = MinMaxNormalizer(np.ones((1, 1, 1)), feature_axis=0)
-NORMALIZER_CPCIR.stats = {
-    0: (170, 320)
-}
-CPCIR = Input("cpcir", 4, "tbs", NORMALIZER_CPCIR)
+CPCIR = Input("cpcir", 4, "tbs")
 
 ###############################################################################
 # GOES
 ###############################################################################
 
-NORMALIZER_GOES = MinMaxNormalizer(np.ones((11, 1, 1)), feature_axis=0)
-NORMALIZER_GOES.stats = {
-    0: (0.0, 127.0),
-    1: (0.0, 127.0),
-    2: (0.0, 127.0),
-    3: (195.0, 322.0),
-    4: (195.0, 311.0),
-    5: (195.0, 277.0),
-    6: (195.0, 322.0),
-    7: (195.0, 311.0),
-    8: (195.0, 319.0),
-    9: (195.0, 315.5),
-    10: (195.0, 318.5),
-}
-GOES = Input("goes", 4, [f"geo_{ind:02}" for ind in range(1, 12)], NORMALIZER_GOES)
+GOES = Input("goes", 4, [f"geo_{ind:02}" for ind in range(1, 12)])
