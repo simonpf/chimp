@@ -7,7 +7,7 @@ import os
 
 import pytest
 
-from cimr.utils import round_time, get_available_times
+from cimr.utils import round_time, get_available_times, get_date
 
 
 TEST_DATA = os.environ.get("CIMR_TEST_DATA", None)
@@ -34,6 +34,17 @@ def test_round_time():
     time = datetime(2020, 1, 1, 0, 17)
     time_r = round_time(time, minutes=30)
     assert time_r.minute == 30
+
+
+def test_get_date():
+    """
+    Ensure that extracting the date from a CIMR filename works.
+    """
+    filename = "mhs_20200101_00_00.nc"
+    date = get_date(filename)
+
+    assert date == datetime(2020, 1, 1, 0, 0)
+
 
 @NEEDS_TEST_DATA
 def test_get_available_times():
