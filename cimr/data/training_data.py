@@ -28,10 +28,12 @@ import xarray as xr
 import pandas as pd
 
 
+from cimr import data
 from cimr.definitions import MASK
+from cimr.utils import get_date
 from cimr.data.utils import get_reference_data
-from cimr.input_data import get_input
-from cimr.data import inputs, reference
+from cimr.data import get_input
+from cimr.data import input, reference
 
 ###############################################################################
 # Normalizer objects
@@ -212,70 +214,10 @@ def sparse_collate(samples):
     return stack(batch)
 
 
-def load_geo_obs(sample, dataset, normalize=True, rng=None):
-    """
-    Loads geostationary observations from dataset.
-    """
-    data = []
-    for i in range(11):
-        name = f"geo_{i + 1:02}"
-        data.append(dataset[name].data)
-
-    data = np.stack(data, axis=0)
-    if normalize:
-        data = NORMALIZER_GEO(data)
-    sample["geo"] = torch.as_tensor(data)
-
-
-def load_visir_obs(sample, dataset, normalize=True, rng=None):
-    """
-    Loads VIS/IR observations from dataset.
-    """
-    data = []
-    for i in range(5):
-        name = f"visir_{i + 1:02}"
-        data.append(dataset[name].data)
-
-    data = np.stack(data, axis=0)
-    if normalize:
-        data = NORMALIZER_VISIR(data)
-    sample["visir"] = torch.as_tensor(data)
-
-
-def load_microwave_obs(sample, dataset, normalize=True, rng=None):
-    """
-    Loads microwave observations from dataset.
-    """
-    # MW 90
-    shape = (dataset.y.size, dataset.x.size)
-    if "mw_90" in dataset:
-        x = np.transpose(dataset.mw_90.data, (2, 0, 1))
-    else:
-        x = np.nan * np.ones((2,) + shape, dtype=np.float32)
-    if normalize:
-        x = NORMALIZER_MW_90(x)
-    sample["mw_90"] = torch.as_tensor(x)
-
-    # MW 160
-    if "mw_160" in dataset:
-        x = np.transpose(dataset.mw_160.data, (2, 0, 1))
-    else:
-        x = np.nan * np.ones((2,) + shape, dtype=np.float32)
-    if normalize:
-        x = NORMALIZER_MW_160(x)
-    sample["mw_160"] = torch.as_tensor(x)
-
-    if "mw_183" in dataset:
-        x = np.transpose(dataset.mw_183.data, (2, 0, 1))
-    else:
-        x =  np.nan * np.ones((5,) + shape, dtype=np.float32)
-    if normalize:
-        x = NORMALIZER_MW_183(x)
-    sample["mw_183"] = torch.as_tensor(x)
 
 
 def generate_input(
-        inpt: inputs.Input,
+        inpt: data.Input,
         size: Tuple[int],
         policy: str,
         rng: np.random.Generator,
@@ -344,23 +286,6 @@ class SampleRecord:
         return has_input
 
 
-
-def get_date(filename):
-    """
-    Extract date from a training data filename.
-
-    Args:
-        filename: The name of the file containing
-
-    Return:
-        Numpy datetime64 object containing the time corresponding to
-        the training sample.
-    """
-    _, yearmonthday, hour, minute = filename.stem.split("_")
-    year = yearmonthday[:4]
-    month = yearmonthday[4:6]
-    day = yearmonthday[6:]
-    return np.datetime64(f"{year}-{month}-{day}T{hour}:{minute}:00")
 
 
 class CIMRDataset:

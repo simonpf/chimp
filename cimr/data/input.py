@@ -214,7 +214,6 @@ class Input(InputBase, MinMaxNormalized):
         self.name = name
         self.scale = scale
         self.variables = variables
-        self.normalizer = normalizer
         self.mean = mean
         self.n_dim = n_dim
 
@@ -320,8 +319,6 @@ class Input(InputBase, MinMaxNormalized):
         return x_s
 
 
-
-GMI = Input("gmi", 8, "tbs")
 
 
 MHS = Input("mhs", 16, "tbs")

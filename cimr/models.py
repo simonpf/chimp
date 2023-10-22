@@ -51,7 +51,7 @@ from cimr.config import (
     parse_model_config
 )
 from cimr.data.utils import  get_reference_data
-from cimr.input_data import get_input
+from cimr.data import get_input
 from cimr.data.reference import ReferenceData
 from cimr.stems import get_stem_factory
 from cimr.blocks import (
@@ -171,6 +171,7 @@ class ParallelEncoder(nn.Module, ParamCount):
                 for ind, agg in enumerate(aggregators):
                     y[ind + offs] = agg(y[ind + offs], encs[ind])
         return y
+
 
 def compile_encoder(
         input_configs: List[InputConfig],

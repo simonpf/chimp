@@ -14,7 +14,8 @@ import numpy as np
 import torch
 from torch import nn
 
-from cimr.input_data import Input, get_input
+import cimr
+from cimr.data.input import Input, get_input
 from cimr.data.reference import ReferenceData
 from cimr.data.utils import get_reference_data
 
