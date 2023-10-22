@@ -10,16 +10,15 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import numpy as np
-from pansat.products.satellite.gpm import gpm_mergeir
-#from pansat.download.providers import Disc2Provider
-from pansat.time import to_datetime64
+from pansat.products.satellite.gpm import merged_ir
+from pansat.time import to_datetime64, TimeRange
 from pyresample import geometry, kd_tree, create_area_def
 import xarray as xr
 
 from cimr.utils import get_available_times, round_time
+from cimr.data import Input, MinMaxNormalized
 
 
-#PROVIDER = Disc2Provider(gpm_mergeir)
 CPCIR_GRID = create_area_def(
     "cpcir_area",
     {"proj": "longlat", "datum": "WGS84"},
@@ -102,96 +101,110 @@ def save_cpcir_data(data, output_folder, time_step):
     data.to_netcdf(output_folder / filename)
 
 
-def process_day(
-        domain,
-        year,
-        month,
-        day,
-        output_folder,
-        path=None,
-        time_step=timedelta(minutes=15),
-        conditional=None,
-        include_scan_time=False
-):
+class CPCIRData(Input, MinMaxNormalized):
     """
-    Extract CPCIR input observations for the CIMR retrieval.
-
-    Args:
-        domain: A domain dict specifying the area for which to
-            extract CPCIR input data.
-        year: The year.
-        month: The month.
-        day: The day.
-        output_folder: The root of the directory tree to which to write
-            the training data.
-        path: Not used, included for compatibility.
-        time_step: The time step between consecutive retrieval steps.
-        conditional: If provided, it should point to folder containing
-            samples from another datasource. In this case, CPCIR input
-            data will only be extracted for the times at which samples
-            of the other dataset are available.
-        include_scan_time: Ignored. Included for compatibility.
+    Represents input data derived from merged IR data.
     """
-    output_folder = Path(output_folder) / "cpcir"
-    if not output_folder.exists():
-        output_folder.mkdir(parents=True, exist_ok=True)
+    def __init__(
+            self,
+            name: str,
+            scale: int,
+    ):
+        MinMaxNormalized.__init__(self, name)
+        Input.__init__(self, name, scale, "tbs", n_dim=2)
+        self.scale = scale
 
-    existing_files = [
-        f.name for f in output_folder.glob(f"cpcir_{year}{month:02}{day:02}*.nc")
-    ]
 
-    start_time = datetime(year, month, day)
-    end_time = datetime(year, month, day) + timedelta(hours=23, minutes=59)
+    def process_day(
+            self,
+            domain: dict,
+            year: int,
+            month: int,
+            day: int,
+            output_folder: Path,
+            path=None,
+            time_step=timedelta(minutes=15),
+            conditional=None,
+            include_scan_time=False
+    ):
+        """
+        Extract CPCIR input observations for the CIMR retrieval.
 
-    with TemporaryDirectory() as tmp:
-        if conditional is not None:
-            available_times = get_available_times(conditional)
-            for time in available_times:
-                start_time = time - timedelta(minutes=30)
-                end_time = time - timedelta(minutes=30)
+        Args:
+            domain: A domain dict specifying the area for which to
+                extract CPCIR input data.
+            year: The year.
+            month: The month.
+            day: The day.
+            output_folder: The root of the directory tree to which to write
+                the training data.
+            path: Not used, included for compatibility.
+            time_step: The time step between consecutive retrieval steps.
+            conditional: If provided, it should point to folder containing
+                samples from another datasource. In this case, CPCIR input
+                data will only be extracted for the times at which samples
+                of the other dataset are available.
+            include_scan_time: Ignored. Included for compatibility.
+        """
+        output_folder = Path(output_folder) / "cpcir"
+        if not output_folder.exists():
+            output_folder.mkdir(parents=True, exist_ok=True)
 
-                files = PROVIDER.get_files_in_range(start_time, end_time)
-                local_files = []
-                for cpcir_file in files:
-                    local_file = Path(tmp) / cpcir_file
-                    if not local_file.exists():
-                        PROVIDER.download_file(cpcir_file, local_file)
-                    local_files.append(local_file)
+        existing_files = [
+            f.name for f in output_folder.glob(f"cpcir_{year}{month:02}{day:02}*.nc")
+        ]
 
-                cpcir_data = xr.open_mfdataset(local_files)
-                cpcir_data = cpcir_data.interp(time=to_datetime64(time))
-                tbs_r = resample_data(domain, cpcir_data.compute())
-                save_cpcir_data(
-                    cpcir_data,
-                    output_folder,
-                    time_step=time_step.minutes
-                )
-        else:
-            time = start_time
-            while time < end_time:
-                output_filename = get_output_filename(to_datetime64(time))
-                if not (output_folder / output_filename).exists():
-                    files = PROVIDER.get_files_in_range(
-                        time,
-                        time + timedelta(hours=1),
-                        start_inclusive=True
-                    )
+        start_time = datetime(year, month, day)
+        end_time = datetime(year, month, day) + timedelta(hours=23, minutes=59)
+        time_range = TimeRange(start_time, end_time)
 
-                    local_paths = []
-                    for filename in files:
-                        local_path = Path(tmp) / filename
-                        if not local_path.exists():
-                            PROVIDER.download_file(filename, local_path)
-                        local_paths.append(local_path)
+        with TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            if conditional is not None:
+                available_times = get_available_times(conditional)
+                for time in available_times:
+                    start_time = time - timedelta(minutes=30)
+                    end_time = time - timedelta(minutes=30)
 
-                    cpcir_data = xr.open_mfdataset(
-                        local_paths,
-                    )
+                    files = mered_ir.fi(start_time, end_time)
+                    local_files = []
+                    for rec in files:
+                        local_file = Path(tmp) / rec.filename
+                        if not local_file.exists():
+                            rec = rec.download(destination=tmp)
+                        local_files.append(rec.local_path)
+
+                    cpcir_data = xr.open_mfdataset(local_files)
                     cpcir_data = cpcir_data.interp(time=to_datetime64(time))
                     tbs_r = resample_data(domain, cpcir_data.compute())
                     save_cpcir_data(
-                        tbs_r,
+                        cpcir_data,
                         output_folder,
-                        time_step=time_step.seconds // 60
+                        time_step=time_step.minutes
                     )
-                time = time + time_step
+            else:
+                time = start_time
+                while time < end_time:
+                    output_filename = get_output_filename(to_datetime64(time))
+                    if not (output_folder / output_filename).exists():
+                        files = merged_ir.find_files(time_range)
+                        local_paths = []
+                        for rec in files:
+                            local_path = tmp / rec.filename
+                            if not local_path.exists():
+                                rec = rec.download(destination=tmp)
+                            local_paths.append(local_path)
+
+                        cpcir_data = xr.open_mfdataset(
+                            local_paths,
+                        )
+                        cpcir_data = cpcir_data.interp(time=to_datetime64(time))
+                        tbs_r = resample_data(domain, cpcir_data.compute())
+                        save_cpcir_data(
+                            tbs_r,
+                            output_folder,
+                            time_step=time_step.seconds // 60
+                        )
+                    time = time + time_step
+
+cpcir = CPCIRData("cpcir", 4)

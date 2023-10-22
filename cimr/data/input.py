@@ -319,26 +319,4 @@ class Input(InputBase, MinMaxNormalized):
         return x_s
 
 
-
-
-MHS = Input("mhs", 16, "tbs")
-
-
-MEANS_ATMS = np.array([
-    238.66225432, 231.23515187, 254.60181577, 268.60674832,
-    266.81132495, 263.05214856, 258.46545914, 251.43006749,
-    244.87598689
-])
-ATMS = Input("atms", 16, "tbs")
-
-SSMIS = Input("ssmis", 8, "tbs")
-
-AMSR2 = Input("amsr2", 8, "tbs")
-
-CPCIR = Input("cpcir", 4, "tbs")
-
-###############################################################################
-# GOES
-###############################################################################
-
 GOES = Input("goes", 4, [f"geo_{ind:02}" for ind in range(1, 12)])

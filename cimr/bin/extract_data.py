@@ -36,10 +36,10 @@ def add_parser(subparsers):
         ),
     )
     parser.add_argument(
-        "sensor",
-        metavar="sensor",
+        "input",
+        metavar="input",
         type=str,
-        help="The name of the sensor from which to extract the training data.",
+        help="The name of the input data to extract.",
     )
     parser.add_argument(
         "year",
@@ -119,18 +119,15 @@ def run(args):
     Args:
         args: The namespace object provided by the top-level parser.
     """
+    from cimr.data.input import get_input
+    import cimr.data.gpm
+    import cimr.data.cpcir
 
     #
     # Check and load inputs.
     #
 
-    module_name = f"cimr.data.{args.sensor.lower()}"
-    module = importlib.import_module(module_name)
-    try:
-        module = importlib.import_module(module_name)
-    except ModuleNotFoundError:
-        LOGGER.error("Sensor '%s' currently not supported.")
-        return 1
+    inpt = get_input(args.input.lower())
 
     year = args.year
     month = args.month
@@ -194,7 +191,9 @@ def run(args):
         }
         if conditional is not None:
             kwargs["conditional"] = conditional
-        tasks.append(pool.submit(module.process_day, *args, **kwargs))
+        tasks.append(pool.submit(inpt.process_day, *args, **kwargs))
+
+    failed_days = []
 
     for task, day in zip(tasks, days):
         try:
@@ -205,3 +204,10 @@ def run(args):
                 f"{year}-{month:02}-{day:02}",
                 type(e),
                 e)
+            failed_days.append((year, month, day))
+
+
+    # Write failed days to file
+    with open(output / f".{inpt.name}_failed.txt", "w") as failed:
+        for year, month, day in failed_days:
+            failed.write(f"{year} {month} {day}")
