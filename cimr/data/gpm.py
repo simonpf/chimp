@@ -28,7 +28,7 @@ from pansat.products.satellite.gpm import (
     l1c_f16_ssmis,
     l1c_f17_ssmis,
     l1c_f18_ssmis,
-    l1c_gcomw1_amsr2
+    l1c_gcomw1_amsr2,
 )
 from pyresample import AreaDefinition
 
@@ -40,11 +40,11 @@ import xarray as xr
 
 
 def save_gpm_scene(
-        name: str,
-        time: np.datetime64,
-        scene: xr.Dataset,
-        output_folder: Path,
-        time_step: np.timedelta64
+    name: str,
+    time: np.datetime64,
+    scene: xr.Dataset,
+    output_folder: Path,
+    time_step: np.timedelta64,
 ):
     """
     Save training data scene.
@@ -77,12 +77,12 @@ def save_gpm_scene(
         "dtype": "uint16",
         "scale_factor": 0.01,
         "zlib": True,
-        "_FillValue": 2 ** 16 - 1
+        "_FillValue": 2**16 - 1,
     }
     encoding = {
         "tbs": comp,
         "swath_center_col_inds": {"dtype": "int16"},
-        "swath_center_row_inds": {"dtype": "int16"}
+        "swath_center_row_inds": {"dtype": "int16"},
     }
 
     if output_filename.exists():
@@ -97,15 +97,15 @@ def save_gpm_scene(
 
 
 def process_overpass(
-        name: str,
-        domain : AreaDefinition,
-        scene: xr.Dataset,
-        n_swaths: int,
-        radius_of_influence: float,
-        output_folder : Path,
-        time_step : timedelta,
-        include_scan_time: bool = False,
-        min_valid: int = 100
+    name: str,
+    domain: AreaDefinition,
+    scene: xr.Dataset,
+    n_swaths: int,
+    radius_of_influence: float,
+    output_folder: Path,
+    time_step: timedelta,
+    include_scan_time: bool = False,
+    min_valid: int = 100,
 ) -> None:
     """
     Resample TBs in overpass to domain and save data.
@@ -128,7 +128,7 @@ def process_overpass(
         scene,
         radius_of_influence=radius_of_influence,
         include_scan_time=include_scan_time,
-        n_swaths=n_swaths
+        n_swaths=n_swaths,
     )
     time = scene.scan_time.mean().data.item()
     tbs_r.attrs = scene.attrs
@@ -141,17 +141,18 @@ def process_overpass(
 
 class GPML1CData(Input, MinMaxNormalized):
     """
-    Represents all input data dervied from GPM L1C products.
+    Represents all input data derived from GPM L1C products.
     """
+
     def __init__(
-            self,
-            name: str,
-            scale: int,
-            products: List[pansat.Product],
-            n_swaths: int,
-            radius_of_influence,
-            mean: Optional[np.array] = None,
-            n_dim: int = 2
+        self,
+        name: str,
+        scale: int,
+        products: List[pansat.Product],
+        n_swaths: int,
+        radius_of_influence,
+        mean: Optional[np.array] = None,
+        n_dim: int = 2,
     ):
         """
         Args:
@@ -166,7 +167,6 @@ class GPML1CData(Input, MinMaxNormalized):
         self.n_swaths = n_swaths
         self.radius_of_influence = radius_of_influence
 
-
     def process_day(
         self,
         domain: dict,
@@ -176,7 +176,7 @@ class GPML1CData(Input, MinMaxNormalized):
         output_folder: Path,
         path: Path = Optional[None],
         time_step: timedelta = timedelta(minutes=15),
-        include_scan_time=False
+        include_scan_time=False,
     ):
         """
         Extract GMI input observations for the CIMR retrieval.
@@ -203,10 +203,7 @@ class GPML1CData(Input, MinMaxNormalized):
         time_range = TimeRange(start_time, end_time)
 
         for product in self.products:
-            product_files = product.find_files(
-                time_range,
-                roi=domain["roi_poly"]
-            )
+            product_files = product.find_files(time_range, roi=domain["roi_poly"])
 
             with TemporaryDirectory() as tmp:
                 tmp = Path(tmp)
@@ -227,8 +224,9 @@ class GPML1CData(Input, MinMaxNormalized):
                             output_folder,
                             time_step,
                             include_scan_time,
-                            min_valid= 1_000 / np.sqrt(self.scale)
+                            min_valid=1_000 / np.sqrt(self.scale),
                         )
+
 
 GMI = GPML1CData("gmi", 4, [l1c_gpm_gmi], 2, 15e3)
 ATMS = GPML1CData("atms", 16, [l1c_noaa20_atms, l1c_npp_atms], 4, 64e3)
