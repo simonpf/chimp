@@ -14,6 +14,7 @@ from quantnn.quantiles import (
     probability_larger_than
 )
 from quantnn.models.pytorch.lightning import to_device
+from quantnn.mrnn import Quantiles, Density, MSE, Classification
 import torch
 from torch import nn
 import xarray as xr
@@ -78,7 +79,7 @@ def retrieval_step(
         state,
         tile_size=256,
         device="cuda",
-        float_type=torch.float16
+        float_type=torch.float32
 ):
     """
     Run retrieval on given input.
@@ -102,13 +103,14 @@ def retrieval_step(
     output_names = list(model.losses.keys())
 
     model.model.eval()
+    model.model.to(device=device, dtype=float_type)
 
     def predict_fun(x_t):
 
         results = {}
 
         x_t = {
-            name: tensor.to(dtype=float_type) for name, tensor in x_t.items()
+            name: tensor.to(device=device, dtype=float_type) for name, tensor in x_t.items()
         }
 
         with torch.no_grad():
@@ -125,30 +127,45 @@ def retrieval_step(
 
                     loss = model.losses[key]
 
-                    y_mean_k = loss.posterior_mean(y_pred=y_pred_k)
-                    p_non_zero = y_mean_k
-                    if hasattr(loss, "probability_larger_than"):
-                        p_non_zero = loss.probability_larger_than(
-                            y_pred_k,
-                            1e-2,
+                    if isinstance(loss, (Quantiles, Density, MSE)):
+
+                        y_mean_k = loss.posterior_mean(y_pred=y_pred_k)
+                        p_non_zero = y_mean_k
+                        if hasattr(loss, "probability_larger_than"):
+                            p_non_zero = loss.probability_larger_than(
+                                y_pred_k,
+                                1e-2,
+                            )
+
+                        p_heavy = y_mean_k
+                        if hasattr(loss, "probability_larger_than"):
+                            p_heavy = loss.probability_larger_than(
+                                y_pred_k,
+                                1e1,
+                            )
+
+                        results[key + "_mean"] = (
+                            y_mean_k.float().cpu().numpy()[0]
+                        )
+                        results["p_" + key + "_non_zero"] = (
+                            p_non_zero.float().cpu().numpy()[0]
+                        )
+                        results["p_" + key + "_heavy"] = (
+                            p_heavy.float().cpu().numpy()[0]
                         )
 
-                    p_heavy = y_mean_k
-                    if hasattr(loss, "probability_larger_than"):
-                        p_heavy = loss.probability_larger_than(
-                            y_pred_k,
-                            1e1,
-                        )
+                    elif isinstance(loss, Classification):
 
-                    results[key + "_mean"] = y_mean_k.float().cpu().numpy()[0]
-                    results["p_" + key + "_non_zero"] = p_non_zero.float().cpu().numpy()[0]
-                    results["p_" + key + "_heavy"] = p_heavy.float().cpu().numpy()[0]
+                        classes = loss.predict(y_pred_k)
+                        results[key + "_prob"] = classes.cpu().numpy()[0]
+
 
             return results
 
+    dims = ("classes", "y", "x")
     results = tiler.predict(predict_fun)
     results = xr.Dataset({
-        key: (("y", "x"), value) for key, value in results.items()
+        key: (dims[-value.ndim:], value) for key, value in results.items()
     })
     return results
 
