@@ -15,7 +15,7 @@ from conftest import (
 
 from cimr import models
 from cimr.config import TrainingConfig
-from cimr.data import input, reference
+from cimr.data import get_input, reference
 from cimr.data.training_data import CIMRDataset
 from cimr.models import compile_mrnn
 from cimr.training import (
@@ -45,7 +45,7 @@ def test_training(
     model_config = models.load_config("gremlin")
     model_config.input_configs = [
         models.InputConfig(
-            input.CPCIR,
+            get_input("cpcir"),
             stem_depth=1,
             stem_kernel_size=3,
             stem_downsampling=1
@@ -142,6 +142,121 @@ def test_training(
         ckpt_path=ckpt_path
     )
 
+
+def test_training_multi_input(
+        tmp_path,
+        mrms_surface_precip_data,
+        cpcir_data
+):
+    """
+    Tests training over multiple epochs and the termination when
+    the learning rates falls below the minimum LR.
+    """
+    model_config = models.load_config("gremlin")
+    model_config.input_configs = [
+        models.InputConfig(
+            get_input("cpcir"),
+            stem_depth=1,
+            stem_kernel_size=3,
+            stem_downsampling=1
+        ),
+        models.InputConfig(
+            get_input("gmi"),
+            stem_depth=1,
+            stem_kernel_size=3,
+            stem_downsampling=1
+        ),
+    ]
+    model_config.output_configs = [
+        models.OutputConfig(
+            reference.MRMS,
+            "surface_precip",
+            "mse",
+            quantiles=np.linspace(0, 1, 34)[1:-1]
+        ),
+    ]
+
+    model = models.compile_model(model_config)
+
+    acc = "cuda" if torch.cuda.is_available() else "cpu"
+    prec = "16" if torch.cuda.is_available() else "16"
+    sample_rate = 4 if torch.cuda.is_available() else 1
+
+    training_configs = [
+        TrainingConfig(
+            "Stage 1",
+            4,
+            "SGD",
+            {"lr": 1e-4},
+            scheduler = "ReduceLROnPlateau",
+            scheduler_kwargs = {"patience": 1, "min_lr": 1e-3},
+            minimum_lr = 1e-2,
+            batch_size=1,
+            sample_rate=sample_rate,
+            accelerator=acc,
+            precision=prec,
+            data_loader_workers=1,
+        ),
+        TrainingConfig(
+            "Stage 2",
+            4,
+            "SGD",
+            {"lr": 1e-2},
+            scheduler="CosineAnnealingLR",
+            scheduler_kwargs={
+                "T_max": 4,
+                "verbose": True
+            },
+            minimum_lr=1e-4,
+            batch_size=1,
+            sample_rate=sample_rate,
+            accelerator=acc,
+            precision=prec,
+            data_loader_workers=1,
+        ),
+        TrainingConfig(
+            "Stage 2",
+            4,
+            "SGD",
+            {"lr": 1e-2},
+            scheduler="CosineAnnealingLR",
+            scheduler_kwargs={
+                "T_max": 4,
+                "verbose": True
+            },
+            minimum_lr=1e-4,
+            batch_size=1,
+            sample_rate=sample_rate,
+            reuse_optimizer=True,
+            accelerator=acc,
+            precision=prec,
+            data_loader_workers=1,
+        )
+    ]
+
+    mrnn = compile_mrnn(model_config)
+
+
+    train(
+        "test_model",
+        mrnn,
+        training_configs,
+        cpcir_data,
+        cpcir_data,
+        tmp_path,
+    )
+
+    ckpt_path = find_most_recent_checkpoint(tmp_path, "test_model")
+
+    train(
+        "test_model",
+        mrnn,
+        training_configs,
+        tmp_path,
+        tmp_path,
+        tmp_path,
+        ckpt_path=ckpt_path
+    )
 
 def test_find_most_recent_checkpoint(tmp_path):
     """

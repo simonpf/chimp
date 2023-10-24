@@ -551,7 +551,7 @@ class CIMRDataset:
                 rotate=rotate,
                 flip=flip
             )
-            x[inpt.name] = torch.tensor(x_s)
+            x[inpt.name] = torch.tensor(x_s) if x_s is not None else x_s
 
         return x, y
 

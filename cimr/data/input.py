@@ -13,7 +13,8 @@ from quantnn.normalizer import Normalizer, MinMaxNormalizer
 from scipy import ndimage
 import xarray as xr
 
-from cimr.input_data.utils import scale_slices
+from cimr.data.utils import scale_slices, generate_input
+
 
 def find_random_scene(
         path,
@@ -177,7 +178,7 @@ class MinMaxNormalized:
                 raise RuntimeError(
                     f"Could not find the stats file {stats_file}."
                 )
-            stats = np.loadtxt(stats_file, skiprows=1)
+            stats = np.loadtxt(stats_file, skiprows=1).reshape(-1, 2)
             norm = MinMaxNormalizer(
                 np.ones((stats.shape[0], 1, 1)),
                 feature_axis=0
@@ -266,7 +267,8 @@ class Input(InputBase, MinMaxNormalized):
                 rng,
                 self.mean
             )
-            if normalize:
+            # TODO: Handle normalization more elegantly.
+            if x_s is not None and normalize:
                 x_s = self.normalizer(x_s)
             return x_s
 
