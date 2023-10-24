@@ -32,4 +32,5 @@ dependencies:
   - pytorch-cuda=12.1
   - lightning
   - protobuf
+  - geopandas
 prefix: /home/simonpf/miniconda3/envs/cimr
