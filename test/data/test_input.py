@@ -9,3 +9,6 @@ def test_min_max_normalized():
 
     normed = MinMaxNormalized("mhs")
     normalizer = normed.normalizer
+
+    normed = MinMaxNormalized("cpcir")
+    normalizer = normed.normalizer

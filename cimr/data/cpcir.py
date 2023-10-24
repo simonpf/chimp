@@ -16,7 +16,7 @@ from pyresample import geometry, kd_tree, create_area_def
 import xarray as xr
 
 from cimr.utils import get_available_times, round_time
-from cimr.data import Input, MinMaxNormalized
+from cimr.data.input import Input, MinMaxNormalized
 
 
 CPCIR_GRID = create_area_def(

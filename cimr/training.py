@@ -283,6 +283,7 @@ def train(
 
 
     for stage_ind, training_config in enumerate(training_configs):
+
         if stage_ind < lightning_module.stage:
             continue
 

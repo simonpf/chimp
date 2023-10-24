@@ -115,6 +115,7 @@ class InputBase:
         Raises:
             ValueError if there is no input with the given name
         """
+        name = name.lower()
         if not name in cls.ALL_INPUTS:
             raise ValueError(
                 f"Input '{name}' is not a known input. Currently known inputs "
@@ -207,7 +208,8 @@ class Input(InputBase, MinMaxNormalized):
             scale: int,
             variables: Union[str, List[str]],
             mean: Optional[np.array] = None,
-            n_dim: int = 2
+            n_dim: int = 2,
+            spatial_dims: Tuple[str, str] = ("y", "x")
     ):
         InputBase.__init__(self, name)
         MinMaxNormalized.__init__(self, name)
@@ -217,10 +219,42 @@ class Input(InputBase, MinMaxNormalized):
         self.variables = variables
         self.mean = mean
         self.n_dim = n_dim
+        self.spatial_dims = spatial_dims[:self.n_dim]
 
     @property
     def n_channels(self):
         return len(self.normalizer.stats)
+
+
+    def generate_missing_input(
+            self,
+            crop_size: int,
+            missing_input_policy: str,
+            rng: np.random.Generator
+    ):
+        """
+        Generates synthetic input to replace missing input.
+
+        Args:
+            crop_size: The size of the input to generate.
+            missing_input_policy: String describing how to generate the
+                missing input.
+            rng: A numpy random generator to use to generate random values.
+
+        Return:
+            A numpy array containing a surrogate input sample.
+        """
+        x_s = generate_input(
+            self.n_channels,
+            crop_size,
+            missing_input_policy,
+            rng,
+            self.mean
+        )
+        # TODO: Handle normalization more elegantly.
+        if x_s is not None and normalize:
+            x_s = self.normalizer(x_s)
+        return x_s
 
     def load_sample(
             self,
@@ -253,38 +287,41 @@ class Input(InputBase, MinMaxNormalized):
                 last dimensions.
             normalizer: Whether or not the inputs should be normalized.
         """
-        rel_scale = base_scale / self.scale
+        rel_scale = self.scale / base_scale
 
         if isinstance(crop_size, int):
             crop_size = (crop_size,) * self.n_dims
         crop_size = tuple((int(size / rel_scale) for size in crop_size))
 
         if input_file is None:
-            x_s = generate_input(
-                self.n_channels,
+            return self.generate_missing_input(
                 crop_size,
                 missing_input_policy,
-                rng,
-                self.mean
+                rng
             )
-            # TODO: Handle normalization more elegantly.
-            if x_s is not None and normalize:
-                x_s = self.normalizer(x_s)
-            return x_s
 
-        row_slice, col_slice = scale_slices(slices, rel_scale)
-
-
+        slices = scale_slices(slices, rel_scale)
         with xr.open_dataset(input_file) as data:
             vars = self.variables
             if isinstance(vars, str):
-                x_s = data[vars][..., row_slice, col_slice].data
+                x_s = data[vars][dict(zip(self.spatial_dims, slices))]
+                x_s = x_s.transpose(*(("channels",) + self.spatial_dims))
+                x_s = x_s.data
                 # Expand dims in case of single-channel inputs.
                 if x_s.ndim < 3:
                     x_s = x_s[None]
             else:
                 x_s = np.stack(
                     [data[vrbl][row_slice, col_slice].data for vrbl in vars]
+                )
+
+            # If we have less than 5% of valid inputs, we generate surrogate
+            # input.
+            if np.any(np.isfinite(x_s), 0).mean() < 0.05:
+                return self.generate_missing_input(
+                    crop_size,
+                    missing_input_policy,
+                    rng
                 )
 
             # Apply augmentations

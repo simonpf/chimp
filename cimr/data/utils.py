@@ -133,14 +133,14 @@ def scale_slices(
         A tuple contining the slices scaled to match the relative scale of
         the input data.
     """
+    if slices is None:
+        return (slice(0, None), slice(0, None))
+
     if len(slices) == 4:
         slices = (
             slice(slices[0], slices[1]),
             slice(slices[2], slices[3])
         )
-
-    if slices is None:
-        return (slice(0, None), slice(0, None))
 
     if rel_scale == 1:
         return slices

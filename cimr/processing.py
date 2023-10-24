@@ -109,10 +109,6 @@ def retrieval_step(
 
         results = {}
 
-        x_t = {
-            name: tensor.to(device=device, dtype=float_type) for name, tensor in x_t.items()
-        }
-
         with torch.no_grad():
             with torch.autocast(device_type=device, dtype=float_type):
                 y_pred = model.model(x_t)
@@ -162,8 +158,13 @@ def retrieval_step(
 
             return results
 
+<<<<<<< HEAD
     dims = ("classes", "y", "x")
     results = tiler.predict(predict_fun)
+=======
+    with torch.autocast(device_type=device, dtype=float_type):
+        results = tiler.predict(predict_fun)
+>>>>>>> fa0e6d1 (Cleaning up after input refactoring.)
     results = xr.Dataset({
         key: (dims[-value.ndim:], value) for key, value in results.items()
     })

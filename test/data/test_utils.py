@@ -1,6 +1,6 @@
 import numpy as np
 
-from cimr.input_data.utils import (
+from cimr.data.utils import (
     generate_input,
     scale_slices
 )

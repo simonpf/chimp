@@ -5,14 +5,14 @@ import torch
 
 from cimr.stems import get_stem_factory
 from cimr.config import InputConfig
-from cimr.data import inputs
+from cimr.data import get_input
 
 def test_basic_config():
     """
     Tests a basic convolution stem with factor-two downsampling.
     """
     config = InputConfig(
-        inputs.GMI,
+        get_input("gmi"),
         stem_type="basic",
         stem_depth=1,
         stem_kernel_size=7,

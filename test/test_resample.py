@@ -8,8 +8,8 @@ import xarray as xr
 from cimr.areas import CONUS_4
 from cimr.data.resample import resample_swath_center, resample_tbs
 from cimr.areas import NORDICS
-from cimr.data.gmi import (
-    l1c_gpm_gmi_r,
+from cimr.data.gpm import (
+    l1c_gpm_gmi,
 )
 
 data_path = Path(__file__).parent / "data"
@@ -55,7 +55,7 @@ def test_resample_gmi_tbs():
     Test resampling of GMI TBS.
     """
     domain = NORDICS
-    product = l1c_gpm_gmi_r
+    product = l1c_gpm_gmi
     data = product.open(data_path / "obs" / gmi_file)
     tbs_r = resample_tbs(
         domain[8],

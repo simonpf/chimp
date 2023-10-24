@@ -6,7 +6,7 @@ import pytest
 import xarray as xr
 
 from cimr.bin.calculate_statistics import process_files
-from cimr.data import inputs
+from cimr.data import get_input
 
 
 @pytest.fixture
@@ -29,7 +29,7 @@ def input_files(tmp_path):
 
 def test_input_data_statistics(tmp_path, input_files):
 
-    stats = process_files(inputs.GMI, input_files, 2)
+    stats = process_files(get_input("GMI"), input_files, 2)
     stats.to_netcdf(tmp_path)
     stats = xr.load_dataset(tmp_path / "input_statistics.nc")
 
