@@ -302,10 +302,12 @@ def train(
             validation_data_path
         )
 
-        if training_config.accelerator in ["cuda", "gpu"]:
-            devices = -1
-        else:
-            devices = 1
+        devices = training_config.devices
+        if devices is None:
+            if training_config.accelerator in ["cuda", "gpu"]:
+                devices = -1
+            else:
+                devices = 1
         lightning_module.stage_name = training_config.name
 
         trainer = pl.Trainer(
@@ -318,7 +320,7 @@ def train(
             callbacks=stage_callbacks,
             num_sanity_val_steps=0,
             strategy=pl.strategies.DDPStrategy(find_unused_parameters=True),
-            enable_progress_bar=False,
+            enable_progress_bar=True,
         )
         trainer.fit(
             model=lightning_module,

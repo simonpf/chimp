@@ -474,6 +474,56 @@ class TrainingConfig:
     minimum_lr: Optional[float] = None
     reuse_optimizer: bool = False
     stepwise_scheduling: bool = False
+    devices: Optional[List[int]] = None
+
+def __init__(
+        self,
+        name: str,
+        n_epochs: int,
+        optimizer: str,
+        optimizer_kwargs: Optional[dict] = None,
+        scheduler: str = None,
+        scheduler_kwargs: Optional[dict] = None,
+        precision: str = "16-mixed",
+        batch_size: int = 8,
+        input_size: int = 256,
+        accelerator: str = "cuda",
+        sequence_length: Optional[int] = 1,
+        forecast: Optional[int] = 0,
+        quality_threshold: float = 0.8,
+        pretraining: bool = False,
+        sample_rate: int = 1,
+        gradient_clipping: Optional[float] = None,
+        data_loader_workers: int = 4,
+        minimum_lr: Optional[float] = None,
+        reuse_optimizer: bool = False,
+        stepwise_scheduling: bool = False,
+        devices: Optional[List[int]] = None,
+):
+    self.name = name
+    self.n_epochs = n_epochs
+    self.optimizer = optimizer
+    self.optimizer_kwargs = optimizer_kwargs
+    self.scheduler = scheduler
+    self.scheduler_kwargs = scheduler_kwargs
+    self.precision = precision
+    self.batch_size = batch_size
+    self.input_size = input_size
+    self.accelerator = accelerator
+    self.sequence_length = sequence_length
+    self.forecast = forecast
+    self.quality_threshold = quality_threshold
+    self.pretraining = pretraining
+    self.sample_rate = sample_rate
+    self.gradient_clipping = gradient_clipping
+    self.data_loader_workers = data_loader_workers
+    self.minimum_lr = minimum_lr
+    self.reuse_optimizer = reuse_optimizer
+    self.stepwise_scheduling = stepwise_scheduling
+
+    if devices is None:
+        devices = [0]
+    self.devices = devices
 
 
 def parse_training_config(path: Union[str, Path]):
@@ -508,6 +558,8 @@ def parse_training_config(path: Union[str, Path]):
         minimum_lr = sec.getfloat("minimum_lr", None)
         reuse_optimizer = sec.getboolean("reuse_optimizer", False)
         stepwise_scheduling = sec.getboolean("stepwise_scheduling", False)
+        accelerator = sec.get("accelerator", "cuda")
+        devices = _parse_list(sec.get("devices", "0"))
 
         training_configs.append(
             TrainingConfig(
@@ -524,6 +576,8 @@ def parse_training_config(path: Union[str, Path]):
                 minimum_lr=minimum_lr,
                 reuse_optimizer=reuse_optimizer,
                 stepwise_scheduling=stepwise_scheduling,
+                accelerator=accelerator,
+                devices=devices
             )
         )
 

@@ -235,14 +235,14 @@ def process(model, dataset, output_path, n_processes=8):
         total_time += end - start
         n_iters += 1
 
-        targets = ["surface_precip"]
 
-        for target in targets:
-            ref = y[target].copy()
-            invalid = ~(ref > -100)
-            ref[invalid] = np.nan
+        for target in y.keys():
+            ref = y[target].numpy().copy()
+
+            if np.issubdtype(ref.dtype, np.floating):
+                invalid = ~(ref > -100)
+                ref[invalid] = np.nan
             results[target + "_ref"] = (("y", "x"), ref)
-
 
         task = (pool.submit(
             calculate_metrics,
