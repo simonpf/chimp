@@ -53,13 +53,16 @@ from cimr.config import (
 from cimr.data.utils import  get_reference_data
 from cimr.data import get_input
 from cimr.data.reference import ReferenceData
-from cimr.stems import get_stem_factory
-from cimr.blocks import (
+from cimr.models.stems import get_stem_factory
+from cimr.models.blocks import (
     get_block_factory,
     get_stage_factory,
     get_downsampler_factory,
     get_upsampler_factory
 )
+
+from cimr.models.encoders import SingleScaleParallelEncoder
+
 
 LOGGER = logging.getLogger(__name__)
 
@@ -246,7 +249,16 @@ def compile_encoder(
         )
 
 
+    return SingleScaleParallelEncoder(
+        input_configs,
+        encoder_config
+    )
     if encoder_config.combined:
+        if not encoder_config.multi_scale:
+            SingleScaleParallelEncoder(
+                model
+            )
+
         encoder = MultiInputSpatialEncoder(
             inputs=inputs,
             channels=channels,
@@ -313,7 +325,6 @@ def compile_decoder(
     for f_up in upsampling_factors:
         base_scale *= f_up
 
-
     min_input_scale = min(input_scales)
     scale = base_scale
     scales = []
@@ -351,7 +362,6 @@ def compile_decoder(
 
     skip_connections = decoder_config.skip_connections
     if skip_connections > 0:
-        base_scale = len(encoder_config.channels) - 1
         decoder = SparseSpatialDecoder(
             channels=channels,
             stages=stage_depths,
@@ -484,7 +494,7 @@ def load_config(name):
         A ModelConfig object representing the loaded and parsed
         model configuration.
     """
-    path = Path(__file__).parent / "model_configs" / name
+    path = Path(__file__).parent / "configs" / name
     if path.suffix == "":
         path = path.with_suffix(".ini")
     return parse_model_config(path)
@@ -552,12 +562,23 @@ class CIMRModel(nn.Module):
 
 
     def forward(self, x):
-        y = self.encoder(x, return_skips=self.skip_connections)
-        y = self.decoder(y)
-        y = {key: forward(head, y) for key, head in self.heads.items()}
 
-        return y
+        outputs = {}
 
+        encodings = self.encoder(x, return_skips=self.skip_connections)
+        if isinstance(encodings, tuple):
+            encodings, weak_outputs = encodings
+        else:
+            weak_outputs = {}
+
+        y = self.decoder(encodings)
+
+        outputs = {key: forward(head, y) for key, head in self.heads.items()}
+        for name, enc in weak_outputs.items():
+            for key, head in self.heads.items():
+                outputs[name + "/" + key] = forward(head, self.decoder(enc))
+
+        return outputs
 
     @property
     def n_params(self):

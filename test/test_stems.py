@@ -3,7 +3,7 @@ Tests for the cimr.stems module
 """
 import torch
 
-from cimr.stems import get_stem_factory
+from cimr.models.stems import get_stem_factory
 from cimr.config import InputConfig
 from cimr.data import get_input
 

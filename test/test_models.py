@@ -21,7 +21,8 @@ from cimr.config import (
     DecoderConfig,
     ModelConfig
 )
-from cimr.data import input, reference
+from cimr.data import reference
+from cimr.data import get_input
 from cimr.models import (
     compile_encoder,
     compile_decoder,
@@ -50,19 +51,18 @@ def test_compile_encoder():
     """
     input_configs = [
         InputConfig(
-            input.GMI,
+            get_input("gmi"),
             stem_depth=2,
             stem_kernel_size=7,
             stem_downsampling=2
         ),
         InputConfig(
-            input.SSMIS,
+            get_input("ssmis"),
             stem_depth=2,
             stem_kernel_size=7,
             stem_downsampling=1
         )
     ]
-
     encoder_config = EncoderConfig(
         "convnet",
         channels=[16, 32, 64, 128],
@@ -77,7 +77,7 @@ def test_compile_encoder():
 
     x = {
         "gmi": torch.zeros(
-            (1, 13, 64, 64),
+            (1, 13, 128, 128),
             dtype=torch.float32
         ),
         "ssmis": torch.zeros(
@@ -88,7 +88,7 @@ def test_compile_encoder():
 
     y = encoder(x, return_skips=True)
     assert len(y) == 4
-    assert y[3].shape == (1, 128, 8, 8)
+    assert y[64].shape == (1, 128, 8, 8)
 
 
 def test_compile_parallel_encoder():
@@ -98,13 +98,13 @@ def test_compile_parallel_encoder():
     """
     input_configs = [
         InputConfig(
-            input.GMI,
+            get_input("gmi"),
             stem_depth=2,
             stem_kernel_size=7,
             stem_downsampling=2
         ),
         InputConfig(
-            input.SSMIS,
+            get_input("ssmis"),
             stem_depth=2,
             stem_kernel_size=7,
             stem_downsampling=1
@@ -125,33 +125,20 @@ def test_compile_parallel_encoder():
     )
 
     x = {
-        "gmi": sparse_collate([
-            torch.zeros((13, 64, 64), dtype=torch.float32),
-            None
-        ]),
-        "ssmis": sparse_collate([
-            None,
-            torch.zeros((11, 64, 64), dtype=torch.float32),
-        ])
+        "gmi": torch.zeros(
+            (1, 13, 128, 128),
+            dtype=torch.float32
+        ),
+        "ssmis": torch.zeros(
+            (1, 11, 64, 64),
+            dtype=torch.float32
+        )
     }
 
     y = encoder(x, return_skips=True)
     assert len(y) == 4
-    assert y[3].shape == (2, 128, 8, 8)
+    assert y[64].shape == (1, 128, 8, 8)
 
-    x = {
-        "gmi": sparse_collate([
-            None,
-            None
-        ]),
-        "ssmis": sparse_collate([
-            None,
-            None
-        ])
-    }
-
-    y = encoder(x, return_skips=True)
-    assert y is None
 
 
 def test_compile_decoder():
@@ -160,13 +147,13 @@ def test_compile_decoder():
     """
     input_configs = [
         InputConfig(
-            input.GMI,
+            get_input("gmi"),
             stem_depth=2,
             stem_kernel_size=7,
-            stem_downsampling=2
+            stem_downsampling=4
         ),
         InputConfig(
-            input.SSMIS,
+            get_input("ssmis"),
             stem_depth=2,
             stem_kernel_size=7,
             stem_downsampling=1
@@ -208,7 +195,7 @@ def test_compile_decoder():
 
     x = {
         "gmi": torch.zeros(
-            (1, 13, 64, 64),
+            (1, 13, 128, 128),
             dtype=torch.float32
         ),
         "ssmis": torch.zeros(
@@ -228,15 +215,27 @@ def test_compile_model():
     """
     input_configs = [
         InputConfig(
-            input.GMI,
+            get_input("cpcir"),
             stem_depth=2,
             stem_kernel_size=7,
-            stem_downsampling=2
+            stem_downsampling=1
         ),
         InputConfig(
-            input.SSMIS,
+            get_input("gmi"),
             stem_depth=2,
             stem_kernel_size=7,
+            stem_downsampling=1
+        ),
+        InputConfig(
+            get_input("ssmis"),
+            stem_depth=2,
+            stem_kernel_size=7,
+            stem_downsampling=1
+        ),
+        InputConfig(
+            get_input("atms"),
+            stem_depth=1,
+            stem_kernel_size=3,
             stem_downsampling=1
         )
     ]
@@ -254,13 +253,14 @@ def test_compile_model():
         channels=[16, 32, 64, 128],
         stage_depths=[2, 2, 4, 4],
         downsampling_factors=[2, 2, 2],
+        combined=True
     )
 
     decoder_config = DecoderConfig(
         "convnet",
-        channels=[64, 32, 16, 16],
-        stage_depths=[1, 1, 1, 1],
-        upsampling_factors=[2, 2, 2, 2],
+        channels=[64, 32, 16],
+        stage_depths=[1, 1, 1],
+        upsampling_factors=[2, 2, 2],
         skip_connections=4
     )
     model_config = ModelConfig(
@@ -274,12 +274,20 @@ def test_compile_model():
 
 
     x = {
+        "cpcir": torch.zeros(
+            (1, 1, 128, 128),
+            dtype=torch.float32
+        ),
         "gmi": torch.zeros(
-            (1, 13, 64, 64),
+            (1, 13, 128, 128),
             dtype=torch.float32
         ),
         "ssmis": torch.zeros(
             (1, 11, 64, 64),
+            dtype=torch.float32
+        ),
+        "atms": torch.zeros(
+            (1, 9, 32, 32),
             dtype=torch.float32
         )
     }
@@ -297,13 +305,13 @@ def test_compile_mrnn():
     """
     input_configs = [
         InputConfig(
-            input.GMI,
+            get_input("gmi"),
             stem_depth=2,
             stem_kernel_size=7,
             stem_downsampling=2
         ),
         InputConfig(
-            input.SSMIS,
+            get_input("ssmis"),
             stem_depth=2,
             stem_kernel_size=7,
             stem_downsampling=1
@@ -352,7 +360,7 @@ def test_load_config():
 
     config.input_configs = [
         InputConfig(
-            input.CPCIR,
+            get_input("cpcir"),
             stem_depth=1,
             stem_kernel_size=3,
             stem_downsampling=1
@@ -380,7 +388,7 @@ def test_gremlin():
 
     config.input_configs = [
         InputConfig(
-            input.CPCIR,
+            get_input("cpcir"),
             stem_depth=1,
             stem_kernel_size=3,
             stem_downsampling=1
@@ -414,7 +422,7 @@ def test_unet():
 
     config.input_configs = [
         InputConfig(
-            input.CPCIR,
+            get_input("cpcir"),
             stem_depth=1,
             stem_kernel_size=3,
             stem_downsampling=1
@@ -448,7 +456,7 @@ def test_resnet18():
 
     config.input_configs = [
         InputConfig(
-            input.CPCIR,
+            get_input("cpcir"),
             stem_depth=1,
             stem_kernel_size=3,
             stem_downsampling=1
@@ -481,7 +489,7 @@ def test_convnext18():
 
     config.input_configs = [
         InputConfig(
-            input.CPCIR,
+            get_input("cpcir"),
             stem_depth=1,
             stem_kernel_size=3,
             stem_downsampling=1
@@ -513,7 +521,7 @@ def test_resnext50():
     config = load_config("resnext_50")
     config.input_configs = [
         InputConfig(
-            input.CPCIR,
+            get_input("cpcir"),
             stem_type="resnext",
             stem_downsampling=2
         ),
@@ -544,7 +552,7 @@ def test_cresnext_s():
     config = load_config("cresnext_s")
     config.input_configs = [
         InputConfig(
-            input.CPCIR,
+            get_input("cpcir"),
             stem_type="basic",
             stem_downsampling=1
         ),
@@ -575,7 +583,7 @@ def test_dcresnext_s():
     config = load_config("dcresnext_s")
     config.input_configs = [
         InputConfig(
-            input.CPCIR,
+            get_input("cpcir"),
             stem_type="basic",
             stem_downsampling=1
         ),
@@ -606,7 +614,7 @@ def test_swin_t():
     config = load_config("swin_t")
     config.input_configs = [
         InputConfig(
-            input.CPCIR,
+            get_input("cpcir"),
             stem_type="swin",
             stem_downsampling=4
         ),
@@ -637,7 +645,7 @@ def test_swin_s():
     config = load_config("swin_s")
     config.input_configs = [
         InputConfig(
-            input.CPCIR,
+            get_input("cpcir"),
             stem_type="basic",
             stem_downsampling=1
         ),
@@ -667,7 +675,7 @@ def test_convnext_t():
     config = load_config("convnext_t")
     config.input_configs = [
         InputConfig(
-            input.CPCIR,
+            get_input("cpcir"),
             stem_type="convnext",
             stem_downsampling=4
         ),
@@ -697,7 +705,7 @@ def test_convnext_t():
     config = load_config("convnext_s")
     config.input_configs = [
         InputConfig(
-            input.CPCIR,
+            get_input("cpcir"),
             stem_type="basic",
             stem_downsampling=1
         ),
@@ -720,38 +728,6 @@ def test_convnext_t():
     assert y["surface_precip"].shape == (1, 256, 256)
 
 
-def test_dlax18():
-    """
-    Test the loading of the DLAX18 configuration.
-    """
-    config = load_config("dlax18")
-
-    config.input_configs = [
-        InputConfig(
-            input.CPCIR,
-            stem_depth=1,
-            stem_kernel_size=3,
-            stem_downsampling=1
-        ),
-    ]
-    config.output_configs = [
-        OutputConfig(
-            reference.MRMS,
-            "surface_precip",
-            "mse"
-        ),
-    ]
-
-    model = compile_model(config)
-
-    x = {
-        "cpcir": torch.ones(
-            (1, 1, 256, 256)
-        )
-    }
-    y = model(x)
-    assert y["surface_precip"].shape == (1, 256, 256)
-
 
 def test_swin_transformer():
     """
@@ -760,7 +736,7 @@ def test_swin_transformer():
     config = load_config("swin_t")
     config.input_configs = [
         InputConfig(
-            input.CPCIR,
+            get_input("cpcir"),
             stem_type="swin",
             stem_downsampling=4
         ),
@@ -791,7 +767,7 @@ def test_convnext_t():
     config = load_config("convnext_t")
     config.input_configs = [
         InputConfig(
-            input.CPCIR,
+            get_input("cpcir"),
             stem_type="convnext",
             stem_downsampling=4
         ),
@@ -821,7 +797,7 @@ def test_convnext_t():
     config = load_config("convnext_s")
     config.input_configs = [
         InputConfig(
-            input.CPCIR,
+            get_input("cpcir"),
             stem_type="basic",
             stem_downsampling=1
         ),
@@ -852,7 +828,7 @@ def test_dlax18():
 
     config.input_configs = [
         InputConfig(
-            input.CPCIR,
+            get_input("cpcir"),
             stem_depth=1,
             stem_kernel_size=3,
             stem_downsampling=1
