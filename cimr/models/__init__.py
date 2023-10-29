@@ -17,6 +17,7 @@ from quantnn.models.pytorch import aggregators
 from quantnn.models.pytorch.base import ParamCount
 import quantnn.transformations
 import quantnn.models.pytorch.torchvision as blocks
+from quantnn.masked_tensor import MaskedTensor
 from quantnn.models.pytorch.aggregators import (
     BlockAggregatorFactory,
     SparseAggregatorFactory
@@ -530,7 +531,8 @@ class Head(MLP):
             features_in,
             n_features,
             features_out,
-            n_layers
+            n_layers,
+            masked=True
         )
         self.shape = shape
         self.loss = loss
@@ -563,9 +565,17 @@ class CIMRModel(nn.Module):
 
     def forward(self, x):
 
+        x_m = {}
+        for key in x:
+            tensor = x[key]
+            mask = torch.isnan(tensor)
+            if mask.any():
+                tensor = MaskedTensor(tensor, mask=mask)
+            x_m[key] = tensor
+
         outputs = {}
 
-        encodings = self.encoder(x, return_skips=self.skip_connections)
+        encodings = self.encoder(x_m, return_skips=self.skip_connections)
         if isinstance(encodings, tuple):
             encodings, weak_outputs = encodings
         else:

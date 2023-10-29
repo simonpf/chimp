@@ -36,7 +36,8 @@ def get_block_factory(
         )
     elif name.lower() == "resnext":
         return ResNeXtBlockFactory(
-            **factory_kwargs
+            **factory_kwargs,
+            masked=True
         )
     elif name.lower() == "convnext":
         return ConvNextBlockFactory(
@@ -64,7 +65,8 @@ def get_downsampler_factory(
         return None
     elif name.lower() in ["max_pooling"]:
         return factories.MaxPooling(
-            **factory_kwargs
+            **factory_kwargs,
+            masked=True
         )
     elif name.lower() == "swin_transformer":
         return downsampling.PatchMergingFactory(
@@ -97,9 +99,10 @@ def get_upsampler_factory(
         factory_kwargs = {}
 
     if upsampling_type == "bilinear":
-        return upsampling.BilinearFactory()
+        factory_kwargs["mode"] = "bilinear"
+        return upsampling.UsampleFactory(masked=True, **factory_kwargs)
     elif upsampling_type == "upsample":
-        return upsampling.UpsampleFactory(**factory_kwargs)
+        return upsampling.UpsampleFactory(masked=True, **factory_kwargs)
     elif upsampling_type in ["upconv", "upconvolution"]:
         return upsampling.UpConvolutionFactory(**factory_kwargs)
     else:

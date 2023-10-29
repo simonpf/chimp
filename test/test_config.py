@@ -7,10 +7,16 @@ import torch
 from torch import nn
 
 from cimr.config import (
+    get_model_config,
     parse_model_config,
     parse_training_config
 )
 from cimr.training import get_optimizer_and_scheduler
+
+
+def test_load_model_config():
+    config_path = get_model_config("resnext_s")
+    assert config_path.exists()
 
 
 MODEL_CONFIG = """

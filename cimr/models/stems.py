@@ -6,6 +6,8 @@ Defines factory functions for different stem types.
 """
 from torch import nn
 
+import quantnn.models.pytorch.masked as nm
+
 from cimr.config import InputConfig
 
 def basic_conv(
@@ -14,12 +16,17 @@ def basic_conv(
         kernel_size=3,
         padding=1,
         stride=1,
+        masked=False
 ):
     """
     A basic stem consisting of a single convolution layer
     of variable kernel size.
     """
-    return nn.Conv2d(
+    if masked:
+        mod = nm
+    else:
+        mod = nn
+    return mod.Conv2d(
         n_chans_in,
         n_chans_out,
         kernel_size,
@@ -55,7 +62,8 @@ def get_stem_factory(input_config: InputConfig):
                 n_chans_out,
                 kernel_size=kernel_size,
                 stride=stride,
-                padding=padding
+                padding=padding,
+                masked=True
             )
         return factory
     elif input_config.stem_type in ["resnet", "resnext"]:

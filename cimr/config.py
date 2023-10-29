@@ -8,7 +8,7 @@ of the CIMR retrievals.
 from configparser import ConfigParser, SectionProxy
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Tuple, List, Union
+from typing import Optional, Tuple, List, Union, Dict
 
 import numpy as np
 import torch
@@ -50,6 +50,7 @@ class InputConfig:
     stem_depth: int = 1
     stem_kernel_size: int = 3
     stem_downsampling: int = 1
+    deep_supervision: bool = False
 
     @property
     def scale(self):
@@ -81,12 +82,14 @@ def parse_input_config(section: SectionProxy) -> InputConfig:
     stem_depth = section.getint("stem_depth", 1)
     stem_kernel_size = section.getint("stem_kernel_size", 3)
     stem_downsampling = section.getint("stem_downsampling", 1)
+    deep_supervision = section.getboolean("deep_supervision", False)
     return InputConfig(
         input_data=inpt,
         stem_type=stem_type,
         stem_depth=stem_depth,
         stem_kernel_size=stem_kernel_size,
         stem_downsampling=stem_downsampling,
+        deep_supervision=deep_supervision
     )
 
 
@@ -169,7 +172,8 @@ class EncoderConfig:
     stage_architecture: str = "sequential"
     combined: bool = True
     attention_heads: Optional[List[int]] = None
-    encoder_type: str = "standard"
+    encoder_type: str = "standard",
+    multi_scale: bool = True
 
     def __init__(
         self,
@@ -183,7 +187,9 @@ class EncoderConfig:
         stage_architecture: str = "sequential",
         combined: bool = True,
         attention_heads: Optional[List[int]] = None,
-        encoder_type: str = "standard"
+        encoder_type: str = "standard",
+        multi_scale: bool = multi_scale
+
     ):
         if len(stage_depths) != len(downsampling_factors) + 1:
             raise ValueError(
@@ -206,6 +212,7 @@ class EncoderConfig:
         self.combined = combined
         self.attention_heads = attention_heads
         self.encoder_type = encoder_type
+        self.multi_scale = multi_scale
 
     @property
     def n_stages(self):
@@ -243,6 +250,7 @@ def parse_encoder_config(section: SectionProxy) -> EncoderConfig:
     stage_architecture = section.get("stage_architecture", "sequential")
     combined = section.getboolean("combined", True)
     encoder_type = section.get("encoder_type", "standard")
+    multi_scale = section.getboolean("combined", True)
 
     conf = section.get("attention_heads", None)
     if conf is not None:
@@ -259,7 +267,8 @@ def parse_encoder_config(section: SectionProxy) -> EncoderConfig:
         stage_architecture=stage_architecture,
         combined=combined,
         attention_heads=attention_heads,
-        encoder_type=encoder_type
+        encoder_type=encoder_type,
+        multi_scale=multi_scale
     )
 
 
@@ -368,8 +377,27 @@ class ModelConfig:
 
     input_configs: List[InputConfig]
     output_configs: List[OutputConfig]
-    encoder_config: EncoderConfig
+    encoder_config: Union[EncoderConfig, Dict[str, EncoderConfig]]
     decoder_config: DecoderConfig
+
+    def get_encoder_config(self, input_name: str) -> EncoderConfig:
+        """
+        Get encoder config for given input.
+
+        Args:
+            input_name: Name of the input for which to retrieve the encoder
+                config.
+        """
+        if isinstance(self.encoder_config, dict):
+            if input_name in self.encoder_config:
+                return self.encoder_config[input_name]
+            else:
+                return self.encoder_config["shared"]
+            raise RuntimeError(
+                "Model configuration lacks encoder config for input "
+                " name {input_name}."
+            )
+        return self.encoder_config
 
 
 def get_model_config(name):
@@ -383,7 +411,7 @@ def get_model_config(name):
         A path object pointint to the .ini file containing
         the model configuration.
     """
-    path = Path(__file__).parent / "model_configs" / name
+    path = Path(__file__).parent / "models" / "configs" / name
     if path.suffix == "":
         path = path.with_suffix(".ini")
     return path
@@ -414,7 +442,6 @@ def parse_model_config(path: Union[str, Path]):
     for section_name in parser.sections():
         if section_name == "base":
             from cimr import models
-
             name = parser[section_name].get("name")
             parser.read(get_model_config(name))
 
@@ -476,6 +503,7 @@ class TrainingConfig:
     reuse_optimizer: bool = False
     stepwise_scheduling: bool = False
     devices: Optional[List[int]] = None
+    missing_value_policy: str = "sparse"
 
 def __init__(
         self,
@@ -500,6 +528,7 @@ def __init__(
         reuse_optimizer: bool = False,
         stepwise_scheduling: bool = False,
         devices: Optional[List[int]] = None,
+        missing_value_policy: str = "sparse"
 ):
     self.name = name
     self.n_epochs = n_epochs
@@ -521,6 +550,7 @@ def __init__(
     self.minimum_lr = minimum_lr
     self.reuse_optimizer = reuse_optimizer
     self.stepwise_scheduling = stepwise_scheduling
+    self.missing_value_policy = missing_value_policy
 
     if devices is None:
         devices = [0]
@@ -561,6 +591,7 @@ def parse_training_config(path: Union[str, Path]):
         stepwise_scheduling = sec.getboolean("stepwise_scheduling", False)
         accelerator = sec.get("accelerator", "cuda")
         devices = _parse_list(sec.get("devices", "0"))
+        missing_value_policy = sec.get("missing_value_policy", "sparse")
 
         training_configs.append(
             TrainingConfig(
@@ -578,7 +609,8 @@ def parse_training_config(path: Union[str, Path]):
                 reuse_optimizer=reuse_optimizer,
                 stepwise_scheduling=stepwise_scheduling,
                 accelerator=accelerator,
-                devices=devices
+                devices=devices,
+                missing_value_policy=missing_value_policy
             )
         )
 
