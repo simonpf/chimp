@@ -111,7 +111,8 @@ class CPCIRData(Input, MinMaxNormalized):
             scale: int,
     ):
         MinMaxNormalized.__init__(self, name)
-        Input.__init__(self, name, scale, "tbs", n_dim=2)
+        mean = np.array([250])
+        Input.__init__(self, name, scale, "tbs", n_dim=2, mean=mean)
         self.scale = scale
 
 

@@ -17,7 +17,7 @@ from cimr.config import (
     DecoderConfig,
     ModelConfig
 )
-from cimr.data import input, reference
+from cimr.data import get_input, reference
 from cimr.models import compile_mrnn
 
 
@@ -151,7 +151,7 @@ def gmi_data(tmp_path):
         np.timedelta64(120, "m")
     )
 
-    lons, lats = areas.CONUS_8.get_lonlats()
+    lons, lats = areas.CONUS_4.get_lonlats()
     lons = lons[0]
     lats = lats[..., 0]
 
@@ -186,13 +186,13 @@ def cpcir_gmi_mrnn():
     """
     input_configs = [
         InputConfig(
-            input.CPCIR,
+            get_input("cpcir"),
             stem_depth=1,
             stem_kernel_size=3,
             stem_downsampling=1
         ),
         InputConfig(
-            input.GMI,
+            get_input("gmi"),
             stem_depth=2,
             stem_kernel_size=7,
             stem_downsampling=2

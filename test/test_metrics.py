@@ -112,12 +112,12 @@ def test_pr_curve():
     Test the calculation of the PR curve.
     """
     y_pred = {
-        "surface_precip": np.linspace(0, 1, 101),
-        "ice_water_path": np.linspace(0, 2, 101),
+        "surface_precip": np.linspace(0, 1, 101)[:-1],
+        "ice_water_path": np.linspace(0, 2, 101)[:-1],
     }
     y_true = {
-        "surface_precip": y_pred["surface_precip"] > 0.5,
-        "ice_water_path": y_pred["ice_water_path"] > 0.5
+        "surface_precip": y_pred["surface_precip"] >= 0.5,
+        "ice_water_path": y_pred["ice_water_path"] >= 0.5
     }
 
     pr_curve = PRCurve()
@@ -130,6 +130,7 @@ def test_pr_curve():
     prec = results["surface_precip_prec"].data
     rec = results["surface_precip_rec"].data
 
+    print("REC ", np.nanmin(rec))
     assert np.isclose(np.nanmin(rec), 0.0)
     assert np.isclose(np.nanmax(rec), 1.0)
     assert np.isclose(np.nanmin(prec), 0.5)

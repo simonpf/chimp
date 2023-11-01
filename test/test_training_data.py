@@ -120,7 +120,7 @@ def test_sparse_data(cpcir_data, gmi_data, mrms_surface_precip_data):
         cpcir_data,
         reference_data="mrms",
         inputs=["cpcir", "gmi"],
-        missing_input_policy="sparse",
+        missing_value_policy="sparse",
         window_size = 128
     )
     x, y = training_data[1]
@@ -139,7 +139,7 @@ def test_pretrain_dataset(cpcir_data, gmi_data, mrms_surface_precip_data):
             cpcir_data,
             reference_data="mrms",
             inputs=inputs,
-            missing_input_policy="sparse"
+            missing_value_policy="sparse"
         )
         assert len(training_data.sequence_starts) == 24
 
@@ -160,7 +160,7 @@ def test_full_domain(cpcir_data, gmi_data, mrms_surface_precip_data):
             cpcir_data,
             reference_data="mrms",
             inputs=inputs,
-            missing_input_policy="sparse"
+            missing_value_policy="sparse"
         )
 
         iter = training_data.full_domain()
@@ -177,9 +177,52 @@ def test_missing_input_policies(cpcir_data, gmi_data, mrms_surface_precip_data):
         cpcir_data,
         reference_data="mrms",
         inputs=["cpcir", "gmi"],
-        missing_input_policy="sparse",
+        missing_value_policy="sparse",
         window_size = 128
     )
     x, y = training_data[1]
     assert x["gmi"] is None
     assert x["cpcir"].shape[1:] == (128, 128)
+    assert np.all(np.isfinite(x["cpcir"].numpy()))
+
+
+    training_data = CIMRDataset(
+        cpcir_data,
+        reference_data="mrms",
+        inputs=["cpcir", "gmi"],
+        missing_value_policy="random",
+        window_size = 128
+    )
+    x, y = training_data[1]
+    assert x["gmi"].shape[1:] == (128, 128)
+    assert np.all(np.isfinite(x["gmi"].numpy()))
+    assert x["cpcir"].shape[1:] == (128, 128)
+    assert np.all(np.isfinite(x["cpcir"].numpy()))
+
+
+    training_data = CIMRDataset(
+        cpcir_data,
+        reference_data="mrms",
+        inputs=["cpcir", "gmi"],
+        missing_value_policy="missing",
+        window_size = 128
+    )
+    x, y = training_data[1]
+    assert x["gmi"].shape[1:] == (128, 128)
+    assert np.all(np.isfinite(x["gmi"].numpy()))
+    assert x["cpcir"].shape[1:] == (128, 128)
+    assert np.all(np.isfinite(x["cpcir"].numpy()))
+
+
+    training_data = CIMRDataset(
+        cpcir_data,
+        reference_data="mrms",
+        inputs=["cpcir", "gmi"],
+        missing_value_policy="mean",
+        window_size = 128
+    )
+    x, y = training_data[1]
+    assert x["gmi"].shape[1:] == (128, 128)
+    assert np.all(np.isfinite(x["gmi"].numpy()))
+    assert x["cpcir"].shape[1:] == (128, 128)
+    assert np.all(np.isfinite(x["cpcir"].numpy()))

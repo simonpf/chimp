@@ -308,7 +308,7 @@ class CIMRDataset:
         end_time=None,
         quality_threshold=0.8,
         augment=True,
-        missing_input_policy="sparse",
+        missing_value_policy="sparse",
         time_step=None,
         validation=False
     ):
@@ -330,7 +330,7 @@ class CIMRDataset:
                 the radar measurements.
             augment: Whether to apply random transformations to the training
                 inputs.
-            missing_input_policy: A string indicating how to handle missing input
+            missing_value_policy: A string indicating how to handle missing input
                 data. Options:
                     'random': Missing data is replaced with Gaussian noise.
                     'mean' Missing value is replaced with the mean of the
@@ -354,7 +354,7 @@ class CIMRDataset:
         self.normalize = normalize
         self.quality_threshold = quality_threshold
         self.augment = augment
-        self.missing_input_policy = missing_input_policy
+        self.missing_value_policy = missing_value_policy
 
         pattern = "*????????_??_??.nc"
 
@@ -547,11 +547,11 @@ class CIMRDataset:
                 self.base_scale,
                 slices,
                 self.rng,
-                self.missing_input_policy,
+                self.missing_value_policy,
                 rotate=rotate,
                 flip=flip
             )
-            x[inpt.name] = torch.tensor(x_s) if x_s is not None else x_s
+            x[inpt.name] = x_s
 
         return x, y
 
@@ -983,7 +983,7 @@ class CIMRPretrainDataset(CIMRDataset):
         end_time=None,
         quality_threshold=0.8,
         augment=True,
-        missing_input_policy="sparse",
+        missing_value_policy="sparse",
         time_step=None
     ):
         super().__init__(
@@ -999,7 +999,7 @@ class CIMRPretrainDataset(CIMRDataset):
             end_time=end_time,
             quality_threshold=quality_threshold,
             augment=augment,
-            missing_input_policy=missing_input_policy,
+            missing_value_policy=missing_value_policy,
             time_step=time_step
         )
         samples_by_input = [[] for _ in inputs]
@@ -1043,7 +1043,7 @@ class CIMRPretrainDataset(CIMRDataset):
         inpt = self.inputs[input_index]
 
         scl = inpt.scale // self.reference_data.scale
-        slices = inputs.find_random_scene(
+        slices = input.find_random_scene(
             self.samples[key][1 + input_index],
             self.rng,
             multiple=16 // inpt.scale,

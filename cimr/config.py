@@ -13,6 +13,7 @@ from typing import Optional, Tuple, List, Union, Dict
 import numpy as np
 import torch
 from torch import nn
+import quantnn.models.pytorch.masked as nm
 
 import cimr
 from cimr.data.input import Input, get_input
@@ -213,6 +214,21 @@ class EncoderConfig:
         self.attention_heads = attention_heads
         self.encoder_type = encoder_type
         self.multi_scale = multi_scale
+
+    def __getitem__(self, *args):
+        return EncoderConfig(
+            block_type=self.block_type,
+            channels=self.channels.__getitem__(*args),
+            stage_depths=self.stage_depths.__getitem__(*args),
+            downsampling_factors=self.downsampling_factors.__getitem__(*args),
+            block_factory_kwargs=self.block_factory_kwargs,
+            downsampler_factory_kwargs=self.downsampler_factory_kwargs,
+            stage_architecture=self.stage_architecture,
+            combined=self.combined,
+            attention_heads=None if self.attention_heads is None else self.attention_heads.__getitem__(*args),
+            encoder_type=self.encoder_type,
+            multi_scale=self.multi_scale
+        )
 
     @property
     def n_stages(self):

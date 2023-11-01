@@ -77,7 +77,8 @@ def get_stem_factory(input_config: InputConfig):
                 n_chans_out,
                 kernel_size=7,
                 stride=2,
-                padding=3
+                padding=3,
+                masked=True
             )
         return factory
     elif input_config.stem_type in ["convnext"]:

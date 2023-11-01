@@ -569,24 +569,32 @@ class CIMRModel(nn.Module):
         for key in x:
             tensor = x[key]
             mask = torch.isnan(tensor)
-            if mask.any():
-                tensor = MaskedTensor(tensor, mask=mask)
+            tensor = MaskedTensor(tensor, mask=mask).compress()
             x_m[key] = tensor
+        x_m = x
+        print("new")
+
 
         outputs = {}
 
         encodings = self.encoder(x_m, return_skips=self.skip_connections)
         if isinstance(encodings, tuple):
-            encodings, weak_outputs = encodings
+            encodings, deep_outputs = encodings
         else:
-            weak_outputs = {}
+            deep_outputs = {}
 
         y = self.decoder(encodings)
 
         outputs = {key: forward(head, y) for key, head in self.heads.items()}
-        for name, enc in weak_outputs.items():
+
+        for name, enc in deep_outputs.items():
             for key, head in self.heads.items():
-                outputs[name + "/" + key] = forward(head, self.decoder(enc))
+                output = forward(head, self.decoder(enc))
+                if isinstance(output, MaskedTensor):
+                    if output.empty:
+                        continue
+                    output = output.decompress()
+                outputs[name + "/" + key] = output.decompress()
 
         return outputs
 

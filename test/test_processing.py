@@ -32,7 +32,7 @@ def test_retrieval_step(
         data_path,
         inputs=["cpcir", "gmi"],
         reference_data="mrms",
-        missing_input_policy="random"
+        missing_value_policy="random"
     )
     data_iterator = input_data.full_domain(
         start_time=np.datetime64("2020-01-01T04:00:00"),

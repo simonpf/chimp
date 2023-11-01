@@ -228,7 +228,8 @@ class GPML1CData(Input, MinMaxNormalized):
                         )
 
 
-GMI = GPML1CData("gmi", 4, [l1c_gpm_gmi], 2, 15e3)
+TB_MEANS_GMI = np.array(13 * [250.0])
+GMI = GPML1CData("gmi", 4, [l1c_gpm_gmi], 2, 15e3, mean=TB_MEANS_GMI)
 ATMS = GPML1CData("atms", 16, [l1c_noaa20_atms, l1c_npp_atms], 4, 64e3)
 
 MHS_PRODUCTS = [

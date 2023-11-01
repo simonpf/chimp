@@ -15,6 +15,7 @@ from quantnn.models.pytorch.encoders import (
     DenseCascadingEncoder,
 )
 from quantnn.models.pytorch.aggregators import LinearAggregatorFactory
+from quantnn.models.pytorch import masked as nm
 from quantnn.packed_tensor import forward
 
 from cimr.models.stems import get_stem_factory
@@ -109,7 +110,7 @@ class SingleScaleParallelEncoder(nn.Module):
 
             stem_factory = get_stem_factory(cfg)
             stems[cfg.name] = stem_factory(n_chans)
-            upsamplers[cfg.name] = nn.Upsample(
+            upsamplers[cfg.name] = nm.Upsample(
                 scale_factor=cfg.scale / min_input_scale
             )
 
@@ -166,7 +167,115 @@ class SingleScaleParallelEncoder(nn.Module):
         aggregated = {}
         for scl, agg in self.aggregators.items():
             scl = int(scl)
-            inputs = [encs[scl] for encs in encodings.values()]
+            inputs = [encs[scl].decompress() for encs in encodings.values()]
+            aggregated[scl] = agg(*inputs)
+
+        if self.no_deep_supervision:
+            return aggregated
+
+        deep_supervision = {
+            name: encodings[name] for name in self.deep_supervision if name in encodings
+        }
+
+        return aggregated, deep_supervision
+
+
+class MultiScaleParallelEncoder(nn.Module):
+    """
+    Encoder that uses a separate encoder for all inputs.
+    """
+    def __init__(
+            self,
+            input_configs,
+            encoder_config
+    ):
+        super().__init__()
+        if not isinstance(encoder_config, dict):
+            encoder_config = {"shared": encoder_config}
+
+        input_scales = [cfg.scale for cfg in input_configs]
+        min_input_scale = min(input_scales)
+
+        stems = {}
+        encoders = {}
+
+        inputs = {}
+        scale = min(input_scales)
+        for stage, f_d in enumerate(encoder_config["shared"].downsampling_factors):
+            for cfg in input_configs:
+                if cfg.scale == scale:
+                    if cfg.name in encoder_config:
+                        enc_cfg = encoder_config[cfg.name]
+                    else:
+                        enc_cfg = encoder_config["shared"][stage:]
+
+                    encoder = compile_spatial_encoder(
+                        enc_cfg,
+                        cfg.scale
+                    )
+                    encoders[cfg.name] = encoder
+                    stem_factory = get_stem_factory(cfg)
+                    n_chans = enc_cfg.channels[0]
+                    if hasattr(encoder, "input_channels"):
+                        n_chans = encoder.input_channels
+                    stems[cfg.name] = stem_factory(n_chans)
+            scale *= f_d
+
+        self.deep_supervision = set(
+            (cfg.name for cfg in input_configs if cfg.deep_supervision)
+        )
+        self.no_deep_supervision = len(self.deep_supervision) == 0
+
+        self.stems = nn.ModuleDict(stems)
+        self.encoders = nn.ModuleDict(encoders)
+
+        agg_channels = {}
+        for enc in self.encoders.values():
+            for scl, channels in enc.skip_connections.items():
+                agg_channels.setdefault(scl, []).append(channels)
+
+        aggregator_factory = LinearAggregatorFactory(masked=True)
+        aggregators = {}
+        for scl, channels in agg_channels.items():
+            if len(channels) > 1:
+                aggregators[str(scl)] = aggregator_factory(channels, channels[0])
+        self.aggregators = nn.ModuleDict(aggregators)
+
+        self.n_stages = len(aggregators)
+
+
+    def forward(
+            self,
+            inputs: Dict[str, torch.Tensor],
+            **kwargs
+    ) -> Dict[str, Dict[int, torch.Tensor]]:
+        """
+        Foward inputs through encoders and return dict containing multi-scale
+        features.
+
+        Args:
+            inputs: Input dictionary containing input tensors for the inputs of
+               the encoder.
+
+        Return:
+            A dict mapping input names to dicts of multi-scale feature maps
+        """
+        encodings = {}
+        for inpt, x in inputs.items():
+            x_in = forward(self.stems[inpt], x)
+            encs = forward(self.encoders[inpt], x_in, return_skips=True)
+            encodings[inpt] = encs
+
+        if len(self.aggregators) == 0:
+            return next(iter(encodings.values()))
+
+        aggregated = {}
+        for scl, agg in self.aggregators.items():
+            scl = int(scl)
+            inputs = []
+            for encs in encodings.values():
+                if scl in encs:
+                    inputs.append(encs[scl].decompress())
             aggregated[scl] = agg(*inputs)
 
         if self.no_deep_supervision:

@@ -96,6 +96,10 @@ def retrieval_step(
     """
 
     x = model_input
+    x = {
+        name: tensor.to(dtype=float_type, device=device)
+        for name, tensor in x.items()
+    }
     tiler = Tiler(x, tile_size=tile_size, overlap=64)
 
     means = {}
@@ -158,13 +162,8 @@ def retrieval_step(
 
             return results
 
-<<<<<<< HEAD
     dims = ("classes", "y", "x")
     results = tiler.predict(predict_fun)
-=======
-    with torch.autocast(device_type=device, dtype=float_type):
-        results = tiler.predict(predict_fun)
->>>>>>> fa0e6d1 (Cleaning up after input refactoring.)
     results = xr.Dataset({
         key: (dims[-value.ndim:], value) for key, value in results.items()
     })

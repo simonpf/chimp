@@ -10,6 +10,10 @@ from typing import List, Optional, Tuple, Union
 import numpy as np
 import xarray as xr
 
+from quantnn.normalizer import Normalizer
+
+import torch
+
 from cimr.definitions import N_CHANS
 from cimr.data import reference
 
@@ -67,8 +71,9 @@ def generate_input(
         size: Tuple[int],
         policy: str,
         rng: np.random.Generator,
-        mean: Optional[np.array],
-):
+        normalizer: Optional[Normalizer] = None,
+        mean: Optional[np.array] = None,
+) -> torch.Tensor:
     """
     Generate input values for missing inputs.
 
@@ -79,33 +84,41 @@ def generate_input(
         policy: The policy to use for the data generation.
         rng: The random generator object to use to create random
             arrays.
+        normalizer: If provided, will be used to normalize inputs that
+            should be normalized.
         mean: An array containing 'n_channels' defining the mean of
             each channel.
 
     Return:
-        An numpy.ndarray containing replacement data.
+        A torch.Tesnro containing the generated input.
     """
     if policy == "sparse":
         return None
 
     elif policy == "random":
-        return rng.normal(size=(n_channels,) + size)
+        tensor = rng.normal(size=(n_channels,) + size).astype(np.float32)
+        return torch.tensor(tensor)
     elif policy == "mean":
         if mean is None:
             raise RuntimeError(
                 "If missing-input policy is 'mean', an array of mean values"
                 " must be provided."
             )
-
-        return mean[(slice(0, None),) + (None,) * len(size)] * np.ones(
+        tensor = mean[(slice(0, None),) + (None,) * len(size)] * np.ones(
             shape=(n_channels,) + size,
             dtype="float32"
         )
+        if normalizer is not None:
+            tensor = normalizer(tensor)
+        return torch.tensor(tensor)
     elif policy == "missing":
-        return np.nan * np.ones(
-            shpare=(n_channels,) + size,
+        tensor = np.nan * np.ones(
+            shape=(n_channels,) + size,
             dtype="float32"
         )
+        if normalizer is not None:
+            tensor = normalizer(tensor)
+        return tensor
 
     raise ValueError(
         f"Missing input policy '{policy}' is not known. Choose between 'sparse'"

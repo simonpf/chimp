@@ -299,6 +299,101 @@ def test_compile_model():
     assert y["surface_precip"].shape == (1, 32, 128, 128)
 
 
+def test_deep_supervision_propagation():
+    """
+    Test that deep supervision losses are propagated to output.
+    """
+    input_configs = [
+        InputConfig(
+            get_input("cpcir"),
+            stem_depth=2,
+            stem_kernel_size=7,
+            stem_downsampling=1,
+            deep_supervision=True
+        ),
+        InputConfig(
+            get_input("gmi"),
+            stem_depth=2,
+            stem_kernel_size=7,
+            stem_downsampling=1,
+            deep_supervision=True
+        ),
+        InputConfig(
+            get_input("ssmis"),
+            stem_depth=2,
+            stem_kernel_size=7,
+            stem_downsampling=1,
+            deep_supervision=True
+        ),
+        InputConfig(
+            get_input("atms"),
+            stem_depth=1,
+            stem_kernel_size=3,
+            stem_downsampling=1,
+            deep_supervision=True
+        )
+    ]
+    output_configs = [
+        OutputConfig(
+            reference.MRMS,
+            "surface_precip",
+            "quantile_loss",
+            quantiles=np.linspace(0, 1, 34)[1:-1]
+        ),
+    ]
+
+    encoder_config = EncoderConfig(
+        "convnet",
+        channels=[16, 32, 64, 128],
+        stage_depths=[2, 2, 4, 4],
+        downsampling_factors=[2, 2, 2],
+        combined=True
+    )
+
+    decoder_config = DecoderConfig(
+        "convnet",
+        channels=[64, 32, 16],
+        stage_depths=[1, 1, 1],
+        upsampling_factors=[2, 2, 2],
+        skip_connections=4
+    )
+    model_config = ModelConfig(
+        input_configs,
+        output_configs,
+        encoder_config,
+        decoder_config
+    )
+
+    cimr = compile_model(model_config)
+
+
+    x = {
+        "cpcir": torch.zeros(
+            (1, 1, 128, 128),
+            dtype=torch.float32
+        ),
+        "gmi": torch.zeros(
+            (1, 13, 128, 128),
+            dtype=torch.float32
+        ),
+        "ssmis": torch.zeros(
+            (1, 11, 64, 64),
+            dtype=torch.float32
+        ),
+        "atms": torch.zeros(
+            (1, 9, 32, 32),
+            dtype=torch.float32
+        )
+    }
+
+    y = cimr(x)
+
+    assert len(y) == 5
+    assert "cpcir/surface_precip" in y
+    assert "gmi/surface_precip" in y
+    assert "ssmis/surface_precip" in y
+    assert "atms/surface_precip" in y
+
 def test_compile_mrnn():
     """
     Test the compilation of the quantnn MRNN.

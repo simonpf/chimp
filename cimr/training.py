@@ -164,7 +164,8 @@ def create_data_loaders(
         sample_rate=training_config.sample_rate,
         sequence_length=training_config.sequence_length,
         window_size=training_config.input_size,
-        quality_threshold=training_config.quality_threshold
+        quality_threshold=training_config.quality_threshold,
+        missing_value_policy=training_config.missing_value_policy
     )
     training_loader = DataLoader(
         training_data,
@@ -173,7 +174,7 @@ def create_data_loaders(
         num_workers=training_config.data_loader_workers,
         worker_init_fn=training_data.init_rng,
         pin_memory=True,
-        collate_fn=sparse_collate
+        #collate_fn=sparse_collate
     )
     if validation_data_path is None:
         return training_loader, None
@@ -186,6 +187,7 @@ def create_data_loaders(
         sequence_length=training_config.sequence_length,
         window_size=training_config.input_size,
         quality_threshold=training_config.quality_threshold,
+        missing_value_policy=training_config.missing_value_policy,
         validation=True
     )
     validation_loader = DataLoader(
@@ -195,7 +197,7 @@ def create_data_loaders(
         num_workers=training_config.data_loader_workers,
         worker_init_fn=validation_data.init_rng,
         pin_memory=True,
-        collate_fn=sparse_collate
+        #collate_fn=sparse_collate
     )
     return training_loader, validation_loader
 

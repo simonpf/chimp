@@ -292,12 +292,19 @@ def test_training_masked_input(
             stem_downsampling=1,
             deep_supervision=True
         ),
+        models.InputConfig(
+            get_input("mhs"),
+            stem_depth=1,
+            stem_kernel_size=3,
+            stem_downsampling=1,
+            deep_supervision=True
+        ),
     ]
     model_config.output_configs = [
         models.OutputConfig(
             reference.MRMS,
             "surface_precip",
-            "mse",
+            "quantile_loss",
             quantiles=np.linspace(0, 1, 34)[1:-1]
         ),
     ]
@@ -317,7 +324,7 @@ def test_training_masked_input(
             scheduler = "ReduceLROnPlateau",
             scheduler_kwargs = {"patience": 1, "min_lr": 1e-3},
             minimum_lr = 1e-2,
-            batch_size=1,
+            batch_size=2,
             sample_rate=sample_rate,
             accelerator=acc,
             precision=prec,

@@ -10,7 +10,9 @@ from typing import Union, List, Optional, Tuple
 
 import numpy as np
 from quantnn.normalizer import Normalizer, MinMaxNormalizer
+from quantnn.masked_tensor import MaskedTensor
 from scipy import ndimage
+import torch
 import xarray as xr
 
 from cimr.data.utils import scale_slices, generate_input
@@ -182,7 +184,8 @@ class MinMaxNormalized:
             stats = np.loadtxt(stats_file, skiprows=1).reshape(-1, 2)
             norm = MinMaxNormalizer(
                 np.ones((stats.shape[0], 1, 1)),
-                feature_axis=0
+                feature_axis=0,
+                replace_nan=False
             )
             for chan_ind in range(stats.shape[0]):
                 norm.stats[chan_ind] = tuple(stats[chan_ind])
@@ -226,35 +229,53 @@ class Input(InputBase, MinMaxNormalized):
         return len(self.normalizer.stats)
 
 
-    def generate_missing_input(
+    def replace_missing(
             self,
-            crop_size: int,
-            missing_input_policy: str,
-            rng: np.random.Generator
+            tensor,
+            missing_value_policy,
+            rng
     ):
         """
-        Generates synthetic input to replace missing input.
+        Replace missing values in tensor.
 
         Args:
-            crop_size: The size of the input to generate.
-            missing_input_policy: String describing how to generate the
-                missing input.
-            rng: A numpy random generator to use to generate random values.
+            tensor: A torch.tensor containing the input data for a
+                single sample.
+            missing_value_policy: Policy describing how to replace missing
+                values.
+            rng: A numpy random generator object.
 
         Return:
-            A numpy array containing a surrogate input sample.
+            A new tensor with NAN's replaced according to the missing value
+            policy.
         """
-        x_s = generate_input(
-            self.n_channels,
-            crop_size,
-            missing_input_policy,
-            rng,
-            self.mean
-        )
-        # TODO: Handle normalization more elegantly.
-        if x_s is not None and normalize:
-            x_s = self.normalizer(x_s)
-        return x_s
+        mask = torch.isnan(tensor)
+        if missing_value_policy == "random":
+            repl = rng.normal(size=tensor.shape).astype(np.float32)
+            tensor = torch.where(mask, torch.tensor(repl), tensor)
+        elif missing_value_policy == "mean":
+            if self.mean is None:
+                raise RuntimeError(
+                    "If missing-value policy is 'mean', an array of mean values"
+                    " must be provided."
+                )
+            means = self.mean[(slice(0, None),) + (None,) * self.n_dim] * np.ones(
+                shape=(self.n_channels,) + (1,) * self.n_dim,
+                dtype="float32"
+            )
+            means = self.normalizer(means)
+            tensor = torch.where(mask, torch.tensor(means), tensor)
+        elif missing_value_policy == "missing":
+            tensor = torch.where(mask, -1.5, tensor)
+        elif missing_value_policy == "masked":
+            tensor = MaskedTensor(tensor.to(dtype=torch.float32), mask=mask)
+        else:
+            raise ValueError(
+                f"Missing input policy '{missing_value_policy}' is not known. Choose between 'sparse'"
+                " 'random', 'mean' and 'missing'. "
+            )
+        return tensor
+
 
     def load_sample(
             self,
@@ -263,7 +284,7 @@ class Input(InputBase, MinMaxNormalized):
             base_scale: int,
             slices: Tuple[slice, slice],
             rng: np.random.Generator,
-            missing_input_policy: str,
+            missing_value_policy: str,
             rotate: Optional[float] = None,
             flip: Optional[bool] = False,
             normalize: Optional[bool] = True
@@ -279,8 +300,8 @@ class Input(InputBase, MinMaxNormalized):
             sclices: Tuple of slices defining the part of the data to load.
             rng: A numpy random generator object to use to generate random
                 data.
-            missing_input_policy: A string describing how to handle missing
-                input.
+            missing_value_policy: A string describing how to handle missing
+                values.
             rotate: If given, the should specify the number of degree by
                 which the input should be rotated.
             flip: Bool indicated whether or not to flip the input along the
@@ -293,36 +314,22 @@ class Input(InputBase, MinMaxNormalized):
             crop_size = (crop_size,) * self.n_dims
         crop_size = tuple((int(size / rel_scale) for size in crop_size))
 
-        if input_file is None:
-            return self.generate_missing_input(
-                crop_size,
-                missing_input_policy,
-                rng
-            )
+        if input_file is not None:
+            slices = scale_slices(slices, rel_scale)
+            with xr.open_dataset(input_file) as data:
+                vars = self.variables
+                if isinstance(vars, str):
+                    x_s = data[vars][dict(zip(self.spatial_dims, slices))]
+                    x_s = x_s.transpose(*(("channels",) + self.spatial_dims))
+                    x_s = x_s.data
+                    # Expand dims in case of single-channel inputs.
+                    if x_s.ndim < 3:
+                        x_s = x_s[None]
+                else:
+                    x_s = np.stack(
+                        [data[vrbl][row_slice, col_slice].data for vrbl in vars]
+                    )
 
-        slices = scale_slices(slices, rel_scale)
-        with xr.open_dataset(input_file) as data:
-            vars = self.variables
-            if isinstance(vars, str):
-                x_s = data[vars][dict(zip(self.spatial_dims, slices))]
-                x_s = x_s.transpose(*(("channels",) + self.spatial_dims))
-                x_s = x_s.data
-                # Expand dims in case of single-channel inputs.
-                if x_s.ndim < 3:
-                    x_s = x_s[None]
-            else:
-                x_s = np.stack(
-                    [data[vrbl][row_slice, col_slice].data for vrbl in vars]
-                )
-
-            # If we have less than 5% of valid inputs, we generate surrogate
-            # input.
-            if np.any(np.isfinite(x_s), 0).mean() < 0.05:
-                return self.generate_missing_input(
-                    crop_size,
-                    missing_input_policy,
-                    rng
-                )
 
             # Apply augmentations
             if rotate is not None:
@@ -337,23 +344,34 @@ class Input(InputBase, MinMaxNormalized):
                 height = x_s.shape[-2]
 
                 # In case of a rotation, we may need to cut off some input.
-                height_out = int(crop_size[0] / rel_scale)
+                height_out = crop_size[0]
                 if height > height_out:
                     start = (height - height_out) // 2
                     end = start + height_out
                     x_s = x_s[..., start:end, :]
 
                 width = x_s.shape[-1]
-                width_out = int(crop_size[1] / rel_scale)
+                width_out = crop_size[1]
                 if width > width_out:
                     start = (width - width_out) // 2
                     end = start + width_out
                     x_s = x_s[..., start:end]
             if flip:
                 x_s = np.flip(x_s, -1)
+        else:
+            if missing_value_policy == "sparse":
+                return None
+            x_s = np.nan * np.ones(((self.n_channels,) + crop_size))
 
-        if normalize:
-            x_s = self.normalizer(x_s)
+        # If we are here we're not returning None.
+        if missing_value_policy == "sparse":
+            missing_value_policy = "missing"
+
+        x_s = self.normalizer(x_s)
+        x_s = torch.tensor(x_s, dtype=torch.float32)
+        if missing_value_policy == "masked":
+            x_s = MaskedTensor(x_s)
+        x_s = self.replace_missing(x_s, missing_value_policy, rng)
 
         return x_s
 

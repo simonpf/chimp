@@ -21,12 +21,12 @@ def test_generate_input():
 
     x = generate_input(n_channels, size, "random", rng, None)
     assert x is not None
-    assert np.isclose(np.mean(x), 0, atol=1e-1)
+    assert np.isclose(np.mean(x.numpy()), 0, atol=1e-1)
 
     mean = np.arange(9)
-    x = generate_input(n_channels, size, "mean", rng, mean)
+    x = generate_input(n_channels, size, "mean", rng, mean=mean)
     assert x is not None
-    assert np.all(np.isclose(np.mean(x, -1), mean))
+    assert np.all(np.isclose(np.mean(x.numpy(), -1), mean))
 
     #
     # 2D input
@@ -41,12 +41,12 @@ def test_generate_input():
 
     x = generate_input(n_channels, size, "random", rng, None)
     assert x is not None
-    assert np.isclose(np.mean(x), 0, atol=1e-1)
+    assert np.isclose(np.mean(x.numpy()), 0, atol=1e-1)
 
     mean = np.arange(9)
-    x = generate_input(n_channels, size, "mean", rng, mean)
+    x = generate_input(n_channels, size, "mean", rng, mean=mean)
     assert x is not None
-    assert np.all(np.isclose(np.mean(x, (-2, -1)), mean))
+    assert np.all(np.isclose(np.mean(x.numpy(), (-2, -1)), mean))
 
 
 def test_scale_slices():

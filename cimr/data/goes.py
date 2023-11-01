@@ -1,8 +1,8 @@
 """
-cimr.data.seviri
-================
+cimr.data.goes
+==============
 
-Functionality for reading and processing SEVIRI data.
+Functionality for reading and processing GOES data.
 """
 from datetime import datetime, timedelta
 import logging
