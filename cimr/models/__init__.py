@@ -589,12 +589,12 @@ class CIMRModel(nn.Module):
 
         for name, enc in deep_outputs.items():
             for key, head in self.heads.items():
-                output = forward(head, self.decoder(enc))
+                output = head(self.decoder(enc))
                 if isinstance(output, MaskedTensor):
                     if output.empty:
                         continue
                     output = output.decompress()
-                outputs[name + "/" + key] = output
+                outputs[name + "::" + key] = output
 
         return outputs
 
