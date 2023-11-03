@@ -571,9 +571,8 @@ class CIMRModel(nn.Module):
         for key in x:
             tensor = x[key]
             mask = torch.isnan(tensor)
-            tensor[mask] = -1.5
-            #if mask.any():
-            tensor = MaskedTensor(tensor, mask=mask).compress()
+            if mask.any():
+                tensor = MaskedTensor(tensor, mask=mask).compress()
             x_m[key] = tensor
 
         outputs = {}
