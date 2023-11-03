@@ -16,7 +16,6 @@ from conftest import (
 from cimr import models
 from cimr.config import TrainingConfig
 from cimr.data import get_input, get_reference_data
-from cimr.data.training_data import CIMRDataset
 from cimr.models import compile_mrnn
 from cimr.training import (
     train,
@@ -205,6 +204,7 @@ def test_training_multi_input(
             accelerator=acc,
             precision=prec,
             data_loader_workers=1,
+            missing_value_policy="missing"
         ),
         TrainingConfig(
             "Stage 2",
@@ -222,6 +222,7 @@ def test_training_multi_input(
             accelerator=acc,
             precision=prec,
             data_loader_workers=1,
+            missing_value_policy="missing"
         ),
         TrainingConfig(
             "Stage 2",
@@ -240,6 +241,7 @@ def test_training_multi_input(
             accelerator=acc,
             precision=prec,
             data_loader_workers=1,
+            missing_value_policy="missing"
         )
     ]
 
