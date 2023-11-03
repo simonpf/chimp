@@ -182,7 +182,7 @@ def make_forecast(
 
     Args:
         qrnn: The QRNN to use to make the forecast.
-        dataset: The CIMRDataset providing the input data.
+        dataset: The SingleStepDataset providing the input data.
         forecast_time: The time for which to perform the forecast.
         obs_steps: Number of observations to ingest prior to making the
             forecast.

@@ -17,7 +17,7 @@ from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from quantnn import metrics
 from torch.utils.data import DataLoader
 
-from cimr.data.training_data import CIMRDataset, sparse_collate
+from cimr.data.training_data import SingleStepDataset, sparse_collate
 
 
 class ResetParameters(Callback):
@@ -157,7 +157,7 @@ def create_data_loaders(
                     " reference data."
                 )
 
-    training_data = CIMRDataset(
+    training_data = SingleStepDataset(
         training_data_path,
         inputs=inputs,
         reference_data=reference_data,
@@ -179,7 +179,7 @@ def create_data_loaders(
     if validation_data_path is None:
         return training_loader, None
 
-    validation_data =  CIMRDataset(
+    validation_data =  SingleStepDataset(
         validation_data_path,
         inputs=inputs,
         reference_data=reference_data,

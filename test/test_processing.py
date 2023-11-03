@@ -7,7 +7,7 @@ import numpy as np
 from quantnn.qrnn import QRNN
 import torch
 
-from cimr.data.training_data import CIMRDataset
+from cimr.data.training_data import SingleStepDataset
 from cimr.processing import retrieval_step, empty_input
 
 from conftest import (
@@ -28,7 +28,7 @@ def test_retrieval_step(
     """
     data_path = mrms_surface_precip_data
     model = cpcir_gmi_mrnn
-    input_data = CIMRDataset(
+    input_data = SingleStepDataset(
         data_path,
         inputs=["cpcir", "gmi"],
         reference_data="mrms",

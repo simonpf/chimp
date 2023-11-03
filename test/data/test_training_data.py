@@ -18,7 +18,7 @@ from cimr.areas import CONUS
 from cimr.data.training_data import (
     collate_recursive,
     sparse_collate,
-    CIMRDataset,
+    SingleStepDataset,
     CIMRPretrainDataset
 )
 
@@ -103,7 +103,7 @@ def test_training_find_files(cpcir_data, mrms_surface_precip_data):
     Test that the training data finds the expected start times for
     sampling sequences.
     """
-    training_data = CIMRDataset(
+    training_data = SingleStepDataset(
         cpcir_data,
         reference_data="mrms",
         inputs=["cpcir"],
@@ -116,7 +116,7 @@ def test_sparse_data(cpcir_data, gmi_data, mrms_surface_precip_data):
     """
     Test that missing inputs are set to None.
     """
-    training_data = CIMRDataset(
+    training_data = SingleStepDataset(
         cpcir_data,
         reference_data="mrms",
         inputs=["cpcir", "gmi"],
@@ -173,7 +173,7 @@ def test_missing_input_policies(cpcir_data, gmi_data, mrms_surface_precip_data):
     """
     Test that missing inputs are handled correctly.
     """
-    training_data = CIMRDataset(
+    training_data = SingleStepDataset(
         cpcir_data,
         reference_data="mrms",
         inputs=["cpcir", "gmi"],
@@ -186,7 +186,7 @@ def test_missing_input_policies(cpcir_data, gmi_data, mrms_surface_precip_data):
     assert np.all(np.isfinite(x["cpcir"].numpy()))
 
 
-    training_data = CIMRDataset(
+    training_data = SingleStepDataset(
         cpcir_data,
         reference_data="mrms",
         inputs=["cpcir", "gmi"],
@@ -200,7 +200,7 @@ def test_missing_input_policies(cpcir_data, gmi_data, mrms_surface_precip_data):
     assert np.all(np.isfinite(x["cpcir"].numpy()))
 
 
-    training_data = CIMRDataset(
+    training_data = SingleStepDataset(
         cpcir_data,
         reference_data="mrms",
         inputs=["cpcir", "gmi"],
@@ -214,7 +214,7 @@ def test_missing_input_policies(cpcir_data, gmi_data, mrms_surface_precip_data):
     assert np.all(np.isfinite(x["cpcir"].numpy()))
 
 
-    training_data = CIMRDataset(
+    training_data = SingleStepDataset(
         cpcir_data,
         reference_data="mrms",
         inputs=["cpcir", "gmi"],

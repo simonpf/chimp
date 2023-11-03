@@ -281,7 +281,7 @@ def run(args):
     Args:
         args: The namespace object provided by the top-level parser.
     """
-    from cimr.data.training_data import CIMRDataset
+    from cimr.data.training_data import SingleStepDataset
 
     #
     # Check and load inputs.
@@ -313,7 +313,7 @@ def run(args):
     if end_time is not None:
         end_time = np.datetime64(end_time)
 
-    test_data = CIMRDataset(
+    test_data = SingleStepDataset(
         input_path,
         inputs=args.inputs,
         reference_data=args.reference_data,

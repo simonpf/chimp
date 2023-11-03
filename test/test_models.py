@@ -11,9 +11,10 @@ import torch
 from torch.utils.data import DataLoader
 from quantnn.mrnn import MRNN
 
-from cimr.data.training_data import (CIMRDataset,
-                                     SuperpositionDataset,
-                                     sparse_collate)
+from cimr.data.training_data import (
+    SuperpositionDataset,
+    sparse_collate
+)
 from cimr.config import (
     InputConfig,
     OutputConfig,

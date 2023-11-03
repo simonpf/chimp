@@ -95,7 +95,7 @@ def run(args):
     """
     import numpy as np
     from quantnn.qrnn import QRNN
-    from cimr.data.training_data import CIMRDataset
+    from cimr.data.training_data import SingleStepDataset
 
     #
     # Check and load inputs.
@@ -120,7 +120,7 @@ def run(args):
     end_time = np.datetime64(args.end_time)
     step = np.timedelta64(args.step * 60, "s")
     qrnn = QRNN.load(model)
-    input_data = CIMRDataset(input_path, sources=qrnn.model.sources)
+    input_data = SingleStepDataset(input_path, sources=qrnn.model.sources)
     for time in np.arange(start_time, end_time, step):
         process_time(qrnn, input_data, time, output_path)
 

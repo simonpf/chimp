@@ -288,7 +288,7 @@ class SampleRecord:
 
 
 
-class CIMRDataset:
+class SingleStepDataset:
     """
     Dataset class for the CIMR training data.
 
@@ -963,7 +963,7 @@ class CIMRDataset:
         return inputs
 
 
-class CIMRPretrainDataset(CIMRDataset):
+class CIMRPretrainDataset(SingleStepDataset):
     """
     Dataset class for the CIMR training data.
 
@@ -1088,7 +1088,7 @@ class CIMRPretrainDataset(CIMRDataset):
         return x, y
 
 
-class CIMRSequenceDataset(CIMRDataset):
+class CIMRSequenceDataset(SingleStepDataset):
     """
     Dataset class for temporal merging of satellite observations.
     """
