@@ -15,7 +15,7 @@ from conftest import (
 
 from cimr import models
 from cimr.config import TrainingConfig
-from cimr.data import get_input, reference
+from cimr.data import get_input, get_reference_data
 from cimr.data.training_data import CIMRDataset
 from cimr.models import compile_mrnn
 from cimr.training import (
@@ -59,7 +59,7 @@ def test_training(
     ]
     model_config.output_configs = [
         models.OutputConfig(
-            reference.MRMS,
+            get_reference_data("mrms"),
             "surface_precip",
             "mse",
             quantiles=np.linspace(0, 1, 34)[1:-1]
@@ -178,7 +178,7 @@ def test_training_multi_input(
     ]
     model_config.output_configs = [
         models.OutputConfig(
-            reference.MRMS,
+            get_reference_data("mrms"),
             "surface_precip",
             "mse",
             quantiles=np.linspace(0, 1, 34)[1:-1]
@@ -302,7 +302,7 @@ def test_training_masked_input(
     ]
     model_config.output_configs = [
         models.OutputConfig(
-            reference.MRMS,
+            get_reference_data("mrms"),
             "surface_precip",
             "quantile_loss",
             quantiles=np.linspace(0, 1, 34)[1:-1]

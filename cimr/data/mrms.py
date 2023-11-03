@@ -272,7 +272,7 @@ mrms_precip_rate = MRMSData(
 )
 
 mrms_precip_rate_and_type = MRMSData(
-    "mrms",
+    "mrms_w_type",
     4,
     [
         RetrievalTarget("surface_precip", 1e-3),
