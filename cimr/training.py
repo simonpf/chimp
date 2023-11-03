@@ -322,7 +322,7 @@ def train(
             logger=lightning_module.tensorboard,
             callbacks=stage_callbacks,
             num_sanity_val_steps=0,
-            strategy=pl.strategies.DDPStrategy(find_unused_parameters=True),
+            #strategy=pl.strategies.DDPStrategy(find_unused_parameters=True),
             enable_progress_bar=True,
         )
         trainer.fit(

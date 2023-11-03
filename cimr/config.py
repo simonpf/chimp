@@ -16,9 +16,7 @@ from torch import nn
 import quantnn.models.pytorch.masked as nm
 
 import cimr
-from cimr.data.input import Input, get_input
-from cimr.data.reference import ReferenceData
-from cimr.data.utils import get_reference_data
+from cimr.data import Input, get_input, ReferenceData, get_reference_data
 
 
 def _parse_list(values, constr=int):

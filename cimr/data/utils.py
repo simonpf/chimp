@@ -42,30 +42,6 @@ def make_microwave_band_array(domain, band):
     return xr.DataArray(np.nan * np.ones(shape, dtype=np.float32))
 
 
-def get_reference_data(ref):
-    """
-    Parse reference dataset.
-
-    The reference datasets are handled in a similar manner as the inputs.
-
-    Args:
-        ref: Either a 'cimr.data.reference.ReferenceData' object or
-            the name of an attribute of the 'cimr.data.reference' module
-            pointing to such an object.
-
-    Return:
-        A 'cimr.data.reference.ReferenceData' object representing the
-        requested reference data.
-    """
-    if isinstance(ref, reference.ReferenceData):
-        return ref
-
-    try:
-        return getattr(reference, ref.upper())
-    except AttributeError:
-        raise ValueError(f"The reference data '{ref}' is not known.")
-
-
 def generate_input(
         n_channels,
         size: Tuple[int],

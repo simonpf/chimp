@@ -13,7 +13,7 @@ import subprocess
 import numpy as np
 import pandas as pd
 from pansat.roi import any_inside
-from pansat.time import to_datetime64
+from pansat.time import TimeRange, to_datetime64
 from pansat.download.providers import GOESAWSProvider
 from pansat.products.satellite.goes import GOES16L1BRadiances, GOES17L1BRadiances
 from pyresample import geometry, kd_tree
@@ -48,22 +48,22 @@ def get_output_filename(time):
     return filename
 
 
-goes_channels = { # Seviri match
-    2:  "geo_01",   # 0.635 um
-    3:  "geo_02",   # 0.81 um
-    5:  "geo_03",   # 1.64 um
-    7:  "geo_04",   # 3.92 um
-    8:  "geo_05",   # 6.25 um
-    10: "geo_06",   # 7.35 um
-    11: "geo_07",   # 8.7 um
-    12: "geo_08",   # 9.66 um
-    13: "geo_09",   # 10.3 um
-    15: "geo_10",   # 12 um
-    16: "geo_11"   # 13.4 um
-}
+goes_channels = [ # Seviri match
+    2,   # 0.635 um
+    3,   # 0.81 um
+    5,   # 1.64 um
+    7,   # 3.92 um
+    8,   # 6.25 um
+    10,  # 7.35 um
+    11,  # 8.7 um
+    12,  # 9.66 um
+    13,  # 10.3 um
+    15,  # 12 um
+    16,  # 13.4 um
+]
 
 
-def download_and_resample_goes_data(time):
+def download_and_resample_goes_data(time, domain):
     """
     Download GOES data closest to a given requested time step, resamples it
     and returns the result as an xarray dataset.
@@ -81,10 +81,20 @@ def download_and_resample_goes_data(time):
 
         goes_files = []
         for band in goes_channels:
-            provider = GOESAWSProvider(GOES16L1BRadiances("C", band))
-            goes_file = provider.get_files_in_range(time, time, start_inclusive=True)[-1]
-            local_file = Path(tmp) / goes_file
-            provider.download_file(goes_file, local_file)
+            prod = GOES16L1BRadiances("F", band)
+            time_range = TimeRange(
+                to_datetime64(time) - np.timedelta64(15 * 60, "s"),
+                to_datetime64(time)
+            )
+            channel_files = prod.find_files(time_range)
+
+            if len(channel_files) == 0:
+                return None
+
+            goes_files.append(channel_files[-1])
+
+            local_file = Path(tmp) / goes_file.filename
+            goes_file.download(local_file)
             goes_files.append(local_file)
 
         scene = Scene([str(filename) for filename in goes_files], reader="abi_l1b")
@@ -92,35 +102,25 @@ def download_and_resample_goes_data(time):
         scene = scene.resample(areas.CONUS_4)
         data = scene.to_xarray_dataset().compute()
 
-        goes_files = []
-        for band in goes_channels:
-            provider = GOESAWSProvider(GOES17L1BRadiances("C", band))
-            goes_file = provider.get_files_in_range(time, time, start_inclusive=True)[-1]
-            local_file = Path(tmp) / goes_file
-            provider.download_file(goes_file, local_file)
-            goes_files.append(local_file)
+        tbs_refl = []
+        for ch_name in channel_names[:3]:
+            tbs_refl.append(data[ch_name].data)
+        tbs_refl = np.stack(tbs_refl, -1)
 
-        if len(goes_files) > 0:
+        tbs_therm = []
+        for ch_name in channel_names[3:]:
+            tbs_therm.append(data[ch_name].data)
+        tbs_therm = np.stack(tbs_therm, -1)
 
-            scene = Scene([str(filename) for filename in goes_files], reader="abi_l1b")
-            scene.load(channel_names)
-            scene = scene.resample(areas.CONUS_4)
-            data_g17 = scene.to_xarray_dataset().compute()
-
-            for channel in channel_names:
-                data[channel].data[:, :500] = data_g17[channel].data[:, :500]
-
-        rename_dict = dict(zip(channel_names, goes_channels.values()))
-
-        data = data.drop_vars(["crs"])
+        tbs = xr.Dataset({
+            "tbs_refl": (("y", "x", "channels_refl"), tbs_refl),
+            "tbs_therm": (("y", "x", "channels_therm"), tbs_therm)
+        })
         start_time = data.attrs["start_time"]
         d_t = data.attrs["end_time"] - data.attrs["start_time"]
-        data.attrs = {}
-        data.attrs["time"] = to_datetime64(start_time + 0.5 * d_t)
+        tbs.attrs["time"] = to_datetime64(start_time + 0.5 * d_t)
 
-        for var in data:
-            data[var].attrs = {}
-        return data.rename(rename_dict)
+        return  tbs
 
 
 def save_file(dataset, output_folder):
@@ -140,25 +140,21 @@ def save_file(dataset, output_folder):
 
     encoding = {}
 
-    for channel in ["geo_01", "geo_02", "geo_03"]:
-        dataset[channel].data[:] = np.minimum(dataset[channel].data, 127)
-        encoding[channel] = {
-            "dtype": "uint8",
-            "_FillValue": 255,
-            "scale_factor": 0.5,
-            "zlib": True
-        }
-
-    for channel in range(4, 12):
-        channel = f"geo_{channel:02}"
-        dataset[channel].data[:] = np.clip(dataset[channel].data, 195, 323)
-        encoding[channel] = {
-            "dtype": "uint8",
-            "scale_factor": 0.5,
-            "add_offset": 195,
-            "_FillValue": 255,
-            "zlib": True
-        }
+    dataset["tbs_refl"].data[:] = np.minimum(dataset["tbs_refl"].data, 127)
+    encoding["tbs_refl"] = {
+        "dtype": "uint8",
+        "_FillValue": 255,
+        "scale_factor": 0.5,
+        "zlib": True
+    }
+    dataset["tbs_therm"].data[:] = np.clip(dataset["tbs_therm"].data, 195, 323)
+    encoding["tbs_therm"] = {
+        "dtype": "uint8",
+        "scale_factor": 0.5,
+        "add_offset": 195,
+        "_FillValue": 255,
+        "zlib": True
+    }
     dataset.to_netcdf(output_filename, encoding=encoding)
 
 
@@ -183,7 +179,7 @@ def process_day(
             observations.
         path: Not used, included for compatibility.
     """
-    output_folder = Path(output_folder) / "geo"
+    output_folder = Path(output_folder) / "goes"
     if not output_folder.exists():
         output_folder.mkdir(parents=True, exist_ok=True)
 
@@ -197,9 +193,8 @@ def process_day(
     while time < end_time:
 
         output_filename = get_output_filename(time)
-        print(output_filename, (output_folder / output_filename).exists())
         if not (output_folder / output_filename).exists():
-            dataset = download_and_resample_goes_data(time)
+            dataset = download_and_resample_goes_data(time, domain[4])
             save_file(dataset, output_folder)
 
         time = time + time_step

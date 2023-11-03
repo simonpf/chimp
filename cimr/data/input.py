@@ -16,6 +16,7 @@ import torch
 import xarray as xr
 
 from cimr.data.utils import scale_slices, generate_input
+from cimr.data.source import DataSource
 
 
 def find_random_scene(
@@ -97,13 +98,14 @@ def find_random_scene(
 
 
 
-class InputBase:
+class InputBase(DataSource):
     """
     Base class for all inputs that keeps track of all instances.
     """
     ALL_INPUTS = {}
 
     def __init__(self, name):
+        super().__init__(name)
         self.ALL_INPUTS[name] = self
 
     @classmethod

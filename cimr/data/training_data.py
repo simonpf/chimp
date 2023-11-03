@@ -31,8 +31,8 @@ import pandas as pd
 from cimr import data
 from cimr.definitions import MASK
 from cimr.utils import get_date
-from cimr.data.utils import get_reference_data
-from cimr.data import get_input
+from cimr.data import get_reference_data
+from cimr.data import get_input, get_reference_data
 from cimr.data import input, reference
 
 ###############################################################################
@@ -535,7 +535,7 @@ class CIMRDataset:
 
                 if np.issubdtype(y_t.dtype, np.floating):
                     y_t = np.nan_to_num(y_t, nan=MASK, copy=True)
-                y[target.name] = y_t
+                y[target.name] = torch.tensor(y_t.copy())
 
         # Load input data.
         x = {}

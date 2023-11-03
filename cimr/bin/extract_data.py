@@ -119,15 +119,16 @@ def run(args):
     Args:
         args: The namespace object provided by the top-level parser.
     """
-    from cimr.data.input import get_input
+    from cimr.data.source import get_source
     import cimr.data.gpm
     import cimr.data.cpcir
+    import cimr.data.mrms
 
     #
     # Check and load inputs.
     #
 
-    inpt = get_input(args.input.lower())
+    inpt = get_source(args.input.lower())
 
     year = args.year
     month = args.month

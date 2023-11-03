@@ -51,8 +51,7 @@ from cimr.config import (
     ModelConfig,
     parse_model_config
 )
-from cimr.data.utils import  get_reference_data
-from cimr.data import get_input
+from cimr.data import get_input, get_reference_data
 from cimr.data.reference import ReferenceData
 from cimr.models.stems import get_stem_factory
 from cimr.models.blocks import (
@@ -108,6 +107,7 @@ class ParallelEncoder(nn.Module, ParamCount):
             encoder_class = CascadingEncoder
         elif encoder_type == "dense_cascading":
             encoder_class = DenseCascadingEncoder
+
 
         self.stems = nn.ModuleDict()
         self.encoders = nn.ModuleDict()
@@ -420,6 +420,8 @@ def compile_model(model_config: ModelConfig) -> nn.Module:
             shape = (cfg.bins.size,) + shape
         elif cfg.loss == "mse":
             pass
+        elif cfg.loss == "classification":
+            shape = (cfg.n_classes,) + shape
         else:
             raise ValueError(
                 f"The provided loss '{cfg.loss}' is not known."
@@ -569,11 +571,10 @@ class CIMRModel(nn.Module):
         for key in x:
             tensor = x[key]
             mask = torch.isnan(tensor)
+            tensor[mask] = -1.5
+            #if mask.any():
             tensor = MaskedTensor(tensor, mask=mask).compress()
             x_m[key] = tensor
-        x_m = x
-        print("new")
-
 
         outputs = {}
 
@@ -594,7 +595,7 @@ class CIMRModel(nn.Module):
                     if output.empty:
                         continue
                     output = output.decompress()
-                outputs[name + "/" + key] = output.decompress()
+                outputs[name + "/" + key] = output
 
         return outputs
 

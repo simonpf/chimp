@@ -9,6 +9,8 @@ from typing import Union, List, Optional
 
 import xarray as xr
 
+from cimr.data.source import DataSource
+
 
 def find_random_scene(
         reference_data,
@@ -44,7 +46,9 @@ def find_random_scene(
         qi = data[reference_data.quality_index].data
 
         found = False
+        count = 0
         while not found:
+            count += 1
             n_rows, n_cols = qi.shape
             i_start = rng.integers(0, (n_rows - window_size) // multiple)
             i_end = i_start + window_size // multiple
@@ -65,6 +69,8 @@ def find_random_scene(
     return (i_start, i_end, j_start, j_end)
 
 
+
+
 @dataclass
 class RetrievalTarget:
     """
@@ -75,8 +81,11 @@ class RetrievalTarget:
     lower_limit: Optional[float] = None
 
 
+ALL_REFERENCE_DATA = {}
+
+
 @dataclass
-class ReferenceData:
+class ReferenceData(DataSource):
     """
     This dataclass holds properties of reference datasets.
     """
@@ -85,20 +94,38 @@ class ReferenceData:
     targets: List[RetrievalTarget]
     quality_index: str
 
+    def __init__(
+            self,
+            name: str,
+            scale: int,
+            targets: list[RetrievalTarget],
+            quality_index: str
+    ):
+        super().__init__(name)
+        ALL_REFERENCE_DATA[name] = self
+        self.name = name
+        self.scale = scale
+        self.targets = targets
+        self.quality_index = quality_index
 
-MRMS = ReferenceData(
-    "mrms",
-    4,
-    [RetrievalTarget("surface_precip", 1e-3)],
-    "rqi"
-)
 
-MRMS_W_TYPE = ReferenceData(
-    "mrms",
-    4,
-    [
-        RetrievalTarget("surface_precip", 1e-3),
-        RetrievalTarget("precip_type", None),
-    ],
-    "rqi"
-)
+def get_reference_data(name: Union[str, ReferenceData]) -> ReferenceData:
+    """
+    Retrieve reference dataset by name.
+
+    Args:
+        name: The name of a dataset.
+
+    Return:
+        A ReferenceData object that can be used to load reference data
+        from the requested dataset.
+    """
+    if isinstance(name, DataSource):
+        return name
+    if name in ALL_REFERENCE_DATA:
+        return ALL_REFERENCE_DATA[name]
+
+    raise ValueError(
+        f"The reference data '{name}' is currently not available. Available "
+        f" reference datasets are {list(ALL_REFERENCE_DATA.keys())}."
+    )
