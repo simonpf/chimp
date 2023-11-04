@@ -14,6 +14,7 @@ from quantnn.models.pytorch.encoders import (
     CascadingEncoder,
     DenseCascadingEncoder,
 )
+from quantnn.masked_tensor import MaskedTensor
 from quantnn.models.pytorch.aggregators import LinearAggregatorFactory
 from quantnn.models.pytorch import masked as nm
 from quantnn.packed_tensor import forward
@@ -167,7 +168,12 @@ class SingleScaleParallelEncoder(nn.Module):
         aggregated = {}
         for scl, agg in self.aggregators.items():
             scl = int(scl)
-            inputs = [encs[scl].decompress() for encs in encodings.values()]
+            inputs = []
+            for encs in encodings.values():
+                inpt = encs[scl]
+                if isinstance(inpt, MaskedTensor):
+                    inpt = inpt.decompress()
+                inputs.append(inpt)
             aggregated[scl] = agg(*inputs)
 
         if self.no_deep_supervision:
@@ -275,7 +281,10 @@ class MultiScaleParallelEncoder(nn.Module):
             inputs = []
             for encs in encodings.values():
                 if scl in encs:
-                    inputs.append(encs[scl].decompress())
+                    inpt = encs[scl]
+                    if isinstance(inpt, MaskedTensor):
+                        inpt = inpt.decompress()
+                    inputs.append(inpt)
             aggregated[scl] = agg(*inputs)
 
         if self.no_deep_supervision:
