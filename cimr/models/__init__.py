@@ -591,7 +591,7 @@ class CIMRModel(nn.Module):
             for key, head in self.heads.items():
                 output = head(self.decoder(enc))
                 if isinstance(output, MaskedTensor):
-                    if output.empty:
+                    if output.mask.all():
                         continue
                     output = output.decompress()
                 outputs[name + "::" + key] = output

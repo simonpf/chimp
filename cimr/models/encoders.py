@@ -156,9 +156,9 @@ class SingleScaleParallelEncoder(nn.Module):
         """
         encodings = {}
         for inpt, x in inputs.items():
-            x_in = forward(self.upsamplers[inpt], x)
-            x_in = forward(self.stems[inpt], x_in)
-            encs = forward(self.encoders[inpt], x_in, return_skips=True)
+            x_in = self.upsamplers[inpt](x)
+            x_in = self.stems[inpt](x_in)
+            encs = self.encoders[inpt](x_in, return_skips=True)
             encodings[inpt] = encs
 
         if len(self.aggregators) == 0:
@@ -262,8 +262,8 @@ class MultiScaleParallelEncoder(nn.Module):
         """
         encodings = {}
         for inpt, x in inputs.items():
-            x_in = forward(self.stems[inpt], x)
-            encs = forward(self.encoders[inpt], x_in, return_skips=True)
+            x_in = self.stems[inpt](x)
+            encs = self.encoders[inpt](x_in, return_skips=True)
             encodings[inpt] = encs
 
         if len(self.aggregators) == 0:
