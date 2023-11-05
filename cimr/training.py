@@ -17,13 +17,14 @@ from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from quantnn import metrics
 from torch.utils.data import DataLoader
 
-from cimr.data.training_data import SingleStepDataset, sparse_collate
+from cimr.data.training_data import SingleStepDataset, SequenceDataset
 
 
 class ResetParameters(Callback):
     """
     Pytorch lightning callback to reset model parameters.
     """
+
     def on_train_epoch_start(self, trainer, pl_module):
         """
         Args:
@@ -36,17 +37,13 @@ class ResetParameters(Callback):
             """
             Rest parameters in network layer.
             """
-            if hasattr(layer, 'reset_parameters'):
+            if hasattr(layer, "reset_parameters"):
                 layer.reset_parameters()
 
         mrnn.model.apply(reset_params)
 
 
-def get_optimizer_and_scheduler(
-        training_config,
-        model,
-        previous_optimizer=None
-):
+def get_optimizer_and_scheduler(training_config, model, previous_optimizer=None):
     """
     Return torch optimizer, learning-rate scheduler and callback objects
     corresponding to this configuration.
@@ -79,8 +76,7 @@ def get_optimizer_and_scheduler(
     else:
         optimizer_cls = getattr(torch.optim, training_config.optimizer)
         optimizer = optimizer_cls(
-            model.parameters(),
-            **training_config.optimizer_kwargs
+            model.parameters(), **training_config.optimizer_kwargs
         )
 
     scheduler = training_config.scheduler
@@ -88,10 +84,7 @@ def get_optimizer_and_scheduler(
         return optimizer, None, []
 
     if scheduler == "lr_search":
-        scheduler = torch.optim.lr_scheduler.ExponentialLR(
-            optimizer,
-            gamma=2.0
-        )
+        scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=2.0)
         callbacks = [
             ResetParameters(),
         ]
@@ -114,7 +107,7 @@ def get_optimizer_and_scheduler(
                 stopping_threshold=training_config.minimum_lr * 1.001,
                 patience=training_config.n_epochs,
                 verbose=True,
-                strict=True
+                strict=True,
             )
         ]
     else:
@@ -124,10 +117,10 @@ def get_optimizer_and_scheduler(
 
 
 def create_data_loaders(
-        model_config: "cimr.config.ModelConfig",
-        training_config: "cimr.config.TrainingConfig",
-        training_data_path: Path,
-        validation_data_path: Optional[Path]
+    model_config: "cimr.config.ModelConfig",
+    training_config: "cimr.config.TrainingConfig",
+    training_data_path: Path,
+    validation_data_path: Optional[Path],
 ) -> Tuple[DataLoader, Optional[DataLoader]]:
     """
     Create pytorch Dataloaders for training and validation data.
@@ -153,20 +146,33 @@ def create_data_loaders(
         else:
             if reference_data != output_cfg.reference_data:
                 raise ValueError(
-                    "Retrieval outputs must all come from the same "
-                    " reference data."
+                    "Retrieval outputs must all come from the same " " reference data."
                 )
 
-    training_data = SingleStepDataset(
-        training_data_path,
-        inputs=inputs,
-        reference_data=reference_data,
-        sample_rate=training_config.sample_rate,
-        sequence_length=training_config.sequence_length,
-        window_size=training_config.input_size,
-        quality_threshold=training_config.quality_threshold,
-        missing_value_policy=training_config.missing_value_policy
-    )
+    if model_config.temporal_merging:
+        training_data = SequenceDataset(
+            training_data_path,
+            inputs=inputs,
+            reference_data=reference_data,
+            sample_rate=training_config.sample_rate,
+            sequence_length=training_config.sequence_length,
+            forecast=training_config.forecast,
+            window_size=training_config.input_size,
+            quality_threshold=training_config.quality_threshold,
+            missing_value_policy=training_config.missing_value_policy,
+        )
+    else:
+        training_data = SingleStepDataset(
+            training_data_path,
+            inputs=inputs,
+            reference_data=reference_data,
+            sample_rate=training_config.sample_rate,
+            sequence_length=training_config.sequence_length,
+            window_size=training_config.input_size,
+            quality_threshold=training_config.quality_threshold,
+            missing_value_policy=training_config.missing_value_policy,
+        )
+
     training_loader = DataLoader(
         training_data,
         shuffle=True,
@@ -174,22 +180,37 @@ def create_data_loaders(
         num_workers=training_config.data_loader_workers,
         worker_init_fn=training_data.init_rng,
         pin_memory=True,
-        #collate_fn=sparse_collate
+        # collate_fn=sparse_collate
     )
     if validation_data_path is None:
         return training_loader, None
 
-    validation_data =  SingleStepDataset(
-        validation_data_path,
-        inputs=inputs,
-        reference_data=reference_data,
-        sample_rate=training_config.sample_rate,
-        sequence_length=training_config.sequence_length,
-        window_size=training_config.input_size,
-        quality_threshold=training_config.quality_threshold,
-        missing_value_policy=training_config.missing_value_policy,
-        validation=True
-    )
+    if model_config.temporal_merging:
+        validation_data = SequenceDataset(
+            validation_data_path,
+            inputs=inputs,
+            reference_data=reference_data,
+            sample_rate=training_config.sample_rate,
+            sequence_length=training_config.sequence_length,
+            forecast=training_config.forecast,
+            window_size=training_config.input_size,
+            quality_threshold=training_config.quality_threshold,
+            missing_value_policy=training_config.missing_value_policy,
+            validation=True,
+        )
+    else:
+        validation_data = SingleStepDataset(
+            validation_data_path,
+            inputs=inputs,
+            reference_data=reference_data,
+            sample_rate=training_config.sample_rate,
+            sequence_length=training_config.sequence_length,
+            window_size=training_config.input_size,
+            quality_threshold=training_config.quality_threshold,
+            missing_value_policy=training_config.missing_value_policy,
+            validation=True,
+        )
+
     validation_loader = DataLoader(
         validation_data,
         shuffle=False,
@@ -197,20 +218,18 @@ def create_data_loaders(
         num_workers=training_config.data_loader_workers,
         worker_init_fn=validation_data.init_rng,
         pin_memory=True,
-        #collate_fn=sparse_collate
     )
     return training_loader, validation_loader
 
 
-
 def train(
-        model_name,
-        mrnn,
-        training_configs,
-        training_data_path,
-        validation_data_path,
-        output_path,
-        ckpt_path=None
+    model_name,
+    mrnn,
+    training_configs,
+    training_data_path,
+    validation_data_path,
+    output_path,
+    ckpt_path=None,
 ):
     """
     Train a CIMR retrieval model using Pytorch lightning.
@@ -240,16 +259,12 @@ def train(
     ]
 
     lightning_module = mrnn.lightning(
-        mask=-100,
-        metrics=mtrcs,
-        name=model_name,
-        log_dir=output_path / "logs"
+        mask=-100, metrics=mtrcs, name=model_name, log_dir=output_path / "logs"
     )
     if ckpt_path is not None:
         ckpt_data = torch.load(ckpt_path)
         stage = ckpt_data["stage"]
         lightning_module.stage = stage
-
 
     devices = None
 
@@ -261,8 +276,8 @@ def train(
             filename=f"cimr_{model_name}",
             verbose=True,
             save_top_k=0,
-            save_last=True
-        )
+            save_last=True,
+        ),
     ]
 
     all_optimizers = []
@@ -271,9 +286,7 @@ def train(
     opt_prev = None
     for stage_ind, training_config in enumerate(training_configs):
         opt_s, sch_s, cback_s = get_optimizer_and_scheduler(
-            training_config,
-            mrnn.model,
-            previous_optimizer=opt_prev
+            training_config, mrnn.model, previous_optimizer=opt_prev
         )
         opt_prev = opt_s
         all_optimizers.append(opt_s)
@@ -283,9 +296,7 @@ def train(
     lightning_module.optimizer = all_optimizers
     lightning_module.scheduler = all_schedulers
 
-
     for stage_ind, training_config in enumerate(training_configs):
-
         if stage_ind < lightning_module.stage:
             continue
 
@@ -299,10 +310,7 @@ def train(
 
         stage_callbacks = callbacks + all_callbacks[stage_ind]
         training_loader, validation_loader = create_data_loaders(
-            mrnn.model_config,
-            training_config,
-            training_data_path,
-            validation_data_path
+            mrnn.model_config, training_config, training_data_path, validation_data_path
         )
 
         devices = training_config.devices
@@ -322,7 +330,7 @@ def train(
             logger=lightning_module.tensorboard,
             callbacks=stage_callbacks,
             num_sanity_val_steps=0,
-            #strategy=pl.strategies.DDPStrategy(find_unused_parameters=True),
+            strategy=pl.strategies.DDPStrategy(find_unused_parameters=True),
             enable_progress_bar=True,
         )
         trainer.fit(
@@ -332,7 +340,7 @@ def train(
             ckpt_path=ckpt_path,
         )
         mrnn.save(output_path / f"cimr_{model_name}.pckl")
-        ckpt_path=None
+        ckpt_path = None
 
 
 def find_most_recent_checkpoint(path: Path, model_name: str) -> Path:

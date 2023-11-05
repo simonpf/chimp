@@ -19,6 +19,7 @@ from cimr.data.training_data import (
     collate_recursive,
     sparse_collate,
     SingleStepDataset,
+    SequenceDataset,
     CIMRPretrainDataset
 )
 
@@ -98,7 +99,7 @@ def test_sparse_collate():
     assert isinstance(x, torch.Tensor)
 
 
-def test_training_find_files(cpcir_data, mrms_surface_precip_data):
+def test_find_files_single_step(cpcir_data, mrms_surface_precip_data):
     """
     Test that the training data finds the expected start times for
     sampling sequences.
@@ -107,8 +108,10 @@ def test_training_find_files(cpcir_data, mrms_surface_precip_data):
         cpcir_data,
         reference_data="mrms",
         inputs=["cpcir"],
+        sample_rate=1
     )
-    assert training_data.sequence_starts.size == 12
+    assert len(training_data) == 24
+
 
 
 
@@ -169,7 +172,11 @@ def test_full_domain(cpcir_data, gmi_data, mrms_surface_precip_data):
         assert x["cpcir"].shape[-2:] == (960, 1920)
 
 
-def test_missing_input_policies(cpcir_data, gmi_data, mrms_surface_precip_data):
+def test_missing_input_policies(
+        cpcir_data,
+        gmi_data,
+        mrms_surface_precip_data
+):
     """
     Test that missing inputs are handled correctly.
     """
@@ -226,3 +233,39 @@ def test_missing_input_policies(cpcir_data, gmi_data, mrms_surface_precip_data):
     assert np.all(np.isfinite(x["gmi"].numpy()))
     assert x["cpcir"].shape[1:] == (128, 128)
     assert np.all(np.isfinite(x["cpcir"].numpy()))
+
+
+###############################################################################
+# Sequence dataset
+###############################################################################
+
+def test_find_files_sequence(cpcir_data, mrms_surface_precip_data):
+    """
+    Test that the training data finds the expected start times for
+    sampling sequences.
+    """
+    training_data = SequenceDataset(
+        cpcir_data,
+        reference_data="mrms",
+        inputs=["cpcir"],
+        sample_rate=1,
+        sequence_length=8
+    )
+    assert len(training_data) == 16
+
+
+def test_load_sample_sequence(cpcir_data, mrms_surface_precip_data):
+    """
+    Test that the training data finds the expected start times for
+    sampling sequences.
+    """
+    training_data = SequenceDataset(
+        cpcir_data,
+        reference_data="mrms",
+        inputs=["cpcir"],
+        sample_rate=1,
+        sequence_length=8
+    )
+    x, y = training_data[0]
+    assert len(x) == 8
+    assert len(y) == 8
