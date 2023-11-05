@@ -40,7 +40,7 @@ class SequenceModel(nn.Module):
         self.decoder = decoder
         self.propagator = propagator
         self.assimilator = assimilator
-        self.heads = heads
+        self.heads = nn.ModuleDict(heads)
 
     def forward_single(self, x, encs_prev_1, encs_prev_2, step):
         x_m = {}
@@ -51,35 +51,33 @@ class SequenceModel(nn.Module):
                 tensor = MaskedTensor(tensor, mask=mask).compress()
             x_m[key] = tensor
 
-        outputs = {}
-
-        encs_o = self.encoder(x_m, return_skips=True)
-        if isinstance(encs_o, tuple):
-            encs_o, deep_outputs = encs_o
-        else:
-            deep_outputs = {}
-
-        outputs.update(
-            calculate_outputs(self.decoder, self.heads, encs_o, f"obs_{step}::")
-        )
-
-        encs = encs_o
+        encs_o = None
+        if len(x_m) > 0:
+            encs_o = self.encoder(x_m, return_skips=True)
+            if isinstance(encs_o, tuple):
+                encs_o, deep_outputs = encs_o
+            else:
+                deep_outputs = {}
+            encs = encs_o
 
         if encs_prev_2 is not None and encs_prev_1 is not None:
             # Propagate previous encodings in time
             encs_p = self.propagator(encs_prev_1, encs_prev_2)
-
-            outputs.update(
-                calculate_outputs(self.decoder, self.heads, encs_p, f"pred_{step}::")
+            if encs_o is not None:
+                encs_a = self.assimilator(encs_o, encs_p)
+                encs = encs_a
+                outputs = calculate_outputs(
+                    self.decoder, self.heads, encs_a, f"step_{step}::"
+                )
+            else:
+                outputs = calculate_outputs(
+                    self.decoder, self.heads, encs_p, f"step_{step}::"
+                )
+                encs = encs_p
+        else:
+            outputs = calculate_outputs(
+                self.decoder, self.heads, encs_o, f"step_{step}::"
             )
-
-            encs_a = self.assimilator(encs_o, encs_p)
-
-            outputs.update(
-                calculate_outputs(self.decoder, self.heads, encs_a, f"ass_{step}::")
-            )
-
-            encs = encs_a
 
         return outputs, encs
 
@@ -89,8 +87,9 @@ class SequenceModel(nn.Module):
 
         y = []
 
-        encs_prev_2 = None
         encs_prev_1 = None
+        encs_prev_2 = None
+
         for step, x in enumerate(x):
             outputs, encs = self.forward_single(x, encs_prev_1, encs_prev_2, step)
             y.append(outputs)
@@ -207,8 +206,9 @@ class Assimilator(nn.Module):
 
     def forward(self, encs_o, encs_p):
         x = {scl: torch.cat([encs_o[scl], encs_p[scl]], 1) for scl in encs_o}
-        y = self.decoder(x)
-        y[self.base_scale] = self.block(y[self.base_scale])
+        corr = self.decoder(x)
+        corr[self.base_scale] = self.block(corr[self.base_scale])
+        y = {scl: encs_p[scl] + corr[scl] for scl in x}
         return y
 
 
