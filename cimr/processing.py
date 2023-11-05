@@ -8,18 +8,13 @@ import logging
 
 import numpy as np
 from quantnn.packed_tensor import PackedTensor
-from quantnn.quantiles import (
-    posterior_mean,
-    sample_posterior,
-    probability_larger_than
-)
+from quantnn.quantiles import posterior_mean, sample_posterior, probability_larger_than
 from quantnn.models.pytorch.lightning import to_device
 from quantnn.mrnn import Quantiles, Density, MSE, Classification
 import torch
 from torch import nn
 import xarray as xr
 
-from cimr.models import not_empty
 from cimr.tiling import Tiler
 
 
@@ -74,12 +69,7 @@ def empty_input(model, model_input):
 
 
 def retrieval_step(
-        model,
-        model_input,
-        state,
-        tile_size=256,
-        device="cuda",
-        float_type=torch.float32
+    model, model_input, state, tile_size=256, device="cuda", float_type=torch.float32
 ):
     """
     Run retrieval on given input.
@@ -96,10 +86,7 @@ def retrieval_step(
     """
 
     x = model_input
-    x = {
-        name: tensor.to(dtype=float_type, device=device)
-        for name, tensor in x.items()
-    }
+    x = {name: tensor.to(dtype=float_type, device=device) for name, tensor in x.items()}
     tiler = Tiler(x, tile_size=tile_size, overlap=64)
 
     means = {}
@@ -110,7 +97,6 @@ def retrieval_step(
     model.model.to(device=device, dtype=float_type)
 
     def predict_fun(x_t):
-
         results = {}
 
         with torch.no_grad():
@@ -120,7 +106,6 @@ def retrieval_step(
                     y_pred = y_pred._t
 
                 for key, y_pred_k in y_pred.items():
-
                     if key in model.transformation:
                         transform = model.transformation[key]
                         y_pred_k = transform.invert(y_pred_k)
@@ -128,7 +113,6 @@ def retrieval_step(
                     loss = model.losses[key]
 
                     if isinstance(loss, (Quantiles, Density, MSE)):
-
                         y_mean_k = loss.posterior_mean(y_pred=y_pred_k)
                         p_non_zero = y_mean_k
                         if hasattr(loss, "probability_larger_than"):
@@ -144,9 +128,7 @@ def retrieval_step(
                                 1e1,
                             )
 
-                        results[key + "_mean"] = (
-                            y_mean_k.float().cpu().numpy()[0]
-                        )
+                        results[key + "_mean"] = y_mean_k.float().cpu().numpy()[0]
                         results["p_" + key + "_non_zero"] = (
                             p_non_zero.float().cpu().numpy()[0]
                         )
@@ -155,27 +137,25 @@ def retrieval_step(
                         )
 
                     elif isinstance(loss, Classification):
-
                         classes = loss.predict(y_pred_k)
                         results[key + "_prob"] = classes.cpu().numpy()[0]
-
 
             return results
 
     dims = ("classes", "y", "x")
     results = tiler.predict(predict_fun)
-    results = xr.Dataset({
-        key: (dims[-value.ndim:], value) for key, value in results.items()
-    })
+    results = xr.Dataset(
+        {key: (dims[-value.ndim :], value) for key, value in results.items()}
+    )
     return results
 
 
 def make_forecast(
-        qrnn,
-        dataset,
-        forecast_time,
-        obs_steps,
-        forecast_steps,
+    qrnn,
+    dataset,
+    forecast_time,
+    obs_steps,
+    forecast_steps,
 ):
     """
     Make a precipitation forecasts for a given start time.
@@ -215,45 +195,44 @@ def make_forecast(
     LOGGER.info("Running forecast.")
 
     with torch.no_grad():
-
         for _ in range(forecast_steps):
-
-            y_pred, f_state = qrnn.model(
-                None, state=f_state, return_state=True
-            )
+            y_pred, f_state = qrnn.model(None, state=f_state, return_state=True)
 
             # Posterior mean.
-            y_mean = posterior_mean(
-                y_pred=y_pred,
-                quantile_axis=1,
-                quantiles=quantiles
-            ).cpu().numpy()[0, slice_y, slice_x]
+            y_mean = (
+                posterior_mean(y_pred=y_pred, quantile_axis=1, quantiles=quantiles)
+                .cpu()
+                .numpy()[0, slice_y, slice_x]
+            )
             y_pred_mean.append(y_mean)
 
             # P(dbz >= -5)
-            prob = probability_larger_than(
-                y_pred=y_pred,
-                y=-5,
-                quantile_axis=1,
-                quantiles=quantiles
-            ).cpu().numpy()[0, slice_y, slice_x]
+            prob = (
+                probability_larger_than(
+                    y_pred=y_pred, y=-5, quantile_axis=1, quantiles=quantiles
+                )
+                .cpu()
+                .numpy()[0, slice_y, slice_x]
+            )
             y_pred_prob.append(prob)
 
             # Sample from posterior
-            sampled = sample_posterior(
-                y_pred=y_pred,
-                quantile_axis=1,
-                quantiles=quantiles
-            ).cpu().numpy()[0,  0, slice_y, slice_x]
+            sampled = (
+                sample_posterior(y_pred=y_pred, quantile_axis=1, quantiles=quantiles)
+                .cpu()
+                .numpy()[0, 0, slice_y, slice_x]
+            )
             y_pred_sampled.append(sampled)
 
     y_pred_mean = np.stack(y_pred_mean)
     y_pred_sampled = np.stack(y_pred_sampled)
     y_pred_prob = np.stack(y_pred_prob)
 
-    results = xr.Dataset({
-        "dbz_mean": (("steps", "y", "x"), y_pred_mean),
-        "dbz_prob": (("steps", "y", "x"), y_pred_prob),
-        "dbz_sampled": (("steps", "y", "x"), y_pred_sampled)
-    })
+    results = xr.Dataset(
+        {
+            "dbz_mean": (("steps", "y", "x"), y_pred_mean),
+            "dbz_prob": (("steps", "y", "x"), y_pred_prob),
+            "dbz_sampled": (("steps", "y", "x"), y_pred_sampled),
+        }
+    )
     return results
