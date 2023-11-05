@@ -297,9 +297,8 @@ class SingleStepDataset:
     def __init__(
         self,
         folder,
-        reference_data="radar",
-        inputs=None,
-        targets=None,
+        inputs,
+        reference_data,
         sample_rate=1,
         sequence_length=1,
         normalize=True,
@@ -318,7 +317,6 @@ class SingleStepDataset:
             reference_data: Name of the folder containing the reference
                 data.
             inputs: List of names of inputs specifying the input data.
-            targets: List of target names.
             sample_rate: How often each scene should be sampled per epoch.
             normalize: Whether inputs should be normalized.
             window_size: Size of the training scenes.
@@ -405,24 +403,6 @@ class SingleStepDataset:
         self.keys = np.array(list(self.samples.keys()))
         self.window_size = window_size
 
-        # Determine valid start point for input samples.
-        self.sequence_length = sequence_length
-        times = self.keys
-        times_start = times[self.sequence_length - 1:]
-        times_end = times[: len(times) - self.sequence_length + 1]
-        deltas = times_end - times_start
-        starts = np.where(
-            deltas.astype("timedelta64[s]")
-            <= np.timedelta64(self.sequence_length * 15 * 60, "s")
-        )[0]
-
-        sequence_starts = []
-        for index in starts:
-            sample = self.samples[times[index]]
-            if any((inp is not None for inp in sample[1:])):
-                sequence_starts.append(index)
-        self.sequence_starts = np.array(sequence_starts)
-
         self.validation = validation
         if self.validation:
             self.augment = False
@@ -440,10 +420,6 @@ class SingleStepDataset:
         else:
             seed = int.from_bytes(os.urandom(4), "big") + w_id
         self.rng = np.random.default_rng(seed)
-
-    def __len__(self):
-        """Number of samples in dataset."""
-        return len(self.sequence_starts) * self.sample_rate
 
     def load_sample(
             self,
@@ -555,20 +531,31 @@ class SingleStepDataset:
 
         return x, y
 
+
+    def __len__(self):
+        """Number of samples in dataset."""
+        return len(self.samples) * self.sample_rate
+
+
     def __getitem__(self, index):
         """Return ith training sample."""
-
-        n_starts = len(self.sequence_starts)
-        scene_index = self.sequence_starts[index % n_starts]
+        n_starts = len(self.samples)
+        scene_index = index % n_starts
         key = self.keys[scene_index]
 
+        # We load a larger window when input is rotated to avoid
+        # missing values.
         if self.augment:
             window_size = int(1.42 * self.window_size)
             rem = window_size % self.max_scale
             if rem != 0:
                 window_size += self.max_scale - rem
+            ang = -180 + 360 * self.rng.random()
+            flip = self.rng.random() > 0.5
         else:
             window_size = self.window_size
+            ang = None
+            flip = False
 
         slices = reference.find_random_scene(
             self.reference_data,
@@ -579,12 +566,6 @@ class SingleStepDataset:
             qi_thresh=self.quality_threshold
         )
 
-        if self.augment:
-            ang = -180 + 360 * self.rng.random()
-            flip = self.rng.random() > 0.5
-        else:
-            ang = None
-            flip = False
 
         x, y = self.load_sample(
             self.samples[key],
@@ -1088,23 +1069,27 @@ class CIMRPretrainDataset(SingleStepDataset):
         return x, y
 
 
-class CIMRSequenceDataset(SingleStepDataset):
+class SequenceDataset(SingleStepDataset):
     """
     Dataset class for temporal merging of satellite observations.
     """
     def __init__(
         self,
         folder,
+        reference_data="mrms",
+        inputs=None,
         sample_rate=2,
         normalize=True,
-        window_size=128,
+        window_size=256,
         sequence_length=32,
         start_time=None,
         end_time=None,
         quality_threshold=0.8,
+        missing_value_policy="masked",
         augment=True,
         forecast=None,
-        sources=None
+        validation=False,
+        time_step=None
     ):
         """
         Args:
@@ -1115,122 +1100,95 @@ class CIMRSequenceDataset(SingleStepDataset):
             sequence_length: The length of the training sequences.
             start_time: Optional start time to limit the samples.
             end_time: Optional end time to limit the available samples.
-            quality_threshold: Quality threshold to use for masking the
-                radar data.
+            augment: Whether to apply random transformations to the training
+                inputs.
             augment: Whether to apply random flipping to the data.
             forecast: The number of samples in the sequence without input
                 observations.
+            validation: If 'True' sampling will reproduce identical scenes.
         """
         super().__init__(
             folder,
-            sample_rate=2,
+            reference_data=reference_data,
+            inputs=inputs,
+            sample_rate=sample_rate,
             normalize=normalize,
             window_size=window_size,
             start_time=start_time,
+            missing_value_policy=missing_value_policy,
             end_time=end_time,
             quality_threshold=quality_threshold,
             augment=augment,
-            sources=sources
+            validation=validation
         )
 
         self.sequence_length = sequence_length
+
+        # Find samples with a series of consecutive outputs.
         times = self.keys
-        deltas = times[self.sequence_length :] - times[: -self.sequence_length]
-        starts = np.where(
+        deltas = times[sequence_length:] - times[:-sequence_length]
+        if time_step is None:
+            time_step = deltas.min()
+        self.sequence_starts = np.where(
             deltas.astype("timedelta64[s]")
-            <= np.timedelta64(self.sequence_length * 15 * 60, "s")
+            <= sequence_length * time_step
         )[0]
-
-        self.sequence_starts = []
-        for index in starts:
-            sample = self.samples[times[index]]
-            if sample.has_input(self.sources):
-                self.sequence_starts.append(index)
-
-        step = max(sequence_length // sample_rate, 1)
-        self.sequence_starts = self.sequence_starts[::step][:-1]
-
         self.forecast = forecast
+
 
     def __len__(self):
         """Number of samples in an epoch."""
-        return len(self.sequence_starts)
+        return len(self.sequence_starts) * self.sample_rate
+
 
     def __getitem__(self, index):
         """Return training sample."""
+        index = index // self.sample_rate
         key = self.keys[self.sequence_starts[index]]
-        with xr.open_dataset(self.samples[key].radar) as data:
 
-            y = data.dbz.data.copy()
-            y[data.qi.data < self.quality_threshold] = np.nan
-
-            found = False
-            tries = 0
-            while not found:
-
-                n_rows, n_cols = y.shape
-
-                i_start = self.rng.integers(0, (n_rows - self.window_size) // 4)
-                i_end = i_start + self.window_size // 4
-                j_start = self.rng.integers(0, (n_cols - self.window_size) // 4)
-                j_end = j_start + self.window_size // 4
-
-                row_slice = slice(4 * i_start, 4 * i_end)
-                col_slice = slice(4 * j_start, 4 * j_end)
-
-                y_s = y[row_slice, col_slice]
-
-                if (y_s >= MASK).mean() > 0.2:
-                    found = True
-                else:
-                    tries += 1
-
-                if tries > 10:
-                    new_index = self.rng.integers(0, len(self))
-                    return self[new_index]
-
-        slices = (i_start, i_end, j_start, j_end)
-
-        xs = []
-        ys = []
-
+        # We load a larger window when input is rotated to avoid
+        # missing values.
         if self.augment:
-            flip_v = self.rng.random() > 0.5
-            flip_h = self.rng.random() > 0.5
-            transpose= self.rng.random() > 0.5
+            window_size = int(1.42 * self.window_size)
+            rem = window_size % self.max_scale
+            if rem != 0:
+                window_size += self.max_scale - rem
+            ang = -180 + 360 * self.rng.random()
+            flip = self.rng.random() > 0.5
         else:
-            flip_v = False
-            flip_h = False
-            transpose = False
+            window_size = self.window_size
+            ang = None
+            flip = False
 
+        # Find valid input range for last sample in sequence
+        key = self.keys[self.sequence_starts[index] + self.sequence_length]
+        slices = reference.find_random_scene(
+            self.reference_data,
+            self.samples[key][0],
+            self.rng,
+            multiple=4,
+            window_size=window_size,
+            qi_thresh=self.quality_threshold
+        )
+
+        x = []
+        y = []
+        start_index = self.sequence_starts[index]
         for i in range(self.sequence_length):
-
-            if self.forecast is not None:
-                forecast = i >= self.sequence_length - self.forecast
-            else:
-                forecast = False
-
-            x, y = self.load_sample(
-                self.sequence_starts[index] + i,
-                slices=slices,
-                forecast=forecast,
-                flip_v=flip_v,
-                flip_h=flip_h,
-                transpose=transpose
+            key = self.keys[start_index + i]
+            x_i, y_i = self.load_sample(
+                self.samples[key],
+                slices,
+                self.window_size,
+                rotate=ang,
+                flip=flip
             )
-            has_input = False or forecast or i > 0
-            for source in self.sources:
-                if source == "mw":
-                    source = "mw_90"
-                if x[source] is not None:
-                    has_input = True
-            if not has_input:
-                new_index = self.rng.integers(0, len(self))
-                return self[new_index]
-
-            xs.append(x)
-            ys.append(y)
-        return xs, ys
+            if i > self.sequence_length - self.forecast - 1:
+                x.append({})
+            else:
+                x.append(x_i)
+            y.append(y_i)
+        return x, y
 
 
 def plot_sample(x, y):
