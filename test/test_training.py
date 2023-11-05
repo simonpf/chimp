@@ -420,3 +420,77 @@ def test_find_most_recent_checkpoint(tmp_path):
     ckpt_3.touch()
     ckpt = find_most_recent_checkpoint(tmp_path, model_name)
     assert ckpt == ckpt_3
+
+
+def test_sequence_training(
+        tmp_path,
+        mrms_surface_precip_data,
+        gmi_data,
+        cpcir_data
+):
+    """
+    Tests training over multiple epochs and the termination when
+    the learning rates falls below the minimum LR.
+    """
+    model_config = models.load_config("gremlin")
+    model_config.input_configs = [
+        models.InputConfig(
+            get_input("cpcir"),
+            stem_depth=1,
+            stem_kernel_size=3,
+            stem_downsampling=1
+        ),
+        models.InputConfig(
+            get_input("gmi"),
+            stem_depth=1,
+            stem_kernel_size=3,
+            stem_downsampling=1
+        ),
+    ]
+    model_config.output_configs = [
+        models.OutputConfig(
+            get_reference_data("mrms"),
+            "surface_precip",
+            "mse",
+            temporal_merging=True
+        ),
+    ]
+
+    model = models.compile_model(model_config)
+
+    acc = "cuda" if torch.cuda.is_available() else "cpu"
+    prec = "16" if torch.cuda.is_available() else "16"
+    sample_rate = 4 if torch.cuda.is_available() else 1
+
+    training_configs = [
+        TrainingConfig(
+            "Stage 2",
+            4,
+            "SGD",
+            {"lr": 1e-2},
+            scheduler="CosineAnnealingLR",
+            scheduler_kwargs={
+                "T_max": 4,
+                "verbose": True
+            },
+            minimum_lr=1e-4,
+            batch_size=1,
+            sample_rate=sample_rate,
+            accelerator=acc,
+            precision=prec,
+            data_loader_workers=1,
+            missing_value_policy="missing",
+            sequence_length=4
+    ]
+
+    mrnn = compile_mrnn(model_config)
+
+
+    train(
+        "test_model",
+        mrnn,
+        training_configs,
+        cpcir_data,
+        cpcir_data,
+        tmp_path,
+    )
