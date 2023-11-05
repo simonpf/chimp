@@ -20,12 +20,7 @@ from cimr.data.source import DataSource
 
 
 def find_random_scene(
-        path,
-        rng,
-        multiple=4,
-        window_size=256,
-        rqi_thresh=0.8,
-        valid_fraction=0.2
+    path, rng, multiple=4, window_size=256, rqi_thresh=0.8, valid_fraction=0.2
 ):
     """
     Finds a random crop in the input data that is guaranteeed to have
@@ -46,7 +41,6 @@ def find_random_scene(
         of the random crop.
     """
     with xr.open_dataset(path) as data:
-
         if "latitude" in data.dims:
             n_rows = data.latitude.size
             n_cols = data.longitude.size
@@ -55,20 +49,18 @@ def find_random_scene(
             n_cols = data.x.size
 
         if "swath_centers" in data.dims:
-
             row_inds = data.swath_center_row_inds.data
             col_inds = data.swath_center_col_inds.data
 
             valid = (
-                (row_inds > window_size // 2) *
-                (row_inds < n_rows - window_size // 2) *
-                (col_inds > window_size // 2) *
-                (col_inds < n_cols - window_size // 2)
+                (row_inds > window_size // 2)
+                * (row_inds < n_rows - window_size // 2)
+                * (col_inds > window_size // 2)
+                * (col_inds < n_cols - window_size // 2)
             )
 
             if valid.sum() == 0:
                 return None
-
 
             row_inds = row_inds[valid]
             col_inds = col_inds[valid]
@@ -96,12 +88,11 @@ def find_random_scene(
     return (i_start, i_end, j_start, j_end)
 
 
-
-
 class InputBase(DataSource):
     """
     Base class for all inputs that keeps track of all instances.
     """
+
     ALL_INPUTS = {}
 
     def __init__(self, name):
@@ -164,6 +155,7 @@ class MinMaxNormalized:
     Mixin' class provides a quantnn.normalizer.MinMaxNormalizer with
     statistics read from a file.
     """
+
     def __init__(self, stats_file):
         self._stats_file = stats_file
         self._normalizer = None
@@ -180,14 +172,10 @@ class MinMaxNormalized:
             path = Path(__file__).parent / "stats"
             stats_file = path / f"{self._stats_file}.txt"
             if not stats_file.exists():
-                raise RuntimeError(
-                    f"Could not find the stats file {stats_file}."
-                )
+                raise RuntimeError(f"Could not find the stats file {stats_file}.")
             stats = np.loadtxt(stats_file, skiprows=1).reshape(-1, 2)
             norm = MinMaxNormalizer(
-                np.ones((stats.shape[0], 1, 1)),
-                feature_axis=0,
-                replace_nan=False
+                np.ones((stats.shape[0], 1, 1)), feature_axis=0, replace_nan=False
             )
             for chan_ind in range(stats.shape[0]):
                 norm.stats[chan_ind] = tuple(stats[chan_ind])
@@ -201,6 +189,7 @@ class Input(InputBase, MinMaxNormalized):
     Record holding the paths of the files for a single training
     sample.
     """
+
     name: str
     scale: int
     variables: Union[str, List[str]]
@@ -208,13 +197,13 @@ class Input(InputBase, MinMaxNormalized):
     n_dim: int = 2
 
     def __init__(
-            self,
-            name: str,
-            scale: int,
-            variables: Union[str, List[str]],
-            mean: Optional[np.array] = None,
-            n_dim: int = 2,
-            spatial_dims: Tuple[str, str] = ("y", "x")
+        self,
+        name: str,
+        scale: int,
+        variables: Union[str, List[str]],
+        mean: Optional[np.array] = None,
+        n_dim: int = 2,
+        spatial_dims: Tuple[str, str] = ("y", "x"),
     ):
         InputBase.__init__(self, name)
         MinMaxNormalized.__init__(self, name)
@@ -224,19 +213,13 @@ class Input(InputBase, MinMaxNormalized):
         self.variables = variables
         self.mean = mean
         self.n_dim = n_dim
-        self.spatial_dims = spatial_dims[:self.n_dim]
+        self.spatial_dims = spatial_dims[: self.n_dim]
 
     @property
     def n_channels(self):
         return len(self.normalizer.stats)
 
-
-    def replace_missing(
-            self,
-            tensor,
-            missing_value_policy,
-            rng
-    ):
+    def replace_missing(self, tensor, missing_value_policy, rng):
         """
         Replace missing values in tensor.
 
@@ -262,8 +245,7 @@ class Input(InputBase, MinMaxNormalized):
                     " must be provided."
                 )
             means = self.mean[(slice(0, None),) + (None,) * self.n_dim] * np.ones(
-                shape=(self.n_channels,) + (1,) * self.n_dim,
-                dtype="float32"
+                shape=(self.n_channels,) + (1,) * self.n_dim, dtype="float32"
             )
             means = self.normalizer(means)
             tensor = torch.where(mask, torch.tensor(means), tensor)
@@ -278,18 +260,17 @@ class Input(InputBase, MinMaxNormalized):
             )
         return tensor
 
-
     def load_sample(
-            self,
-            input_file: Path,
-            crop_size: Union[int, Tuple[int, int]],
-            base_scale: int,
-            slices: Tuple[slice, slice],
-            rng: np.random.Generator,
-            missing_value_policy: str,
-            rotate: Optional[float] = None,
-            flip: Optional[bool] = False,
-            normalize: Optional[bool] = True
+        self,
+        input_file: Path,
+        crop_size: Union[int, Tuple[int, int]],
+        base_scale: int,
+        slices: Tuple[slice, slice],
+        rng: np.random.Generator,
+        missing_value_policy: str,
+        rotate: Optional[float] = None,
+        flip: Optional[bool] = False,
+        normalize: Optional[bool] = True,
     ) -> np.ndarray:
         """
         Load input data sample from file.
@@ -332,16 +313,10 @@ class Input(InputBase, MinMaxNormalized):
                         [data[vrbl][row_slice, col_slice].data for vrbl in vars]
                     )
 
-
             # Apply augmentations
             if rotate is not None:
                 x_s = ndimage.rotate(
-                    x_s,
-                    rotate,
-                    order=0,
-                    reshape=False,
-                    axes=(-2, -1),
-                    cval=np.nan
+                    x_s, rotate, order=0, reshape=False, axes=(-2, -1), cval=np.nan
                 )
                 height = x_s.shape[-2]
 
@@ -363,7 +338,7 @@ class Input(InputBase, MinMaxNormalized):
         else:
             if missing_value_policy == "sparse":
                 return None
-            x_s = np.nan * np.ones(((self.n_channels,) + crop_size))
+            x_s = np.nan * np.ones(((self.n_channels,) + crop_size), dtype=np.float32)
 
         # If we are here we're not returning None.
         if missing_value_policy == "sparse":

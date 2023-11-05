@@ -88,7 +88,7 @@ def parse_input_config(section: SectionProxy) -> InputConfig:
         stem_depth=stem_depth,
         stem_kernel_size=stem_kernel_size,
         stem_downsampling=stem_downsampling,
-        deep_supervision=deep_supervision
+        deep_supervision=deep_supervision,
     )
 
 
@@ -151,7 +151,7 @@ def parse_output_config(section: SectionProxy) -> OutputConfig:
         quantiles=quantiles,
         bins=bins,
         transformation=transformation,
-        n_classes=n_classes
+        n_classes=n_classes,
     )
 
 
@@ -171,7 +171,7 @@ class EncoderConfig:
     stage_architecture: str = "sequential"
     combined: bool = True
     attention_heads: Optional[List[int]] = None
-    encoder_type: str = "standard",
+    encoder_type: str = ("standard",)
     multi_scale: bool = True
 
     def __init__(
@@ -187,8 +187,7 @@ class EncoderConfig:
         combined: bool = True,
         attention_heads: Optional[List[int]] = None,
         encoder_type: str = "standard",
-        multi_scale: bool = multi_scale
-
+        multi_scale: bool = multi_scale,
     ):
         if len(stage_depths) != len(downsampling_factors) + 1:
             raise ValueError(
@@ -223,9 +222,11 @@ class EncoderConfig:
             downsampler_factory_kwargs=self.downsampler_factory_kwargs,
             stage_architecture=self.stage_architecture,
             combined=self.combined,
-            attention_heads=None if self.attention_heads is None else self.attention_heads.__getitem__(*args),
+            attention_heads=None
+            if self.attention_heads is None
+            else self.attention_heads.__getitem__(*args),
             encoder_type=self.encoder_type,
-            multi_scale=self.multi_scale
+            multi_scale=self.multi_scale,
         )
 
     @property
@@ -282,7 +283,7 @@ def parse_encoder_config(section: SectionProxy) -> EncoderConfig:
         combined=combined,
         attention_heads=attention_heads,
         encoder_type=encoder_type,
-        multi_scale=multi_scale
+        multi_scale=multi_scale,
     )
 
 
@@ -393,6 +394,7 @@ class ModelConfig:
     output_configs: List[OutputConfig]
     encoder_config: Union[EncoderConfig, Dict[str, EncoderConfig]]
     decoder_config: DecoderConfig
+    temporal_merging: bool = False
 
     def get_encoder_config(self, input_name: str) -> EncoderConfig:
         """
@@ -456,9 +458,11 @@ def parse_model_config(path: Union[str, Path]):
     for section_name in parser.sections():
         if section_name == "base":
             from cimr import models
+
             name = parser[section_name].get("name")
             parser.read(get_model_config(name))
 
+    temporal_merging = False
     for section_name in parser.sections():
         sec = parser[section_name]
         if not "type" in sec:
@@ -473,6 +477,9 @@ def parse_model_config(path: Union[str, Path]):
             if encoder_config is not None:
                 raise ValueError("Model config contains multiple encoder sections.")
             encoder_config = parse_encoder_config(sec)
+        elif section_name == "temporal_merging":
+            temporal_merging = True
+
         elif sec_type == "decoder":
             if decoder_config is not None:
                 raise ValueError("Model config contains multiple decoder sections.")
@@ -487,6 +494,7 @@ def parse_model_config(path: Union[str, Path]):
         output_configs=output_configs,
         encoder_config=encoder_config,
         decoder_config=decoder_config,
+        temporal_merging=temporal_merging,
     )
 
 
@@ -506,8 +514,8 @@ class TrainingConfig:
     batch_size: int = 8
     input_size: int = 256
     accelerator: str = "cuda"
-    sequence_length: Optional[int] = 1
-    forecast: Optional[int] = 0
+    sequence_length: int = 1
+    forecast: int = 4
     quality_threshold: float = 0.8
     pretraining: bool = False
     sample_rate: int = 1
@@ -519,30 +527,31 @@ class TrainingConfig:
     devices: Optional[List[int]] = None
     missing_value_policy: str = "sparse"
 
+
 def __init__(
-        self,
-        name: str,
-        n_epochs: int,
-        optimizer: str,
-        optimizer_kwargs: Optional[dict] = None,
-        scheduler: str = None,
-        scheduler_kwargs: Optional[dict] = None,
-        precision: str = "16-mixed",
-        batch_size: int = 8,
-        input_size: int = 256,
-        accelerator: str = "cuda",
-        sequence_length: Optional[int] = 1,
-        forecast: Optional[int] = 0,
-        quality_threshold: float = 0.8,
-        pretraining: bool = False,
-        sample_rate: int = 1,
-        gradient_clipping: Optional[float] = None,
-        data_loader_workers: int = 4,
-        minimum_lr: Optional[float] = None,
-        reuse_optimizer: bool = False,
-        stepwise_scheduling: bool = False,
-        devices: Optional[List[int]] = None,
-        missing_value_policy: str = "sparse"
+    self,
+    name: str,
+    n_epochs: int,
+    optimizer: str,
+    optimizer_kwargs: Optional[dict] = None,
+    scheduler: str = None,
+    scheduler_kwargs: Optional[dict] = None,
+    precision: str = "16-mixed",
+    batch_size: int = 8,
+    input_size: int = 256,
+    accelerator: str = "cuda",
+    sequence_length: int = 1,
+    forecast: int = 0,
+    quality_threshold: float = 0.8,
+    pretraining: bool = False,
+    sample_rate: int = 1,
+    gradient_clipping: Optional[float] = None,
+    data_loader_workers: int = 4,
+    minimum_lr: Optional[float] = None,
+    reuse_optimizer: bool = False,
+    stepwise_scheduling: bool = False,
+    devices: Optional[List[int]] = None,
+    missing_value_policy: str = "sparse",
 ):
     self.name = name
     self.n_epochs = n_epochs
@@ -606,6 +615,8 @@ def parse_training_config(path: Union[str, Path]):
         accelerator = sec.get("accelerator", "cuda")
         devices = _parse_list(sec.get("devices", "0"))
         missing_value_policy = sec.get("missing_value_policy", "sparse")
+        sequence_length = sec.getint("sequence_length", 1)
+        forecast = sec.getint("forecast", 0)
 
         training_configs.append(
             TrainingConfig(
@@ -624,7 +635,9 @@ def parse_training_config(path: Union[str, Path]):
                 stepwise_scheduling=stepwise_scheduling,
                 accelerator=accelerator,
                 devices=devices,
-                missing_value_policy=missing_value_policy
+                missing_value_policy=missing_value_policy,
+                sequence_length=sequence_length,
+                forecast=forecast,
             )
         )
 
