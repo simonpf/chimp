@@ -14,16 +14,19 @@ from quantnn.models.pytorch import upsampling, torchvision, stages, downsampling
 from quantnn.models.pytorch.encoders import SequentialStageFactory
 
 
+MASKED = True
+
 def get_block_factory(name, factory_kwargs=None):
     if factory_kwargs is None:
         factory_kwargs = {}
 
+    factory_kwargs["masked"] = MASKED
     if name.lower() in ["simple_conv", "conv2d", "convnet", "unet"]:
-        return ConvBlockFactory(**factory_kwargs, masked=True)
+        return ConvBlockFactory(**factory_kwargs)
     elif name.lower() == "resnet":
         return torchvision.ResNetBlockFactory(**factory_kwargs)
     elif name.lower() == "resnext":
-        return ResNeXtBlockFactory(**factory_kwargs, masked=True)
+        return ResNeXtBlockFactory(**factory_kwargs)
     elif name.lower() == "convnext":
         return ConvNextBlockFactory(**factory_kwargs)
     elif name.lower() == "swin_transformer":
@@ -39,10 +42,12 @@ def get_downsampler_factory(name, factory_kwargs):
     if factory_kwargs is None:
         factory_kwargs = {}
 
+    factory_kwargs["masked"] = MASKED
+
     if name.lower() == "none":
         return None
     elif name.lower() in ["max_pooling"]:
-        return factories.MaxPooling(**factory_kwargs, masked=True)
+        return factories.MaxPooling(**factory_kwargs)
     elif name.lower() == "swin_transformer":
         return downsampling.PatchMergingFactory(**factory_kwargs)
     else:
@@ -70,9 +75,9 @@ def get_upsampler_factory(upsampling_type, factory_kwargs):
 
     if upsampling_type == "bilinear":
         factory_kwargs["mode"] = "bilinear"
-        return upsampling.UsampleFactory(masked=True, **factory_kwargs)
+        return upsampling.UsampleFactory(masked=MASKED, **factory_kwargs)
     elif upsampling_type == "upsample":
-        return upsampling.UpsampleFactory(masked=True, **factory_kwargs)
+        return upsampling.UpsampleFactory(masked=MASKED, **factory_kwargs)
     elif upsampling_type in ["upconv", "upconvolution"]:
         return upsampling.UpConvolutionFactory(**factory_kwargs)
     else:
