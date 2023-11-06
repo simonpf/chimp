@@ -14,6 +14,7 @@ import numpy as np
 import torch
 from torch import nn
 import quantnn.models.pytorch.masked as nm
+from quantnn.models.pytorch import normalization
 
 import cimr
 from cimr.data import Input, get_input, ReferenceData, get_reference_data
