@@ -14,6 +14,7 @@ from quantnn.models.pytorch import upsampling
 from quantnn.masked_tensor import MaskedTensor
 from quantnn.models.pytorch import factories
 import quantnn.models.pytorch.masked as nm
+from quantnn.models.pytorch import normalization
 
 from cimr.config import EncoderConfig, ModelConfig
 from cimr.models.blocks import get_block_factory, get_stage_factory
@@ -139,7 +140,10 @@ class Propagator(nn.Module):
             downsampler_factory=downsampler_factory,
         )
 
-        upsampler_factory = upsampling.UpsampleFactory(masked=True)
+        upsampler_factory = upsampling.UpsampleFactory(
+            masked=True,
+            mode="bilinear"
+        )
 
         self.decoder = SparseSpatialDecoder(
             channels=channels[::-1],
@@ -183,32 +187,45 @@ class Assimilator(nn.Module):
 
         inputs = {base_scale: 2 * channels[0]}
         scale = base_scale
+        blocks = {}
         for ind, f_d in enumerate(downsampling_factors):
+            ##blocks[str(scale)] = block_factory(2 * channels[ind], channels[ind])blocks[str(scale)] = block_factory(2 * channels[ind], channels[ind])
+            blocks[str(scale)] = nn.Sequential(
+                nn.Conv2d(2 * channels[ind], channels[ind], kernel_size=1),
+                normalization.LayerNormFirst(channels[ind])
+            )
             scale = scale * f_d
-            inputs[scale] = 2 * channels[ind + 1]
+            inputs[str(scale)] = 2 * channels[ind + 1]
         self.base_scale = scale
+        blocks[str(scale)] = block_factory(2 * channels[ind + 1], channels[ind + 1])
 
-        aggregator_factory = LinearAggregatorFactory(masked=True)
-        upsampler_factory = upsampling.UpsampleFactory(masked=True)
+        self.blocks = nn.ModuleDict(blocks)
+        self.sigmoid = nn.Sigmoid()
+        #aggregator_factory = LinearAggregatorFactory(masked=True)
+        #upsampler_factory = upsampling.UpsampleFactory(masked=True)
 
-        self.decoder = SparseSpatialDecoder(
-            channels=channels[::-1],
-            stages=[1] * (len(channels) - 1),
-            upsampling_factors=downsampling_factors[::-1],
-            block_factory=block_factory,
-            stage_factory=stage_factory,
-            multi_scale_output=-1,
-            skip_connections=inputs,
-            aggregator_factory=aggregator_factory,
-            upsampler_factory=upsampler_factory,
-        )
-        self.block = block_factory(inputs[scale], channels[-1])
+        #self.decoder = SparseSpatialDecoder(
+        #    channels=channels[::-1],
+        #    stages=[1] * (len(channels) - 1),
+        #    upsampling_factors=downsampling_factors[::-1],
+        #    block_factory=block_factory,
+        #    stage_factory=stage_factory,
+        #    multi_scale_output=-1,
+        #    skip_connections=inputs,
+        #    aggregator_factory=aggregator_factory,
+        #    upsampler_factory=upsampler_factory,
+        #)
+        #self.block = block_factory(inputs[scale], channels[-1])
+        #
 
     def forward(self, encs_o, encs_p):
+
         x = {scl: torch.cat([encs_o[scl], encs_p[scl]], 1) for scl in encs_o}
-        corr = self.decoder(x)
-        corr[self.base_scale] = self.block(corr[self.base_scale])
-        y = {scl: encs_p[scl] + corr[scl] for scl in x}
+        y = {}
+        for scl in x:
+            att = self.sigmoid(self.blocks[str(scl)](x[scl]))
+
+            y[scl] = torch.addcmul(encs_o[scl], att, encs_p[scl] - encs_o[scl])
         return y
 
 

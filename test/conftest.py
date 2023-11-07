@@ -309,7 +309,8 @@ def training_data_seq(
         reference_data="mrms",
         window_size=128,
         missing_value_policy="masked",
-        sequence_length=4
+        sequence_length=4,
+        forecast=0
     )
     return dataset
 
