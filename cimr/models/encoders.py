@@ -421,6 +421,7 @@ class MultiScaleSharedEncoder(nn.Module):
             aggregator_factory=aggregator_factory,
             downsampler_factory=downsampler_factory,
             stage_factory=stage_factory,
+            base_scale=min_input_scale
         )
 
     def forward(

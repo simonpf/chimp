@@ -266,7 +266,7 @@ def parse_encoder_config(section: SectionProxy) -> EncoderConfig:
     stage_architecture = section.get("stage_architecture", "sequential")
     combined = section.getboolean("combined", True)
     encoder_type = section.get("encoder_type", "standard")
-    multi_scale = section.getboolean("combined", True)
+    multi_scale = section.getboolean("multi_scale", True)
 
     conf = section.get("attention_heads", None)
     if conf is not None:
@@ -618,6 +618,7 @@ def parse_training_config(path: Union[str, Path]):
         missing_value_policy = sec.get("missing_value_policy", "sparse")
         sequence_length = sec.getint("sequence_length", 1)
         forecast = sec.getint("forecast", 0)
+        input_size = sec.getint("input_size", 256)
 
         training_configs.append(
             TrainingConfig(
@@ -638,6 +639,7 @@ def parse_training_config(path: Union[str, Path]):
                 devices=devices,
                 missing_value_policy=missing_value_policy,
                 sequence_length=sequence_length,
+                input_size=input_size,
                 forecast=forecast,
             )
         )
