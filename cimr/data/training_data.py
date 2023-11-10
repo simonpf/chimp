@@ -398,9 +398,8 @@ class SingleStepDataset:
                 if sample is not None:
                     sample[src_ind + 1] = src_file
 
-        self.samples = samples
-
-        self.keys = np.array(list(self.samples.keys()))
+        self.keys = np.array(list(samples.keys()))
+        self.samples = np.array(list(samples.values()))
         self.window_size = window_size
 
         self.validation = validation
@@ -541,7 +540,6 @@ class SingleStepDataset:
         """Return ith training sample."""
         n_starts = len(self.samples)
         scene_index = index % n_starts
-        key = self.keys[scene_index]
 
         # We load a larger window when input is rotated to avoid
         # missing values.
@@ -559,7 +557,7 @@ class SingleStepDataset:
 
         slices = reference.find_random_scene(
             self.reference_data,
-            self.samples[key][0],
+            self.samples[scene_index][0],
             self.rng,
             multiple=4,
             window_size=window_size,
@@ -568,7 +566,7 @@ class SingleStepDataset:
 
 
         x, y = self.load_sample(
-            self.samples[key],
+            self.samples[scene_index],
             slices,
             self.window_size,
             rotate=ang,
@@ -869,19 +867,22 @@ class SingleStepDataset:
 
     def full_domain(self, start_time=None, end_time=None):
 
-        indices = np.ones(self.keys.size, dtype="bool")
+        valid = np.ones(self.keys.size, dtype="bool")
         if start_time is not None:
-            indices = indices * (self.keys >= start_time)
+            valid = valid * (self.keys >= start_time)
         if end_time is not None:
-            indices = indices * (self.keys <= end_time)
-        times = sorted(self.keys[indices])
+            valid = valid * (self.keys <= end_time)
 
-        for time in times:
+        indices = np.where(valid)[0]
+        time_steps = np.argsort(self.keys[indices])
+
+        for time_step in time_steps:
             x, y = self.load_sample(
-                self.samples[time],
+                self.samples[indices[time_step]],
                 None,
                 None
             )
+            time = self.keys[indices[time_step]]
             x = sparse_collate([x])
             yield time, x, y
 
@@ -955,7 +956,6 @@ class CIMRPretrainDataset(SingleStepDataset):
         folder,
         reference_data="radar",
         inputs=None,
-        targets=None,
         sample_rate=1,
         sequence_length=1,
         normalize=True,
@@ -971,7 +971,6 @@ class CIMRPretrainDataset(SingleStepDataset):
             folder,
             reference_data=reference_data,
             inputs=inputs,
-            targets=targets,
             sample_rate=sample_rate,
             sequence_length=sequence_length,
             normalize=normalize,
@@ -984,9 +983,8 @@ class CIMRPretrainDataset(SingleStepDataset):
             time_step=time_step
         )
         samples_by_input = [[] for _ in inputs]
-        for scene_index in self.sequence_starts:
-            key = self.keys[scene_index]
-            sample = self.samples[key]
+        for scene_index in range(len(self.samples)):
+            sample = self.samples[scene_index]
             for i in range(len(inputs)):
 
                 # Input not available at time step
@@ -1019,13 +1017,12 @@ class CIMRPretrainDataset(SingleStepDataset):
         """Return ith training sample."""
 
         scene_index = self.sequence_starts[index // self.sample_rate]
-        key = self.keys[scene_index]
         input_index = index // self.obs_per_input
         inpt = self.inputs[input_index]
 
         scl = inpt.scale // self.reference_data.scale
         slices = input.find_random_scene(
-            self.samples[key][1 + input_index],
+            self.samples[scene_index][1 + input_index],
             self.rng,
             multiple=16 // inpt.scale,
             window_size=self.window_size // scl,
@@ -1050,7 +1047,7 @@ class CIMRPretrainDataset(SingleStepDataset):
             flip = False
 
         x, y = self.load_sample(
-            self.samples[key],
+            self.samples[scene_index],
             slices,
             self.window_size,
             rotate=ang,
@@ -1087,7 +1084,7 @@ class SequenceDataset(SingleStepDataset):
         quality_threshold=0.8,
         missing_value_policy="masked",
         augment=True,
-        forecast=None,
+        forecast=0,
         validation=False,
         time_step=None
     ):
@@ -1144,7 +1141,6 @@ class SequenceDataset(SingleStepDataset):
     def __getitem__(self, index):
         """Return training sample."""
         index = index // self.sample_rate
-        key = self.keys[self.sequence_starts[index]]
 
         # We load a larger window when input is rotated to avoid
         # missing values.
@@ -1161,10 +1157,10 @@ class SequenceDataset(SingleStepDataset):
             flip = False
 
         # Find valid input range for last sample in sequence
-        key = self.keys[self.sequence_starts[index] + self.sequence_length]
+        index = self.sequence_starts[index] + self.sequence_length
         slices = reference.find_random_scene(
             self.reference_data,
-            self.samples[key][0],
+            self.samples[index][0],
             self.rng,
             multiple=4,
             window_size=window_size,
@@ -1175,9 +1171,9 @@ class SequenceDataset(SingleStepDataset):
         y = []
         start_index = self.sequence_starts[index]
         for i in range(self.sequence_length):
-            key = self.keys[start_index + i]
+            index = start_index + i
             x_i, y_i = self.load_sample(
-                self.samples[key],
+                self.samples[index],
                 slices,
                 self.window_size,
                 rotate=ang,
