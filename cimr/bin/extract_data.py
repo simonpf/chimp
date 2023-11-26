@@ -123,6 +123,9 @@ def run(args):
     import cimr.data.gpm
     import cimr.data.cpcir
     import cimr.data.mrms
+    import cimr.data.gridsat
+    import cimr.data.patmosx
+    import cimr.data.ssmi
 
     #
     # Check and load inputs.
