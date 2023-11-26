@@ -74,3 +74,9 @@ CONUS = {
 }
 
 MRMS = pyresample.load_area(Path(__file__).parent / "mrms.yml")
+
+###############################################################################
+# MERRA
+###############################################################################
+
+MERRA = pyresample.load_area(Path(__file__).parent / "merra.yml")

@@ -6,32 +6,6 @@ MRMS:
     no_defs: null
     type: crs
   shape:
-    height: 7000
-    width: 3500
-  area_extent:
-    lower_left_xy: [-129.995, 20.005001]
-    upper_right_xy: [-60.00500199999999, 54.995]
-MRMS:
-  description: MRMS
-  projection:
-    proj: longlat
-    datum: WGS84
-    no_defs: null
-    type: crs
-  shape:
-    height: 24500000
-    width: 24500000
-  area_extent:
-    lower_left_xy: [-129.995, 20.005001]
-    upper_right_xy: [-60.00500199999999, 54.995]
-MRMS:
-  description: MRMS
-  projection:
-    proj: longlat
-    datum: WGS84
-    no_defs: null
-    type: crs
-  shape:
     height: 3500
     width: 7000
   area_extent:
