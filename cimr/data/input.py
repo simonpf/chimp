@@ -351,6 +351,3 @@ class Input(InputBase, MinMaxNormalized):
         x_s = self.replace_missing(x_s, missing_value_policy, rng)
 
         return x_s
-
-
-GOES = Input("goes", 4, [f"geo_{ind:02}" for ind in range(1, 12)])
