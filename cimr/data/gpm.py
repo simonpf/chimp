@@ -208,6 +208,7 @@ class GPML1CData(Input, MinMaxNormalized):
             with TemporaryDirectory() as tmp:
                 tmp = Path(tmp)
                 for rec in product_files:
+                    print(rec.filename)
                     rec = rec.download(tmp)
                     index = Index.index(product, [rec.local_path])
                     granules = index.find(roi=domain["roi_poly"])
@@ -236,6 +237,7 @@ MHS_PRODUCTS = [
     l1c_noaa18_mhs,
     l1c_noaa19_mhs,
     l1c_metopb_mhs,
+    l1c_metopc_mhs,
 ]
 MHS = GPML1CData("mhs", 8, MHS_PRODUCTS, None, 64e3)
 
