@@ -30,6 +30,7 @@ def calculate_outputs(decoder, heads, encodings, prefix):
 class SequenceModel(nn.Module):
     def __init__(
         self,
+        model_config,
         encoder,
         decoder,
         propagator,
@@ -42,6 +43,25 @@ class SequenceModel(nn.Module):
         self.propagator = propagator
         self.assimilator = assimilator
         self.heads = nn.ModuleDict(heads)
+
+
+        scales = [inpt.scale for inpt in model_config.input_configs] + [
+            ref.scale for ref in model_config.output_configs
+        ]
+        if isinstance(model_config.encoder_config, dict):
+            shared_cfg = model_config.encoder_config["shared"]
+        else:
+            shared_cfg = model_config.encoder_config
+
+        base_scale = min(scales)
+        scale = base_scale
+        norms = {}
+        for f_dwn, chans in zip(shared_cfg.downsampling_factors, shared_cfg.channels):
+            norms[str(scale)] = nm.LayerNormFirst(chans)
+            scale = scale * f_dwn
+        norms[str(scale)] = nm.LayerNormFirst(shared_cfg.channels[-1])
+        self.norms = nn.ModuleDict(norms)
+
 
     def forward_single(self, x, encs_prev_1, encs_prev_2, step):
         x_m = {}
@@ -59,6 +79,7 @@ class SequenceModel(nn.Module):
                 encs_o, deep_outputs = encs_o
             else:
                 deep_outputs = {}
+            encs_o = {scl: self.norms[str(scl)](encs_o[scl]) for scl in encs_o}
             encs = encs_o
 
         if encs_prev_2 is not None and encs_prev_1 is not None:
@@ -82,16 +103,16 @@ class SequenceModel(nn.Module):
 
         return outputs, encs
 
-    def forward(self, x):
-        if isinstance(x, dict):
-            x = [x]
+    def forward(self, inputs):
+        if isinstance(inputs, dict):
+            inputs = [inputs]
 
         y = []
 
         encs_prev_1 = None
         encs_prev_2 = None
 
-        for step, x in enumerate(x):
+        for step, x in enumerate(inputs):
             outputs, encs = self.forward_single(x, encs_prev_1, encs_prev_2, step)
             y.append(outputs)
             encs_prev_2 = encs_prev_1
@@ -120,10 +141,12 @@ class Propagator(nn.Module):
 
         stem_fac = lambda x: nm.Conv2d(2 * x, x, kernel_size=1)
         inputs = {str(base_scale): (0, 2 * channels[0], stem_fac)}
+        norms = {str(base_scale): nm.LayerNormFirst(channels[0])}
         scale = base_scale
         for ind, f_d in enumerate(downsampling_factors):
             scale = scale * f_d
             inputs[str(scale)] = (ind + 1, 2 * channels[ind + 1], stem_fac)
+            norms[str(scale)] = nm.LayerNormFirst(channels[ind + 1])
 
         aggregator_factory = LinearAggregatorFactory(masked=True)
         downsampler_factory = factories.MaxPooling(masked=True)
@@ -191,8 +214,8 @@ class Assimilator(nn.Module):
         for ind, f_d in enumerate(downsampling_factors):
             ##blocks[str(scale)] = block_factory(2 * channels[ind], channels[ind])blocks[str(scale)] = block_factory(2 * channels[ind], channels[ind])
             blocks[str(scale)] = nn.Sequential(
-                nn.Conv2d(2 * channels[ind], channels[ind], kernel_size=1),
-                normalization.LayerNormFirst(channels[ind])
+                nm.Conv2d(2 * channels[ind], channels[ind], kernel_size=1),
+                nm.LayerNormFirst(channels[ind])
             )
             scale = scale * f_d
             inputs[str(scale)] = 2 * channels[ind + 1]
@@ -286,4 +309,4 @@ def compile_sequence_model(model_config: ModelConfig) -> nn.Module:
             n_layers=1,
         )
 
-    return SequenceModel(encoder, decoder, propagator, assimilator, heads)
+    return SequenceModel(model_config, encoder, decoder, propagator, assimilator, heads)
