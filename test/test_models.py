@@ -23,18 +23,13 @@ from cimr.config import (
     ModelConfig
 )
 from cimr.data import reference
-from cimr.data import get_input
+from cimr.data import get_input, get_reference_data
 from cimr.models import (
     compile_encoder,
     compile_decoder,
     compile_model,
     compile_mrnn,
     load_config,
-    CIMRBaseline,
-    CIMRSeq,
-    TimeStepper,
-    CIMRBaselineV2,
-    CIMRBaselineV3
 )
 
 
@@ -162,7 +157,7 @@ def test_compile_decoder():
     ]
     output_configs = [
         OutputConfig(
-            reference.MRMS,
+            get_reference_data("mrms"),
             "surface_precip",
             "quantile_loss",
         ),
@@ -242,7 +237,7 @@ def test_compile_model():
     ]
     output_configs = [
         OutputConfig(
-            reference.MRMS,
+            get_reference_data("mrms"),
             "surface_precip",
             "quantile_loss",
             quantiles=np.linspace(0, 1, 34)[1:-1]
@@ -336,7 +331,7 @@ def test_deep_supervision_propagation():
     ]
     output_configs = [
         OutputConfig(
-            reference.MRMS,
+            get_reference_data("mrms"),
             "surface_precip",
             "quantile_loss",
             quantiles=np.linspace(0, 1, 34)[1:-1]
@@ -348,7 +343,7 @@ def test_deep_supervision_propagation():
         channels=[16, 32, 64, 128],
         stage_depths=[2, 2, 4, 4],
         downsampling_factors=[2, 2, 2],
-        combined=True
+        combined=False
     )
 
     decoder_config = DecoderConfig(
@@ -390,10 +385,10 @@ def test_deep_supervision_propagation():
     y = cimr(x)
 
     assert len(y) == 5
-    assert "cpcir/surface_precip" in y
-    assert "gmi/surface_precip" in y
-    assert "ssmis/surface_precip" in y
-    assert "atms/surface_precip" in y
+    assert "cpcir::surface_precip" in y
+    assert "gmi::surface_precip" in y
+    assert "ssmis::surface_precip" in y
+    assert "atms::surface_precip" in y
 
 def test_compile_mrnn():
     """
@@ -415,7 +410,7 @@ def test_compile_mrnn():
     ]
     output_configs = [
         OutputConfig(
-            reference.MRMS,
+            get_reference_data("mrms"),
             "surface_precip",
             "quantile_loss",
             quantiles=np.linspace(0, 1, 34)[1:-1]
@@ -464,7 +459,7 @@ def test_load_config():
     ]
     config.output_configs = [
         OutputConfig(
-            reference.MRMS,
+            get_reference_data("mrms"),
             "surface_precip",
             "mse",
             quantiles=np.linspace(0, 1, 34)[1:-1]
@@ -492,7 +487,7 @@ def test_gremlin():
     ]
     config.output_configs = [
         OutputConfig(
-            reference.MRMS,
+            get_reference_data("mrms"),
             "surface_precip",
             "mse",
             quantiles=np.linspace(0, 1, 34)[1:-1]
@@ -508,6 +503,7 @@ def test_gremlin():
     }
     y = model(x)
     assert y["surface_precip"].shape == (1, 128, 128)
+
 
 
 def test_unet():
@@ -526,7 +522,7 @@ def test_unet():
     ]
     config.output_configs = [
         OutputConfig(
-            reference.MRMS,
+            get_reference_data("mrms"),
             "surface_precip",
             "mse",
             quantiles=np.linspace(0, 1, 34)[1:-1]
@@ -544,6 +540,84 @@ def test_unet():
     assert y["surface_precip"].shape == (1, 128, 128)
 
 
+def test_unet_multi():
+    """
+    Test the loading of a pre-defined configuration.
+    """
+    config = load_config("unet")
+
+    config.input_configs = [
+        InputConfig(
+            get_input("cpcir"),
+            stem_depth=1,
+            stem_kernel_size=3,
+            stem_downsampling=1
+        ),
+        InputConfig(
+            get_input("gmi"),
+            stem_depth=1,
+            stem_kernel_size=3,
+            stem_downsampling=1
+        ),
+        InputConfig(
+            get_input("mhs"),
+            stem_depth=1,
+            stem_kernel_size=3,
+            stem_downsampling=1
+        ),
+        InputConfig(
+            get_input("ssmis"),
+            stem_depth=1,
+            stem_kernel_size=3,
+            stem_downsampling=1
+        ),
+        InputConfig(
+            get_input("amsr2"),
+            stem_depth=1,
+            stem_kernel_size=3,
+            stem_downsampling=1
+        ),
+        InputConfig(
+            get_input("atms"),
+            stem_depth=1,
+            stem_kernel_size=3,
+            stem_downsampling=1
+        ),
+    ]
+    config.output_configs = [
+        OutputConfig(
+            get_reference_data("mrms"),
+            "surface_precip",
+            "mse",
+            quantiles=np.linspace(0, 1, 34)[1:-1]
+        ),
+    ]
+
+    model = compile_model(config)
+
+    x = {
+        "cpcir": torch.ones(
+            (1, 1, 128, 128)
+        ),
+        "gmi": torch.ones(
+            (1, 13, 128, 128)
+        ),
+        "amsr2": torch.ones(
+            (1, 12, 128, 128)
+        ),
+        "atms": torch.ones(
+            (1, 9, 32, 32)
+        ),
+        "mhs": torch.ones(
+            (1, 5, 64, 64)
+        ),
+        "ssmis": torch.ones(
+            (1, 11, 64, 64)
+        ),
+    }
+    y = model(x)
+    assert y["surface_precip"].shape == (1, 128, 128)
+
 def test_resnet18():
     """
     Test the loading of the ResNet18 configuration.
@@ -560,7 +634,7 @@ def test_resnet18():
     ]
     config.output_configs = [
         OutputConfig(
-            reference.MRMS,
+            get_reference_data("mrms"),
             "surface_precip",
             "mse"
         ),
@@ -593,7 +667,7 @@ def test_convnext18():
     ]
     config.output_configs = [
         OutputConfig(
-            reference.MRMS,
+            get_reference_data("mrms"),
             "surface_precip",
             "mse"
         ),
@@ -624,7 +698,7 @@ def test_resnext50():
     ]
     config.output_configs = [
         OutputConfig(
-            reference.MRMS,
+            get_reference_data("mrms"),
             "surface_precip",
             "mse"
         ),
@@ -655,7 +729,7 @@ def test_cresnext_s():
     ]
     config.output_configs = [
         OutputConfig(
-            reference.MRMS,
+            get_reference_data("mrms"),
             "surface_precip",
             "mse"
         ),
@@ -686,7 +760,7 @@ def test_dcresnext_s():
     ]
     config.output_configs = [
         OutputConfig(
-            reference.MRMS,
+            get_reference_data("mrms"),
             "surface_precip",
             "mse"
         ),
@@ -717,7 +791,7 @@ def test_swin_t():
     ]
     config.output_configs = [
         OutputConfig(
-            reference.MRMS,
+            get_reference_data("mrms"),
             "surface_precip",
             "mse"
         ),
@@ -748,7 +822,7 @@ def test_swin_s():
     ]
     config.output_configs = [
         OutputConfig(
-            reference.MRMS,
+            get_reference_data("mrms"),
             "surface_precip",
             "mse"
         ),
@@ -778,7 +852,7 @@ def test_convnext_t():
     ]
     config.output_configs = [
         OutputConfig(
-            reference.MRMS,
+            get_reference_data("mrms"),
             "surface_precip",
             "mse"
         ),
@@ -808,7 +882,7 @@ def test_convnext_t():
     ]
     config.output_configs = [
         OutputConfig(
-            reference.MRMS,
+            get_reference_data("mrms"),
             "surface_precip",
             "mse"
         ),
@@ -839,7 +913,7 @@ def test_swin_transformer():
     ]
     config.output_configs = [
         OutputConfig(
-            reference.MRMS,
+            get_reference_data("mrms"),
             "surface_precip",
             "mse"
         ),
@@ -870,7 +944,7 @@ def test_convnext_t():
     ]
     config.output_configs = [
         OutputConfig(
-            reference.MRMS,
+            get_reference_data("mrms"),
             "surface_precip",
             "mse"
         ),
@@ -900,7 +974,7 @@ def test_convnext_t():
     ]
     config.output_configs = [
         OutputConfig(
-            reference.MRMS,
+            get_reference_data("mrms"),
             "surface_precip",
             "mse"
         ),
@@ -932,7 +1006,7 @@ def test_dlax18():
     ]
     config.output_configs = [
         OutputConfig(
-            reference.MRMS,
+            get_reference_data("mrms"),
             "surface_precip",
             "mse"
         ),

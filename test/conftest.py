@@ -220,6 +220,173 @@ def mhs_data(tmp_path):
 
     return tmp_path
 
+@pytest.fixture
+def ssmis_data(tmp_path):
+    """
+    Initialize a temporary directory with random training data files
+    of MHS input data.
+    """
+    data_path = tmp_path / "ssmis"
+    data_path.mkdir()
+
+    times = np.arange(
+        np.datetime64("2020-01-01T00:30:00", "s"),
+        np.datetime64("2020-01-01T06:00:00", "s"),
+        np.timedelta64(120, "m")
+    )
+
+    lons, lats = areas.CONUS_8.get_lonlats()
+    lons = lons[0]
+    lats = lats[..., 0]
+
+    for time in times:
+
+        tbs = np.stack([
+            random_spectral_field((lats.size, lons.size), 10)
+            for _ in range(11)
+        ])
+
+        time_py = time.item()
+        year = time_py.year
+        month = time_py.month
+        day = time_py.day
+        hour = time_py.hour
+        minute = time_py.minute
+        filename = f"ssmis_{year}{month:02}{day:02}_{hour:02}_{minute:02}.nc"
+        dataset = xr.Dataset({
+            "time": ((), time),
+            "tbs": (("channels", "y", "x"), tbs),
+        })
+        dataset.to_netcdf(data_path / filename)
+
+    return tmp_path
+
+
+@pytest.fixture
+def amsr2_data(tmp_path):
+    """
+    Initialize a temporary directory with random training data files
+    of MHS input data.
+    """
+    data_path = tmp_path / "amsr2"
+    data_path.mkdir()
+
+    times = np.arange(
+        np.datetime64("2020-01-01T00:30:00", "s"),
+        np.datetime64("2020-01-01T06:00:00", "s"),
+        np.timedelta64(60, "m")
+    )
+
+    lons, lats = areas.CONUS_4.get_lonlats()
+    lons = lons[0]
+    lats = lats[..., 0]
+
+    for time in times:
+
+        tbs = np.stack([
+            random_spectral_field((lats.size, lons.size), 10)
+            for _ in range(12)
+        ])
+
+        time_py = time.item()
+        year = time_py.year
+        month = time_py.month
+        day = time_py.day
+        hour = time_py.hour
+        minute = time_py.minute
+        filename = f"amsr2_{year}{month:02}{day:02}_{hour:02}_{minute:02}.nc"
+        dataset = xr.Dataset({
+            "time": ((), time),
+            "tbs": (("channels", "y", "x"), tbs),
+        })
+        dataset.to_netcdf(data_path / filename)
+
+    return tmp_path
+
+
+@pytest.fixture
+def atms_data(tmp_path):
+    """
+    Initialize a temporary directory with random training data files
+    of MHS input data.
+    """
+    data_path = tmp_path / "atms"
+    data_path.mkdir()
+
+    times = np.arange(
+        np.datetime64("2020-01-01T00:30:00", "s"),
+        np.datetime64("2020-01-01T06:00:00", "s"),
+        np.timedelta64(60, "m")
+    )
+
+    lons, lats = areas.CONUS_16.get_lonlats()
+    lons = lons[0]
+    lats = lats[..., 0]
+
+    for time in times:
+
+        tbs = np.stack([
+            random_spectral_field((lats.size, lons.size), 10)
+            for _ in range(9)
+        ])
+
+        time_py = time.item()
+        year = time_py.year
+        month = time_py.month
+        day = time_py.day
+        hour = time_py.hour
+        minute = time_py.minute
+        filename = f"atms_{year}{month:02}{day:02}_{hour:02}_{minute:02}.nc"
+        dataset = xr.Dataset({
+            "time": ((), time),
+            "tbs": (("channels", "y", "x"), tbs),
+        })
+        dataset.to_netcdf(data_path / filename)
+
+    return tmp_path
+
+
+@pytest.fixture
+def _data(tmp_path):
+    """
+    Initialize a temporary directory with random training data files
+    of MHS input data.
+    """
+    data_path = tmp_path / "amsr2"
+    data_path.mkdir()
+
+    times = np.arange(
+        np.datetime64("2020-01-01T00:30:00", "s"),
+        np.datetime64("2020-01-01T06:00:00", "s"),
+        np.timedelta64(60, "m")
+    )
+
+    lons, lats = areas.CONUS_8.get_lonlats()
+    lons = lons[0]
+    lats = lats[..., 0]
+
+    for time in times:
+
+        tbs = np.stack([
+            random_spectral_field((lats.size, lons.size), 10)
+            for _ in range(11)
+        ])
+
+        time_py = time.item()
+        year = time_py.year
+        month = time_py.month
+        day = time_py.day
+        hour = time_py.hour
+        minute = time_py.minute
+        filename = f"amsr2_{year}{month:02}{day:02}_{hour:02}_{minute:02}.nc"
+        dataset = xr.Dataset({
+            "time": ((), time),
+            "tbs": (("channels", "y", "x"), tbs),
+        })
+        dataset.to_netcdf(data_path / filename)
+
+    return tmp_path
+
 
 @pytest.fixture
 def cpcir_gmi_mrnn():
@@ -275,8 +442,12 @@ def cpcir_gmi_mrnn():
 
 @pytest.fixture
 def training_data_multi(
-        mhs_data,
         cpcir_data,
+        gmi_data,
+        mhs_data,
+        ssmis_data,
+        amsr2_data,
+        atms_data,
         mrms_surface_precip_data
 ):
     """
@@ -285,11 +456,10 @@ def training_data_multi(
     """
     dataset = SingleStepDataset(
         mhs_data,
-        inputs=["mhs", "cpcir"],
+        inputs=["mhs", "cpcir", "gmi", "ssmis", "atms", "amsr2"],
         reference_data="mrms",
-        window_size=128,
-        missing_value_policy="masked",
-        sequence_length=4
+        window_size=256,
+        missing_value_policy="missing",
     )
     return dataset
 

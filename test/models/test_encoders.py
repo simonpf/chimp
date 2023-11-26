@@ -18,12 +18,24 @@ def single_scale_shared_encoder():
         InputConfig(
             get_input("mhs"), stem_depth=2, stem_kernel_size=7, stem_downsampling=1
         ),
+        InputConfig(
+            get_input("ssmis"), stem_depth=2, stem_kernel_size=7, stem_downsampling=1
+        ),
+        InputConfig(
+            get_input("gmi"), stem_depth=2, stem_kernel_size=7, stem_downsampling=1
+        ),
+        InputConfig(
+            get_input("atms"), stem_depth=2, stem_kernel_size=7, stem_downsampling=1
+        ),
+        InputConfig(
+            get_input("amsr2"), stem_depth=2, stem_kernel_size=7, stem_downsampling=1
+        ),
     ]
     encoder_config = EncoderConfig(
-        "convnet",
-        channels=[16, 32, 64, 128],
-        stage_depths=[2, 2, 4, 4],
-        downsampling_factors=[2, 2, 2],
+        "resnext",
+        channels=[64, 128, 256, 512, 512, 512],
+        stage_depths=[2, 2, 4, 4, 2, 2],
+        downsampling_factors=[2, 2, 2, 2, 2],
         combined=True,
         multi_scale=False,
     )
@@ -50,12 +62,24 @@ def multi_scale_shared_encoder():
         InputConfig(
             get_input("mhs"), stem_depth=2, stem_kernel_size=7, stem_downsampling=1
         ),
+        InputConfig(
+            get_input("ssmis"), stem_depth=2, stem_kernel_size=7, stem_downsampling=1
+        ),
+        InputConfig(
+            get_input("gmi"), stem_depth=2, stem_kernel_size=7, stem_downsampling=1
+        ),
+        InputConfig(
+            get_input("atms"), stem_depth=2, stem_kernel_size=7, stem_downsampling=1
+        ),
+        InputConfig(
+            get_input("amsr2"), stem_depth=2, stem_kernel_size=7, stem_downsampling=1
+        ),
     ]
     encoder_config = EncoderConfig(
-        "convnet",
-        channels=[16, 32, 64, 128],
-        stage_depths=[2, 2, 4, 4],
-        downsampling_factors=[2, 2, 2],
+        "resnext",
+        channels=[64, 128, 256, 512, 512, 512],
+        stage_depths=[2, 2, 4, 4, 2, 2],
+        downsampling_factors=[2, 2, 2, 2, 2],
         combined=True,
         multi_scale=True,
     )
@@ -75,7 +99,7 @@ def test_multi_scale_shared_encoder(multi_scale_shared_encoder, training_data_mu
     for chans, enc in zip(encoder_cfg.channels, encs.values()):
         assert chans == enc.shape[1]
 
-    assert len(encoder.encoder.stage_inputs[0]) == 1
+    assert len(encoder.encoder.stage_inputs[0]) == 3
     assert len(encoder.encoder.stages) == len(encoder_cfg.stage_depths)
 
 
@@ -87,6 +111,18 @@ def multi_scale_parallel_encoder():
         ),
         InputConfig(
             get_input("mhs"), stem_depth=2, stem_kernel_size=7, stem_downsampling=1
+        ),
+        InputConfig(
+            get_input("ssmis"), stem_depth=2, stem_kernel_size=7, stem_downsampling=1
+        ),
+        InputConfig(
+            get_input("gmi"), stem_depth=2, stem_kernel_size=7, stem_downsampling=1
+        ),
+        InputConfig(
+            get_input("atms"), stem_depth=2, stem_kernel_size=7, stem_downsampling=1
+        ),
+        InputConfig(
+            get_input("amsr2"), stem_depth=2, stem_kernel_size=7, stem_downsampling=1
         ),
     ]
     encoder_config = EncoderConfig(
@@ -113,7 +149,7 @@ def test_multi_scale_parallel_encoder(
     for chans, enc in zip(encoder_cfg.channels, encs.values()):
         assert chans == enc.shape[1]
     assert isinstance(encs, dict)
-    assert len(encoder.encoders) == 2
+    assert len(encoder.encoders) == 6
     assert len(encoder.encoders["cpcir"].stages) == len(encoder_cfg.stage_depths)
 
 
@@ -125,6 +161,18 @@ def single_scale_parallel_encoder():
         ),
         InputConfig(
             get_input("mhs"), stem_depth=2, stem_kernel_size=7, stem_downsampling=1
+        ),
+        InputConfig(
+            get_input("ssmis"), stem_depth=2, stem_kernel_size=7, stem_downsampling=1
+        ),
+        InputConfig(
+            get_input("gmi"), stem_depth=2, stem_kernel_size=7, stem_downsampling=1
+        ),
+        InputConfig(
+            get_input("atms"), stem_depth=2, stem_kernel_size=7, stem_downsampling=1
+        ),
+        InputConfig(
+            get_input("amsr2"), stem_depth=2, stem_kernel_size=7, stem_downsampling=1
         ),
     ]
     encoder_config = EncoderConfig(
@@ -151,6 +199,6 @@ def test_single_scale_parallel_encoder(
     for chans, enc in zip(encoder_cfg.channels, encs.values()):
         assert chans == enc.shape[1]
     assert isinstance(encs, dict)
-    assert len(encoder.encoders) == 2
+    assert len(encoder.encoders) == 6
     for enc in encoder.encoders.values():
         assert len(enc.stages) == len(encoder_cfg.stage_depths)
