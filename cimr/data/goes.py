@@ -22,7 +22,7 @@ import xarray as xr
 
 from cimr import areas
 from cimr.utils import round_time
-
+from cimr.data.input import Input, MinMaxNormalized
 
 LOGGER = logging.getLogger(__name__)
 
@@ -83,21 +83,23 @@ def download_and_resample_goes_data(time, domain):
         for band in goes_channels:
             prod = GOES16L1BRadiances("F", band)
             time_range = TimeRange(
-                to_datetime64(time) - np.timedelta64(15 * 60, "s"),
-                to_datetime64(time)
+                to_datetime64(time) - np.timedelta64(7 * 60, "s"),
+                to_datetime64(time) + np.timedelta64(7 * 60, "s"),
             )
             channel_files = prod.find_files(time_range)
 
             if len(channel_files) == 0:
                 return None
 
-            goes_files.append(channel_files[-1])
+            file_inds = TimeRange(time, time).find_closest_ind(
+                [rec.temporal_coverage for rec in channel_files]
+            )
+            goes_files.append(
+                channel_files[file_inds[0]].download(destination=tmp)
+            )
 
-            local_file = Path(tmp) / goes_file.filename
-            goes_file.download(local_file)
-            goes_files.append(local_file)
 
-        scene = Scene([str(filename) for filename in goes_files], reader="abi_l1b")
+        scene = Scene([str(rec.local_path) for rec in goes_files], reader="abi_l1b")
         scene.load(channel_names)
         scene = scene.resample(areas.CONUS_4)
         data = scene.to_xarray_dataset().compute()
@@ -113,8 +115,8 @@ def download_and_resample_goes_data(time, domain):
         tbs_therm = np.stack(tbs_therm, -1)
 
         tbs = xr.Dataset({
-            "tbs_refl": (("y", "x", "channels_refl"), tbs_refl),
-            "tbs_therm": (("y", "x", "channels_therm"), tbs_therm)
+            "refls": (("y", "x", "channels_refl"), tbs_refl),
+            "tbs": (("y", "x", "channels_therm"), tbs_therm)
         })
         start_time = data.attrs["start_time"]
         d_t = data.attrs["end_time"] - data.attrs["start_time"]
@@ -137,18 +139,17 @@ def save_file(dataset, output_folder):
     filename = get_output_filename(dataset.attrs["time"].item())
     output_filename = Path(output_folder) / filename
     dataset.attrs["time"] = str(dataset.attrs["time"])
-
     encoding = {}
 
-    dataset["tbs_refl"].data[:] = np.minimum(dataset["tbs_refl"].data, 127)
-    encoding["tbs_refl"] = {
+    dataset["refls"].data[:] = np.minimum(dataset["refls"].data, 127)
+    encoding["refls"] = {
         "dtype": "uint8",
         "_FillValue": 255,
         "scale_factor": 0.5,
         "zlib": True
     }
-    dataset["tbs_therm"].data[:] = np.clip(dataset["tbs_therm"].data, 195, 323)
-    encoding["tbs_therm"] = {
+    dataset["tbs"].data[:] = np.clip(dataset["tbs"].data, 195, 323)
+    encoding["tbs"] = {
         "dtype": "uint8",
         "scale_factor": 0.5,
         "add_offset": 195,
@@ -158,43 +159,55 @@ def save_file(dataset, output_folder):
     dataset.to_netcdf(output_filename, encoding=encoding)
 
 
-def process_day(
-        domain,
-        year,
-        month,
-        day,
-        output_folder,
-        path=None,
-        time_step=timedelta(minutes=15),
-        include_scan_time=False
-):
-    """
-    Extract training data from a day of GOES observations.
+class GOESInputData(Input, MinMaxNormalized):
+    def __init__(self):
+        super().__init__("goes", 4, ["refls", "tbs"])
 
-    Args:
-        year: The year
-        month: The month
-        day: The day
-        output_folder: The folder to which to write the extracted
-            observations.
-        path: Not used, included for compatibility.
-    """
-    output_folder = Path(output_folder) / "goes"
-    if not output_folder.exists():
-        output_folder.mkdir(parents=True, exist_ok=True)
+    def process_day(
+            self,
+            domain,
+            year,
+            month,
+            day,
+            output_folder,
+            path=None,
+            time_step=timedelta(minutes=15),
+            include_scan_time=False
+    ):
+        """
+        Extract training data from a day of GOES observations.
 
-    existing_files = [
-        f.name for f in output_folder.glob(f"goes_{year}{month:02}{day:02}*.nc")
-    ]
+        Args:
+            domain: A domain object identifying the spatial domain for which
+                to extract input data.
+            year: The year
+            month: The month
+            day: The day
+            output_folder: The folder to which to write the extracted
+                observations.
+            path: Not used, included for compatibility.
+            time_step: The temporal resolution of the training data.
+            include_scan_time: Not used.
+        """
+        output_folder = Path(output_folder) / "goes"
+        if not output_folder.exists():
+            output_folder.mkdir(parents=True, exist_ok=True)
 
-    start_time = datetime(year, month, day)
-    end_time = datetime(year, month, day) + timedelta(hours=23, minutes=59)
-    time = start_time
-    while time < end_time:
+        existing_files = [
+            f.name for f in output_folder.glob(f"goes_{year}{month:02}{day:02}*.nc")
+        ]
 
-        output_filename = get_output_filename(time)
-        if not (output_folder / output_filename).exists():
-            dataset = download_and_resample_goes_data(time, domain[4])
-            save_file(dataset, output_folder)
+        start_time = datetime(year, month, day)
+        end_time = datetime(year, month, day) + timedelta(hours=23, minutes=59)
+        time = start_time
+        while time < end_time:
 
-        time = time + time_step
+            output_filename = get_output_filename(time)
+            if not (output_folder / output_filename).exists():
+                dataset = download_and_resample_goes_data(time, domain[self.scale])
+                save_file(dataset, output_folder)
+
+            time = time + time_step
+
+
+goes = GOESInputData()
