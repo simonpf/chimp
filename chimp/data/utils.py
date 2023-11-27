@@ -16,6 +16,7 @@ import torch
 
 from chimp.definitions import N_CHANS
 from chimp.data import reference
+from chimp.utils import round_time
 
 
 def make_microwave_band_array(domain, band):
