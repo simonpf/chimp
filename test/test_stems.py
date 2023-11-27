@@ -1,11 +1,11 @@
 """
-Tests for the cimr.stems module
+Tests for the chimp.stems module
 """
 import torch
 
-from cimr.models.stems import get_stem_factory
-from cimr.config import InputConfig
-from cimr.data import get_input
+from chimp.models.stems import get_stem_factory
+from chimp.config import InputConfig
+from chimp.data import get_input
 
 def test_basic_config():
     """

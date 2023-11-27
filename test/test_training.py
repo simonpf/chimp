@@ -1,5 +1,5 @@
 """
-Test the training of CIMR retrieval models.
+Test the training of CHIMP retrieval models.
 """
 from pathlib import Path
 import os
@@ -13,11 +13,11 @@ from conftest import (
     gmi_data
 )
 
-from cimr import models
-from cimr.config import TrainingConfig
-from cimr.data import get_input, get_reference_data
-from cimr.models import compile_mrnn
-from cimr.training import (
+from chimp import models
+from chimp.config import TrainingConfig
+from chimp.data import get_input, get_reference_data
+from chimp.models import compile_mrnn
+from chimp.training import (
     train,
     find_most_recent_checkpoint
 )
@@ -25,7 +25,7 @@ from cimr.training import (
 import torch
 from torch.utils.data import DataLoader
 
-TEST_DATA = os.environ.get("CIMR_TEST_DATA", None)
+TEST_DATA = os.environ.get("CHIMP_TEST_DATA", None)
 if TEST_DATA is not None:
     TEST_DATA = Path(TEST_DATA)
 NEEDS_TEST_DATA = pytest.mark.skipif(
@@ -401,9 +401,9 @@ def test_find_most_recent_checkpoint(tmp_path):
     Test that the find_most_recent_checkpoint function identifies the
     correct checkpoint file.
     """
-    ckpt_1 = tmp_path / ("cimr_model.ckpt")
-    ckpt_2 = tmp_path / ("cimr_model-v1.ckpt")
-    ckpt_3 = tmp_path / ("cimr_model-v12.ckpt")
+    ckpt_1 = tmp_path / ("chimp_model.ckpt")
+    ckpt_2 = tmp_path / ("chimp_model-v1.ckpt")
+    ckpt_3 = tmp_path / ("chimp_model-v12.ckpt")
     model_name = "model"
 
     ckpt = find_most_recent_checkpoint(tmp_path, model_name)
@@ -481,6 +481,7 @@ def test_sequence_training(
             data_loader_workers=1,
             missing_value_policy="missing",
             sequence_length=4
+        )
     ]
 
     mrnn = compile_mrnn(model_config)

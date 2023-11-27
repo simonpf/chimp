@@ -1,5 +1,5 @@
 """
-Tests for neural network models defined in the ``cimr.models``
+Tests for neural network models defined in the ``chimp.models``
 sub-module.
 """
 import os
@@ -11,20 +11,20 @@ import torch
 from torch.utils.data import DataLoader
 from quantnn.mrnn import MRNN
 
-from cimr.data.training_data import (
+from chimp.data.training_data import (
     SuperpositionDataset,
     sparse_collate
 )
-from cimr.config import (
+from chimp.config import (
     InputConfig,
     OutputConfig,
     EncoderConfig,
     DecoderConfig,
     ModelConfig
 )
-from cimr.data import reference
-from cimr.data import get_input, get_reference_data
-from cimr.models import (
+from chimp.data import reference
+from chimp.data import get_input, get_reference_data
+from chimp.models import (
     compile_encoder,
     compile_decoder,
     compile_model,
@@ -33,7 +33,7 @@ from cimr.models import (
 )
 
 
-TEST_DATA = os.environ.get("CIMR_TEST_DATA", None)
+TEST_DATA = os.environ.get("CHIMP_TEST_DATA", None)
 if TEST_DATA is not None:
     TEST_DATA = Path(TEST_DATA)
 NEEDS_TEST_DATA = pytest.mark.skipif(
@@ -207,7 +207,7 @@ def test_compile_decoder():
 
 def test_compile_model():
     """
-    Test the compilation of the full CIMRModel.
+    Test the compilation of the full CHIMPModel.
     """
     input_configs = [
         InputConfig(
@@ -266,7 +266,7 @@ def test_compile_model():
         decoder_config
     )
 
-    cimr = compile_model(model_config)
+    chimp = compile_model(model_config)
 
 
     x = {
@@ -288,7 +288,7 @@ def test_compile_model():
         )
     }
 
-    y = cimr(x)
+    y = chimp(x)
 
     assert len(y) == 1
     assert "surface_precip" in y
@@ -360,7 +360,7 @@ def test_deep_supervision_propagation():
         decoder_config
     )
 
-    cimr = compile_model(model_config)
+    chimp = compile_model(model_config)
 
 
     x = {
@@ -382,7 +382,7 @@ def test_deep_supervision_propagation():
         )
     }
 
-    y = cimr(x)
+    y = chimp(x)
 
     assert len(y) == 5
     assert "cpcir::surface_precip" in y
@@ -655,7 +655,7 @@ def test_convnext18():
     """
     Test the loading of the ConvNext18 configuration.
     """
-    config = load_config("resnext18")
+    config = load_config("convnext18")
 
     config.input_configs = [
         InputConfig(
@@ -755,252 +755,6 @@ def test_dcresnext_s():
         InputConfig(
             get_input("cpcir"),
             stem_type="basic",
-            stem_downsampling=1
-        ),
-    ]
-    config.output_configs = [
-        OutputConfig(
-            get_reference_data("mrms"),
-            "surface_precip",
-            "mse"
-        ),
-    ]
-
-    model = compile_model(config)
-
-    x = {
-        "cpcir": torch.ones(
-            (1, 1, 256, 256)
-        )
-    }
-    y = model(x)
-    assert y["surface_precip"].shape == (1, 256, 256)
-
-
-def test_swin_t():
-    """
-    Test the Swin-T architecture.
-    """
-    config = load_config("swin_t")
-    config.input_configs = [
-        InputConfig(
-            get_input("cpcir"),
-            stem_type="swin",
-            stem_downsampling=4
-        ),
-    ]
-    config.output_configs = [
-        OutputConfig(
-            get_reference_data("mrms"),
-            "surface_precip",
-            "mse"
-        ),
-    ]
-
-    model = compile_model(config)
-
-    x = {
-        "cpcir": torch.ones(
-            (1, 1, 256, 256)
-        )
-    }
-    y = model(x)
-    assert y["surface_precip"].shape == (1, 256, 256)
-
-
-def test_swin_s():
-    """
-    Test the Swin-s architecture.
-    """
-    config = load_config("swin_s")
-    config.input_configs = [
-        InputConfig(
-            get_input("cpcir"),
-            stem_type="basic",
-            stem_downsampling=1
-        ),
-    ]
-    config.output_configs = [
-        OutputConfig(
-            get_reference_data("mrms"),
-            "surface_precip",
-            "mse"
-        ),
-    ]
-
-    model = compile_model(config)
-
-    x = {
-        "cpcir": torch.ones(
-            (1, 1, 256, 256)
-        )
-    }
-    y = model(x)
-    assert y["surface_precip"].shape == (1, 256, 256)
-
-def test_convnext_t():
-    """
-    Test the loading of the ConvNext-T configuration.
-    """
-    config = load_config("convnext_t")
-    config.input_configs = [
-        InputConfig(
-            get_input("cpcir"),
-            stem_type="convnext",
-            stem_downsampling=4
-        ),
-    ]
-    config.output_configs = [
-        OutputConfig(
-            get_reference_data("mrms"),
-            "surface_precip",
-            "mse"
-        ),
-    ]
-    model = compile_model(config)
-
-    x = {
-        "cpcir": torch.ones(
-            (1, 1, 256, 256)
-        )
-    }
-    y = model(x)
-    assert y["surface_precip"].shape == (1, 256, 256)
-
-
-def test_convnext_t():
-    """
-    Test the loading of the ConvNext-S configuration.
-    """
-    config = load_config("convnext_s")
-    config.input_configs = [
-        InputConfig(
-            get_input("cpcir"),
-            stem_type="basic",
-            stem_downsampling=1
-        ),
-    ]
-    config.output_configs = [
-        OutputConfig(
-            get_reference_data("mrms"),
-            "surface_precip",
-            "mse"
-        ),
-    ]
-    model = compile_model(config)
-
-    x = {
-        "cpcir": torch.ones(
-            (1, 1, 256, 256)
-        )
-    }
-    y = model(x)
-    assert y["surface_precip"].shape == (1, 256, 256)
-
-
-
-def test_swin_transformer():
-    """
-    Test the loading of the ConvNext18 configuration.
-    """
-    config = load_config("swin_t")
-    config.input_configs = [
-        InputConfig(
-            get_input("cpcir"),
-            stem_type="swin",
-            stem_downsampling=4
-        ),
-    ]
-    config.output_configs = [
-        OutputConfig(
-            get_reference_data("mrms"),
-            "surface_precip",
-            "mse"
-        ),
-    ]
-
-    model = compile_model(config)
-
-    x = {
-        "cpcir": torch.ones(
-            (1, 1, 256, 256)
-        )
-    }
-    y = model(x)
-    assert y["surface_precip"].shape == (1, 256, 256)
-
-
-def test_convnext_t():
-    """
-    Test the loading of the ConvNext-T configuration.
-    """
-    config = load_config("convnext_t")
-    config.input_configs = [
-        InputConfig(
-            get_input("cpcir"),
-            stem_type="convnext",
-            stem_downsampling=4
-        ),
-    ]
-    config.output_configs = [
-        OutputConfig(
-            get_reference_data("mrms"),
-            "surface_precip",
-            "mse"
-        ),
-    ]
-    model = compile_model(config)
-
-    x = {
-        "cpcir": torch.ones(
-            (1, 1, 256, 256)
-        )
-    }
-    y = model(x)
-    assert y["surface_precip"].shape == (1, 256, 256)
-
-
-def test_convnext_t():
-    """
-    Test the loading of the ConvNext-S configuration.
-    """
-    config = load_config("convnext_s")
-    config.input_configs = [
-        InputConfig(
-            get_input("cpcir"),
-            stem_type="basic",
-            stem_downsampling=1
-        ),
-    ]
-    config.output_configs = [
-        OutputConfig(
-            get_reference_data("mrms"),
-            "surface_precip",
-            "mse"
-        ),
-    ]
-    model = compile_model(config)
-
-    x = {
-        "cpcir": torch.ones(
-            (1, 1, 256, 256)
-        )
-    }
-    y = model(x)
-    assert y["surface_precip"].shape == (1, 256, 256)
-
-
-def test_dlax18():
-    """
-    Test the loading of the DLAX18 configuration.
-    """
-    config = load_config("dlax18")
-
-    config.input_configs = [
-        InputConfig(
-            get_input("cpcir"),
-            stem_depth=1,
-            stem_kernel_size=3,
             stem_downsampling=1
         ),
     ]

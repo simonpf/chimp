@@ -5,10 +5,10 @@ from pathlib import Path
 import pytest
 import xarray as xr
 
-from cimr.areas import CONUS_4
-from cimr.data.resample import resample_swath_center, resample_tbs
-from cimr.areas import NORDICS
-from cimr.data.gpm import (
+from chimp.areas import CONUS_4
+from chimp.data.resample import resample_swath_center, resample_tbs
+from chimp.areas import NORDICS
+from chimp.data.gpm import (
     l1c_gpm_gmi,
 )
 
@@ -16,7 +16,7 @@ data_path = Path(__file__).parent / "data"
 gmi_file = "1C-R.GPM.GMI.XCAL2016-C.20200501-S075828-E093100.035075.V07A.HDF5"
 
 
-TEST_DATA = os.environ.get("CIMR_TEST_DATA", None)
+TEST_DATA = os.environ.get("CHIMP_TEST_DATA", None)
 if TEST_DATA is not None:
     TEST_DATA = Path(TEST_DATA)
 NEEDS_TEST_DATA = pytest.mark.skipif(

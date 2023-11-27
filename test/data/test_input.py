@@ -1,8 +1,8 @@
 """
-Tests for the cimr.data.input module
+Tests for the chimp.data.input module
 ====================================
 """
-from cimr.data.input import MinMaxNormalized
+from chimp.data.input import MinMaxNormalized
 
 
 def test_min_max_normalized():

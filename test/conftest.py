@@ -6,20 +6,20 @@ from quantnn.mrnn import MRNN
 from scipy.fft import idctn
 import xarray as xr
 
-from cimr import areas
-from cimr.data import mrms
-from cimr.data import cpcir
+from chimp import areas
+from chimp.data import mrms
+from chimp.data import cpcir
 
-from cimr.config import (
+from chimp.config import (
     InputConfig,
     OutputConfig,
     EncoderConfig,
     DecoderConfig,
     ModelConfig
 )
-from cimr.data import get_input, get_reference_data
-from cimr.data.training_data import SingleStepDataset, SequenceDataset
-from cimr.models import compile_mrnn
+from chimp.data import get_input, get_reference_data
+from chimp.data.training_data import SingleStepDataset, SequenceDataset
+from chimp.models import compile_mrnn
 
 
 HAS_PANSAT_PASSWORD = "PANSAT_PASSWORD" in os.environ
@@ -391,7 +391,7 @@ def _data(tmp_path):
 @pytest.fixture
 def cpcir_gmi_mrnn():
     """
-    Fixture providing a CIMR retrieval model for CPCIR and GMI input.
+    Fixture providing a CHIMP retrieval model for CPCIR and GMI input.
     """
     input_configs = [
         InputConfig(
@@ -487,7 +487,7 @@ def training_data_seq(
 @pytest.fixture
 def cpcir_gmi_seq_mrnn():
     """
-    Fixture providing a CIMR temporally-merged retrieval model for CPCIR
+    Fixture providing a CHIMP temporally-merged retrieval model for CPCIR
     and GMI input.
     """
     input_configs = [

@@ -3,10 +3,10 @@ import pytest
 import torch
 from torch.utils.data import DataLoader
 
-from cimr.models.encoders import compile_encoder
-from cimr.config import InputConfig, EncoderConfig
-from cimr.data import get_input
-from cimr.data.training_data import SingleStepDataset
+from chimp.models.encoders import compile_encoder
+from chimp.config import InputConfig, EncoderConfig
+from chimp.data import get_input
+from chimp.data.training_data import SingleStepDataset
 
 
 @pytest.fixture

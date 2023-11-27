@@ -1,5 +1,5 @@
 """
-Tests for cimr.data.reference
+Tests for chimp.data.reference
 ==================================
 """
 import os
@@ -9,9 +9,9 @@ import numpy as np
 import pytest
 import torch
 
-from cimr.data.reference import find_random_scene
+from chimp.data.reference import find_random_scene
 
-TEST_DATA = os.environ.get("CIMR_TEST_DATA", None)
+TEST_DATA = os.environ.get("CHIMP_TEST_DATA", None)
 if TEST_DATA is not None:
     TEST_DATA = Path(TEST_DATA)
 NEEDS_TEST_DATA = pytest.mark.skipif(

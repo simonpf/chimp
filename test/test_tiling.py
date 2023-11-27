@@ -4,11 +4,11 @@ import os
 import numpy as np
 import pytest
 
-from cimr.tiling import parse_shape, Tiler
-from cimr.data.training_data import CIMRPretrainDataset
+from chimp.tiling import parse_shape, Tiler
+from chimp.data.training_data import CHIMPPretrainDataset
 
 
-TEST_DATA = os.environ.get("CIMR_TEST_DATA", None)
+TEST_DATA = os.environ.get("CHIMP_TEST_DATA", None)
 if TEST_DATA is not None:
     TEST_DATA = Path(TEST_DATA)
 NEEDS_TEST_DATA = pytest.mark.skipif(
@@ -39,7 +39,7 @@ def test_sparse_data():
     """
     Test that missing inputs are set to None.
     """
-    training_data = CIMRPretrainDataset(
+    training_data = CHIMPPretrainDataset(
         TEST_DATA / "training_data",
         reference_data="mrms",
         inputs=["cpcir", "gmi"],

@@ -5,10 +5,10 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from cimr.data.cpcir import resample_data
-from cimr.areas import CONUS
+from chimp.data.cpcir import resample_data
+from chimp.areas import CONUS
 
-TEST_DATA = os.environ.get("CIMR_TEST_DATA", None)
+TEST_DATA = os.environ.get("CHIMP_TEST_DATA", None)
 if TEST_DATA is not None:
     TEST_DATA = Path(TEST_DATA)
 NEEDS_TEST_DATA = pytest.mark.skipif(

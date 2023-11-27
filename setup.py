@@ -6,15 +6,15 @@ with open(path.join(here, "README.md"), encoding="utf-8") as f:
     long_description = f.read()
 
 version = {}
-exec(open("cimr/version.py", "r").read(), version)
+exec(open("chimp/version.py", "r").read(), version)
 
 setup(
-    name="cimr",
+    name="chimp",
     version=version["__version__"],
     description="The Chalmers Integrated Multi-Satellite Retrieval",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/simonpf/cimr",
+    url="https://github.com/simonpf/chimp",
     author="Simon Pfreundschuh",
     author_email="simon.pfreundschuh@chalmers.se",
     install_requires=[
@@ -31,11 +31,11 @@ setup(
     packages=find_packages(),
     python_requires=">=3.6",
     project_urls={
-        "Source": "https://github.com/simonpf/cimr/",
+        "Source": "https://github.com/simonpf/chimp/",
     },
     entry_points = {
-        'console_scripts': ['cimr=cimr.bin:cimr'],
+        'console_scripts': ['chimp=chimp.bin:chimp'],
     },
     include_package_data=True,
-    package_data={'cimr': ['areas/*.yml']},
+    package_data={'chimp': ['areas/*.yml']},
 )

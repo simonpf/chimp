@@ -1,0 +1,36 @@
+name: chimp
+channels:
+  - pytorch-nightly
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - netcdf4
+  - pyyaml
+  - pooch
+  - zarr
+  - dask[version='>=0.17.1']
+  - pyorbital
+  - pyresample[version='>=1.10.3']
+  - trollimage[version='>=1.5.1']
+  - appdirs
+  - h5py
+  - donfig
+  - pillow
+  - numpy[version='>=1.4.1']
+  - pyspectral
+  - trollsift
+  - xarray[version='>=0.10.1']
+  - satpy
+  - cartopy
+  - llvm-openmp[version='14']
+  - ipywidgets
+  - pytorch
+  - torchvision
+  - torchaudio
+  - pytorch-cuda=12.1
+  - lightning
+  - protobuf
+  - geopandas
+prefix: /home/simonpf/miniconda3/envs/chimp

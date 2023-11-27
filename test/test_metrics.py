@@ -1,10 +1,10 @@
 """
-Tests for the cimr.metrics module.
+Tests for the chimp.metrics module.
 """
 from scipy.fft import idctn
 import numpy as np
 
-from cimr.metrics import (
+from chimp.metrics import (
     Bias,
     MSE,
     Correlation,

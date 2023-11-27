@@ -5,8 +5,8 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from cimr.bin.calculate_statistics import process_files
-from cimr.data import get_input
+from chimp.bin.calculate_statistics import process_files
+from chimp.data import get_input
 
 
 @pytest.fixture

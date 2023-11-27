@@ -1,0 +1,24 @@
+Bootstrap: localimage
+From: /home/simonpf/src/chimp_singularity/chimp_conda.sif
+
+%files
+    /home/simonpf/src/pansat /pansat
+    /home/simonpf/src/quantnn /quantnn
+    /home/simonpf/src/chimp /chimp
+
+%environment
+    export PATH="/opt/conda/bin:$PATH"
+    export PATH="/opt/conda/envs/chimp/bin:$PATH"
+
+%post
+    /opt/conda/envs/chimp/bin/python3 -m pip install -e /pansat
+    /opt/conda/envs/chimp/bin/python3 -m pip install -e /quantnn
+    /opt/conda/envs/chimp/bin/python3 -m pip install -e /chimp
+    /opt/conda/envs/chimp/bin/python3 -m pip install notebook
+    echo ". /singularity_shell_init.sh" >> $SINGULARITY_ENVIRONMENT
+    echo "micromamba activate chimp" >> $SINGULARITY_ENVIRONMENT
+
+%runscript
+
+    exec "$@"
+    

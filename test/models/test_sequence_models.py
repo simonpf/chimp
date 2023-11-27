@@ -1,5 +1,5 @@
 """
-Tests for sequence models defined in cimr.models.sequence.
+Tests for sequence models defined in chimp.models.sequence.
 """
 from torch.utils.data import DataLoader
 

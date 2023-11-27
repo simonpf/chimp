@@ -1,5 +1,5 @@
 """
-Tests for cimr.data.training_data.
+Tests for chimp.data.training_data.
 ==================================
 """
 import os
@@ -14,16 +14,16 @@ import numpy as np
 import pytest
 import torch
 
-from cimr.areas import CONUS
-from cimr.data.training_data import (
+from chimp.areas import CONUS
+from chimp.data.training_data import (
     collate_recursive,
     sparse_collate,
     SingleStepDataset,
     SequenceDataset,
-    CIMRPretrainDataset
+    CHIMPPretrainDataset
 )
 
-TEST_DATA = os.environ.get("CIMR_TEST_DATA", None)
+TEST_DATA = os.environ.get("CHIMP_TEST_DATA", None)
 if TEST_DATA is not None:
     TEST_DATA = Path(TEST_DATA)
 NEEDS_TEST_DATA = pytest.mark.skipif(
@@ -138,7 +138,7 @@ def test_pretrain_dataset(cpcir_data, gmi_data, mrms_surface_precip_data):
     """
     for i in range(10):
         inputs = ["gmi", "cpcir"]
-        training_data = CIMRPretrainDataset(
+        training_data = CHIMPPretrainDataset(
             cpcir_data,
             reference_data="mrms",
             inputs=inputs,
@@ -159,7 +159,7 @@ def test_full_domain(cpcir_data, gmi_data, mrms_surface_precip_data):
     """
     for i in range(10):
         inputs = ["cpcir", "gmi"]
-        training_data = CIMRPretrainDataset(
+        training_data = CHIMPPretrainDataset(
             cpcir_data,
             reference_data="mrms",
             inputs=inputs,

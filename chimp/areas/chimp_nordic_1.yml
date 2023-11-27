@@ -1,0 +1,19 @@
+CHIMP_NORDIC:
+  description: CHIMP region of interest over the nordic countries.
+  projection:
+    proj: stere
+    lat_0: 90
+    lat_ts: 60
+    lon_0: 14
+    x_0: 0
+    y_0: 0
+    datum: WGS84
+    no_defs: null
+    type: crs
+  shape:
+    height: 2256
+    width: 1808
+  area_extent:
+    lower_left_xy: [-745322.8983833211, -3996217.269197446]
+    upper_right_xy: [1062901.0232376591, -1747948.2287755085]
+    units: m

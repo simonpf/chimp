@@ -1,5 +1,5 @@
 """
-Tests for the cimr.processing module.
+Tests for the chimp.processing module.
 """
 from pathlib import Path
 
@@ -7,8 +7,8 @@ import numpy as np
 from quantnn.qrnn import QRNN
 import torch
 
-from cimr.data.training_data import SingleStepDataset
-from cimr.processing import retrieval_step, empty_input
+from chimp.data.training_data import SingleStepDataset
+from chimp.processing import retrieval_step, empty_input
 
 from conftest import (
     mrms_surface_precip_data,

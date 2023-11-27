@@ -11,8 +11,8 @@ import numpy as np
 from pansat.products.ground_based import mrms
 import xarray as xr
 
-from cimr.data import mrms
-from cimr import areas
+from chimp.data import mrms
+from chimp import areas
 
 data_path = Path(__file__).parent / "data"
 precip_rate_file = "PrecipRate_00.00_20200101-103000.grib2.gz"

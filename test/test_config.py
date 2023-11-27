@@ -1,17 +1,17 @@
 """
-Tests for the cimr.config module
+Tests for the chimp.config module
 """
 
 import pytest
 import torch
 from torch import nn
 
-from cimr.config import (
+from chimp.config import (
     get_model_config,
     parse_model_config,
     parse_training_config
 )
-from cimr.training import get_optimizer_and_scheduler
+from chimp.training import get_optimizer_and_scheduler
 
 
 def test_load_model_config():
@@ -62,10 +62,10 @@ def test_parse_model_config(tmp_path):
     """
     Test parsing of the model config.
     """
-    with open(tmp_path / "cimr_model.ini", "w") as config_file:
+    with open(tmp_path / "chimp_model.ini", "w") as config_file:
         config_file.write(MODEL_CONFIG)
 
-    model_config = parse_model_config(tmp_path / "cimr_model.ini")
+    model_config = parse_model_config(tmp_path / "chimp_model.ini")
 
     assert len(model_config.input_configs) == 2
     input_config = model_config.input_configs[0]
