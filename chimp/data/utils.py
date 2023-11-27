@@ -151,3 +151,30 @@ def scale_slices(
         col_step
     )
     return (row_slice, col_slice)
+
+
+def get_output_filename(
+        prefix: str,
+        time: datetime,
+        minutes: int = 15
+):
+    """
+    Get filename for training sample.
+
+    Args:
+        prefix: String specifying the filename prefix.
+        time: The observation time.
+        minutes: The number of minutes to which to round the time.
+
+    Return:
+        A string specifying the filename of the training sample.
+    """
+    time_r = round_time(time, minutes=minutes)
+    year = time_r.year
+    month = time_r.month
+    day = time_r.day
+    hour = time_r.hour
+    minute = time_r.minute
+
+    filename = f"{prefix}_{year}{month:02}{day:02}_{hour:02}_{minute:02}.nc"
+    return filename
