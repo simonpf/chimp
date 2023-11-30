@@ -26,7 +26,8 @@ setup(
         "xarray",
         "pandas",
         "quantnn",
-        "tensorboard"
+        "tensorboard",
+        "dask"
     ],
     packages=find_packages(),
     python_requires=">=3.6",
