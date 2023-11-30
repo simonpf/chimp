@@ -179,3 +179,78 @@ def resample_retrieval_targets(
     results["swath_center_col_inds"] = (("swath_centers",), col_inds)
 
     return xr.Dataset(results)
+
+
+def resample_data(dataset, target_grid, radius_of_influence=5e3):
+    """
+    Resample xarray.Dataset data to global grid.
+
+    Args:
+        dataset: xr.Dataset containing data to resample to global grid.
+        target_grid: A pyresample.AreaDefinition defining the global grid
+            to which to resample the data.
+
+    Return:
+        An xarray.Dataset containing the give dataset resampled to
+        the global grid.
+    """
+    lons = dataset.longitude.data
+    lats = dataset.latitude.data
+    lons_t, lats_t = target_grid.get_lonlats()
+
+    valid_pixels = (
+        (lons_t >= lons.min())
+        * (lons_t <= lons.max())
+        * (lats_t >= lats.min())
+        * (lats_t <= lats.max())
+    )
+
+    swath = geometry.SwathDefinition(lons=lons, lats=lats)
+    target = geometry.SwathDefinition(
+        lons=lons_t[valid_pixels],
+        lats=lats_t[valid_pixels]
+    )
+
+    info = kd_tree.get_neighbour_info(
+        swath, target, radius_of_influence=radius_of_influence, neighbours=1
+    )
+    ind_in, ind_out, inds, _ = info
+
+    dims = ("latitude", "longitude")
+    resampled = {}
+    resampled["latitude"] = (("latitude",), lats_t[:, 0])
+    resampled["longitude"] = (("longitude",), lons_t[0, :])
+
+    for var in dataset:
+        data = dataset[var].data
+        if data.ndim == 1:
+            data = np.broadcast_to(data[:, None], lons.shape)
+
+        dtype = data.dtype
+        if np.issubdtype(dtype, np.datetime64):
+            fill_value = np.datetime64("NaT")
+        elif np.issubdtype(dtype, np.integer):
+            fill_value = -9999
+        elif dtype == np.int8:
+            fill_value = -1
+        else:
+            fill_value = np.nan
+
+        data_r = kd_tree.get_sample_from_neighbour_info(
+            "nn", target.shape, data, ind_in, ind_out, inds, fill_value=fill_value
+        )
+
+        data_full = np.zeros(target_grid.shape + data.shape[2:], dtype=dtype)
+        if np.issubdtype(dtype, np.floating):
+            data_full = np.nan * data_full
+        elif np.issubdtype(dtype, np.datetime64):
+            data_full[:] = np.datetime64("NaT")
+        elif dtype == np.int8:
+            data_full[:] = -1
+        else:
+            data_full[:] = -9999
+
+        data_full[valid_pixels] = data_r
+        resampled[var] = (dims + dataset[var].dims[2:], data_full)
+
+    return xr.Dataset(resampled)

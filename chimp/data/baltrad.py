@@ -2,12 +2,13 @@
 chimp.data.baltrad
 =================
 
-Functionality to simplify reading and processing of Baltrad
-data.
+Defines the Baltrad input data class that provides an interface to extract
+and load precipitation estimates from the BALTRAD radar network.
 """
 from datetime import datetime, timedelta
 from pathlib import Path
 import re
+from typing import Optional
 
 from h5py import File
 import numpy as np
@@ -16,130 +17,129 @@ from pyproj import Transformer
 from pyresample.geometry import AreaDefinition
 import xarray as xr
 
+from pansat import FileRecord, TimeRange, Geometry
+from pansat.geometry import LonLatRect
+from pansat.catalog import Index
+from pansat.products import Product, FilenameRegexpMixin
+
+from chimp.data import ReferenceData
 from chimp.utils import round_time
+from chimp.data.resample import resample_data
+from chimp.data.utils import get_output_filename
 
 
-class BaltradFile:
+def _load_projection_info(path):
     """
-    Interface class to read Baltrad data.
+    Loads the projection info from the Baltrad file.
     """
+    with File(path, "r") as data:
 
-    @staticmethod
-    def filename_to_date(filename):
+        projdef = data["where"].attrs["projdef"].decode() + " +units=m"
+        size_x = data["where"].attrs["xsize"]
+        size_y = data["where"].attrs["ysize"]
+
+        latlon = "+proj=longlat +ellps=bessel +datum=WGS84 +units=m"
+
+        transformer = Transformer.from_crs(latlon, projdef, always_xy=True)
+
+        lon_min = data["where"].attrs["LL_lon"]
+        lat_min = data["where"].attrs["LL_lat"]
+        lon_max = data["where"].attrs["UR_lon"]
+        lat_max = data["where"].attrs["UR_lat"]
+
+        x_min, y_min = transformer.transform(lon_min, lat_min)
+        x_max, y_max = transformer.transform(lon_max, lat_max)
+
+        area = AreaDefinition(
+            "CHIMP_NORDIC",
+            "CHIMP region of interest over the nordic countries.",
+            "CHIMP_NORDIC",
+            projdef,
+            size_x,
+            size_y,
+            (x_min, y_min, x_max, y_max),
+        )
+    return area
+
+
+class BaltradData(FilenameRegexpMixin, Product):
+    """
+    pansat product class to access BALTRAD data.
+    """
+    def __init__(self):
+        self.filename_regexp = re.compile(
+            r"comp_pcappi_blt2km_pn150_(?P<date>\d{8}T\d{6})Z_(\w*).h5"
+        )
+        Product.__init__(self)
+
+    @property
+    def name(self) -> str:
+        return "chimp.baltrad"
+
+    @property
+    def default_destination(self) -> str:
+        return "baltrad"
+
+    def get_temporal_coverage(self, rec: FileRecord) -> TimeRange:
         """
-        Extract time from filename.
+        Return temporal coverage of file.
 
         Args:
-            filename: The name or path to the file.
-
-        Return
-            ``np.datetime64`` object representing the time.
-        """
-        name = Path(filename).name
-        date = name.split("_")[4]
-        date = datetime.strptime(date, "%Y%m%dT%H%M%SZ")
-        return pd.Timestamp(date).to_datetime64()
-
-    @staticmethod
-    def find_files(base_dir, start_time=None, end_time=None):
-        """
-        Find Baltrad files.
-
-        Args:
-            base_dir: Root directory to search through.
-            start_time: Optional start time to limit the search.
-            end_time: Optional end time to limit the search.
+            rec: A file record pointing to a Baltrad file.
 
         Return:
-            A list of the found files.
+            A TimeRange object representing the temporal coverage of
+            the file identified by 'rec'.
         """
-        files = list(Path(base_dir).glob("**/comp_pcappi_blt2km_pn150*.h5"))
-        dates = np.array(list((map(Baltrad.filename_to_date, files))))
+        if not isinstance(rec, FileRecord):
+            rec = FileRecord(local_path=rec)
 
-        if len(dates) == 0:
-            return []
+        match = self.filename_regexp.match(rec.local_path.name)
+        if match is None:
+            raise ValueError(
+                "The provided file record does not point to a BALTRAD file."
+            )
+        start = datetime.strptime(match.group("date"), "%Y%m%dT%H%M%S")
+        end = start + timedelta(minutes=15)
+        return TimeRange(start, end)
 
-        if start_time is None:
-            start_time = dates.min()
-        else:
-            start_time = np.datetime64(start_time)
-
-        if end_time is None:
-            end_time = dates.max()
-        else:
-            end_time = np.datetime64(end_time)
-
-        return [
-            file
-            for file, date in zip(files, dates)
-            if (date >= start_time) and (date <= end_time)
-        ]
-
-        return files
-
-    def __init__(self, filename):
+    def get_spatial_coverage(self, rec: FileRecord) -> Geometry:
         """
-        Create Baltrad file but don't load the data yet.
+        Return spatial coverage of file.
 
         Args:
-            filename: Path to the file containing the Baltrad data.
+            rec: A file record pointing to a Baltrad file.
+
+        Return:
+            A pansat.Geometry object representing the spatial coverage of the
+            file identified by 'rec'.
         """
-        self.filename = filename
-        self._load_projection_info()
+        return LonLatRect(-180, -90, 180, 90)
 
-    def _load_projection_info(self):
+
+
+    def open(self, rec: FileRecord) -> xr.Dataset:
         """
-        Loads the projection info from the Baltrad file.
-        """
-        with File(self.filename, "r") as data:
+        Load data from Baltrad file.
 
-            projdef = data["where"].attrs["projdef"].decode() + " +units=m"
-            size_x = data["where"].attrs["xsize"]
-            size_y = data["where"].attrs["ysize"]
-
-            latlon = "+proj=longlat +ellps=bessel +datum=WGS84 +units=m"
-
-            transformer = Transformer.from_crs(latlon, projdef, always_xy=True)
-
-            lon_min = data["where"].attrs["LL_lon"]
-            lat_min = data["where"].attrs["LL_lat"]
-            lon_max = data["where"].attrs["UR_lon"]
-            lat_max = data["where"].attrs["UR_lat"]
-
-            x_min, y_min = transformer.transform(lon_min, lat_min)
-            x_max, y_max = transformer.transform(lon_max, lat_max)
-
-            area = AreaDefinition(
-                "CHIMP_NORDIC",
-                "CHIMP region of interest over the nordic countries.",
-                "CHIMP_NORDIC",
-                projdef,
-                size_x,
-                size_y,
-                (x_min, y_min, x_max, y_max),
-            )
-            n_rows, n_cols = area.shape
-            new_shape = ((n_rows // 4) * 4, (n_cols // 4) * 4)
-            area = area[(slice(0, new_shape[0]), slice(0, new_shape[1]))]
-
-            self.area = area
-
-    def to_xarray_dataset(self):
-        """
-        Load data from file into xarray dataset.
+        Args:
+            rec: A file record whose 'local_path' attributes points to a
+                local file to load.
 
         Return:
             An ``xarray.Dataset`` containing the data from the file.
         """
-        with File(self.filename, "r") as data:
+        if not isinstance(rec, FileRecord):
+            rec = FileRecord(rec)
 
-            i_end, j_end = self.area.shape
+
+        with File(rec.local_path, "r") as data:
 
             #
             # DBZ
             #
 
-            dbz = data["dataset1/data3"]["data"][0:i_end, 0:j_end]
+            dbz = data["dataset1/data3"]["data"]
             dataset = xr.Dataset({"dbz": (("y", "x"), dbz)})
 
             gain = data["dataset1"]["data3"]["what"].attrs["gain"]
@@ -158,7 +158,7 @@ class BaltradFile:
             # Quality index
             #
 
-            qi = data["dataset1/data3/quality4"]["data"][0:i_end, 0:j_end]
+            qi = data["dataset1/data3/quality4"]["data"]
             dataset["qi"] = (("y", "x"), qi)
 
             gain = data["dataset1"]["data3"]["quality4"]["what"].attrs["gain"]
@@ -175,60 +175,96 @@ class BaltradFile:
             end_time = data["dataset1"]["what"].attrs["endtime"].decode()
             dataset.attrs["end_time"] = f"{end_date} {end_time}"
 
-            time = Baltrad.filename_to_date(self.filename)
-            dataset.attrs["time"] = str(time)
-            dataset.attrs["projection"] = self.area.proj_str
+            time = self.get_temporal_coverage(rec)
+            dataset.attrs["time"] = str(time.start)
+            area = _load_projection_info(rec.local_path)
+            dataset.attrs["projection"] = area
+
+
+            lons, lats = area.get_lonlats()
+            dataset["longitude"] = (("y", "x"), lons)
+            dataset["latitude"] = (("y", "x"), lats)
 
         return dataset
 
 
-def save_file(dataset, output_folder):
+baltrad_product = BaltradData()
+
+
+class Baltrad(ReferenceData):
     """
-    Save file to training data.
-
-    Args:
-        dataset: The ``xarray.Dataset`` containing the resampled
-            Baltrad observations.
-        output_folder: The folder to which to write the training data.
-
+    The Baltrad input data class that extracts radar reflectivity and
+    estimates from BALTRAD files.
     """
-    time_15 = round_time(dataset.attrs["time"])
-    year = time_15.year
-    month = time_15.month
-    day = time_15.day
-    hour = time_15.hour
-    minute = time_15.minute
-
-    filename = f"radar_{year}{month:02}{day:02}_{hour:02}_{minute:02}.nc"
-    output_filename = Path(output_folder) / filename
-
-    comp = {"zlib": True}
-    encoding = {var: comp for var in dataset.variables.keys()}
-    dataset.to_netcdf(output_filename, encoding=encoding)
-
-
-def process_day(year, month, day, output_folder, path=None):
-    """
-    Extract training data from a day of Baltrad measurements.
-
-    Args:
-        year: The year
-        month: The month
-        day: The day
-        output_folder: The folder to which to write the extracted
-            observations.
-    """
-    if path is None:
-        raise ValueError(
-            "'path' argument must be provided for extraction of Baltrad data."
+    def __init__(self):
+        super().__init__(
+            "baltrad",
+            scale=2,
+            targets=["dbz"],
+            quality_index="qi"
         )
-    output_folder = Path(output_folder) / "radar"
-    if not output_folder.exists():
-        output_folder.mkdir(parents=True, exist_ok=True)
 
-    start_time = datetime(year, month, day)
-    end_time = datetime(year, month, day) + timedelta(hours=23, minutes=59)
-    files = Baltrad.find_files(path, start_time=start_time, end_time=end_time)
-    for filename in files:
-        dataset = Baltrad(filename).to_xarray_dataset()
-        save_file(dataset, output_folder)
+    def process_day(
+        self,
+        domain: dict,
+        year: int,
+        month: int,
+        day: int,
+        output_folder: Path,
+        path: Path = Optional[None],
+        time_step: timedelta = timedelta(minutes=15),
+        include_scan_time=False,
+    ):
+        """
+        Extract GMI input observations for the CHIMP retrieval.
+
+        Args:
+            domain: A domain dict specifying the area for which to
+                extract GMI input data.
+            year: The year.
+            month: The month.
+            day: The day.
+            output_folder: The root of the directory tree to which to write
+                the training data.
+            path: Not used, included for compatibility.
+            time_step: The time step between consecutive retrieval steps.
+            include_scan_time: If set to 'True', the resampled scan time will
+                be included in the extracted training input.
+        """
+        output_folder = Path(output_folder) / self.name
+        if not output_folder.exists():
+            output_folder.mkdir(parents=True, exist_ok=True)
+
+        files = (path / f"{year}/{month:02}/{day:02}").glob("**/*.h5")
+        index = Index.index(baltrad_product, files)
+
+        start_time = datetime(year, month, day)
+        end_time = datetime(year, month, day) + timedelta(hours=23, minutes=59)
+        time_range = TimeRange(start_time, end_time)
+
+        time = start_time
+
+        if isinstance(domain, dict):
+            domain = domain[self.scale]
+
+        while start_time < end_time:
+
+            granules = index.find(TimeRange(
+                time - 0.5 * time_step,
+                time + 0.5 * time_step,
+            ))
+            if len(granules) > 0:
+                data = baltrad_product.open(granules[0].file_record)
+                data = resample_data(data, domain, radius_of_influence=4e3)
+
+                output_filename = get_output_filename(
+                    "baltrad",
+                    time,
+                    minutes=time_step.total_seconds() // 60
+                )
+                data.to_netcdf(output_folder / output_filename)
+
+            time = time + time_step
+
+
+baltrad = Baltrad()
