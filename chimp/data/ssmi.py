@@ -111,6 +111,9 @@ def resample_data(
         if orbit_part == "des":
             orbit = ~orbit
 
+        if orbit.sum() == 0:
+            continue
+
         swath = SwathDefinition(lons=lons[orbit], lats=lats[orbit])
         target = SwathDefinition(
             lons=lons_t,
@@ -200,39 +203,39 @@ class SSMI(Input, MinMaxNormalized):
             recs = ssmi_csu.find_files(time_range)
             recs = [rec.get() for rec in recs]
 
-            data_asc = None
-            data_des = None
-            for rec in recs:
-                print(rec.local_path)
-                data = load_observations(rec.local_path)
-                data_asc = resample_data(
-                    data,
-                    domain,
-                    data_asc,
-                    "asc"
+            if len(recs) > 0:
+                data_asc = None
+                data_des = None
+                for rec in recs:
+                    data = load_observations(rec.local_path)
+                    data_asc = resample_data(
+                        data,
+                        domain,
+                        data_asc,
+                        "asc"
+                    )
+                    data_des = resample_data(
+                        data,
+                        domain,
+                        data_des,
+                        "des"
+                    )
+
+                data_asc = data_asc.rename(
+                    obs_lores="obs_lores_asc",
+                    obs_hires="obs_hires_asc",
                 )
-                data_des = resample_data(
-                    data,
-                    domain,
-                    data_des,
-                    "des"
+                data_des = data_des.rename(
+                    obs_lores="obs_lores_des",
+                    obs_hires="obs_hires_des",
                 )
 
-            data_asc = data_asc.rename(
-                obs_lores="obs_lores_asc",
-                obs_hires="obs_hires_asc",
-            )
-            data_des = data_des.rename(
-                obs_lores="obs_lores_des",
-                obs_hires="obs_hires_des",
-            )
+                data = xr.merge(
+                    [data_asc, data_des],
+                )
 
-            data = xr.merge(
-                [data_asc, data_des],
-            )
-
-            filename = time.strftime("ssmi_%Y%m%d_%H%M.nc")
-            data.to_netcdf(output_folder / filename)
+                filename = time.strftime("ssmi_%Y%m%d_%H%M.nc")
+                data.to_netcdf(output_folder / filename)
 
             time = time + time_step
 
