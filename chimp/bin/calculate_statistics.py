@@ -16,7 +16,6 @@ import xarray as xr
 
 
 import chimp
-import chimp.data
 from chimp.logging import CONSOLE
 
 
@@ -130,7 +129,7 @@ class InputDataStatistics:
         dataset.to_netcdf(path)
 
 
-def process_file(inpt: chimp.data.Input, input_file: Path) -> InputDataStatistics:
+def process_file(inpt: "chimp.data.Input", input_file: Path) -> InputDataStatistics:
     """
     Calculate input data statistics for a single file.
 
@@ -149,7 +148,7 @@ def process_file(inpt: chimp.data.Input, input_file: Path) -> InputDataStatistic
 
 
 def process_files(
-        inpt : chimp.data.Input,
+        inpt : "chimp.data.Input",
         files : List[Path],
         n_processes : int
 ) -> InputDataStatistics:

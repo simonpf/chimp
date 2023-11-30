@@ -50,7 +50,7 @@ def add_parser(subparsers):
     parser.add_argument(
         "month",
         metavar="month",
-        type=int,
+        type=str,
         help="The month for which to extract the data.",
     )
     parser.add_argument(
@@ -137,10 +137,18 @@ def run(args):
 
     year = args.year
     month = args.month
-    days = args.day
-    if len(days) == 0:
-        n_days = monthrange(year, month)[1]
-        days = list(range(1, n_days + 1))
+    if month in ["*", "?"]:
+        months = list(range(1, 13))
+    else:
+        try:
+            months = [int(month)]
+        except Exception():
+            LOGGER.error(
+                "Month argument must be an integer identifying the month of "
+                " the year or '*'."
+            )
+            return 1
+
 
     try:
         domain = getattr(areas, args.domain.upper())
@@ -188,20 +196,27 @@ def run(args):
     pool = ThreadPoolExecutor(max_workers=n_procs)
 
     tasks = []
-    for day in days:
-        args = [domain, year, month, day, output]
-        kwargs = {
-            "path": path,
-            "time_step": time_step,
-            "include_scan_time": include_scan_time
-        }
-        if conditional is not None:
-            kwargs["conditional"] = conditional
-        tasks.append(pool.submit(inpt.process_day, *args, **kwargs))
+    dates = []
+    for month in months:
+        days = args.day
+        if len(days) == 0:
+            n_days = monthrange(year, month)[1]
+            days = list(range(1, n_days + 1))
+        for day in days:
+            fargs = [domain, year, month, day, output]
+            kwargs = {
+                "path": path,
+                "time_step": time_step,
+                "include_scan_time": include_scan_time
+            }
+            if conditional is not None:
+                kwargs["conditional"] = conditional
+            tasks.append(pool.submit(inpt.process_day, *fargs, **kwargs))
+            dates.append((month, day))
 
     failed_days = []
 
-    for task, day in zip(tasks, days):
+    for task, date in zip(tasks, dates):
         try:
             task.result()
         except Exception as e:
@@ -210,6 +225,7 @@ def run(args):
                 f"{year}-{month:02}-{day:02}",
                 type(e),
                 e)
+            month, day = date
             failed_days.append((year, month, day))
 
 
