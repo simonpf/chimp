@@ -4,6 +4,7 @@ chimp.data.utils
 
 Utility functions used by the sub-modules of the chimp.data module.
 """
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
 

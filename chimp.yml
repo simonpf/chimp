@@ -1,11 +1,15 @@
 name: chimp
 channels:
-  - pytorch-nightly
+  - pytorch
   - nvidia
   - conda-forge
   - defaults
 dependencies:
   - python=3.10
+  - pytorch::pytorch
+  - pytorch::pytorch-cuda=12.1
+  - pytorch::torchvision
+  - pytorch::torchaudio
   - netcdf4
   - pyyaml
   - pooch
@@ -26,11 +30,6 @@ dependencies:
   - cartopy
   - llvm-openmp[version='14']
   - ipywidgets
-  - pytorch
-  - torchvision
-  - torchaudio
-  - pytorch-cuda=12.1
   - lightning
   - protobuf
   - geopandas
-prefix: /home/simonpf/miniconda3/envs/chimp

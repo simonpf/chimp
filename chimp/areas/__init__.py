@@ -54,8 +54,7 @@ CONUS_8 = pyresample.load_area(Path(__file__).parent / "chimp_conus_8.yml")
 CONUS_16 = pyresample.load_area(Path(__file__).parent / "chimp_conus_16.yml")
 ROI_CONUS = LonLatRect(
     -129.995,
-    20.005,
-    -60.005,
+    20.005, -60.005,
     54.995
 )
 _lons, _lats = CONUS_8.get_lonlats()

@@ -9,18 +9,23 @@ import logging
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import subprocess
+from zipfile import ZipFile
 
 import numpy as np
 import pandas as pd
-from pansat import Product
+from pansat import Product, TimeRange
 from pansat.roi import any_inside
 from pansat.download.providers.eumetsat import EUMETSATProvider
-from pansat.products.satellite.meteosat import l1b_msg_seviri
+from pansat.products.satellite.meteosat import (
+    l1b_msg_seviri,
+    l1b_rs_msg_seviri
+)
+from pansat.time import to_datetime64
 from pyresample import geometry, kd_tree
 from satpy import Scene
 import xarray as xr
 
-from chimp.areas import NORDIC_4
+from chimp.data import Input, MinMaxNormalized
 from chimp.data.utils import get_output_filename
 
 
@@ -56,17 +61,18 @@ def save_file(dataset, time_step, output_folder):
             of the training data.
         output_folder: The folder to which to write the training data.
     """
-    filename = get_output_filename("seviri", dataset.attrs["time"])
+    filename = get_output_filename("seviri", dataset["time"].data, time_step)
     output_filename = Path(output_folder) / filename
     comp = {"dtype": "int16", "scale_factor": 0.01, "zlib": True, "_FillValue": -99}
     encoding = {"obs": comp}
+    print(dataset)
     dataset.to_netcdf(output_filename, encoding=encoding)
 
 
 def download_and_resample_data(
         product: Product,
         time: datetime,
-        domain: AreaDefinition,
+        domain: geometry.AreaDefinition,
         channel_configuration: str
 ) -> xr.Dataset:
     """
@@ -86,17 +92,17 @@ def download_and_resample_data(
     """
     time_range = TimeRange(time - timedelta(minutes=2), time + timedelta(minutes=2))
     recs = product.get(time_range)
-    closest = time_range.find_closest_inds([rec.temporal_coverage])
-    rec = recs[clostest[0]].get()
+    closest = time_range.find_closest_ind([rec.temporal_coverage for rec in recs])
+    rec = recs[closest[0]].get()
 
     with TemporaryDirectory() as tmp:
         with ZipFile(rec.local_path, 'r') as zip_ref:
             zip_ref.extractall(tmp)
         files = list(Path(tmp).glob("*.nat"))
-        scene = satpy.Scene(files)
+        scene = Scene(files)
         datasets = scene.available_dataset_names()
 
-        datasets = CHANNEL_CONFIGURATION[channels_configuration]
+        datasets = CHANNEL_CONFIGURATIONS[channel_configuration]
         scene.load(datasets)
         scene_r = scene.resample(domain)
 
@@ -105,11 +111,17 @@ def download_and_resample_data(
         for name in datasets:
             obs.append(scene_r[name].compute().data)
 
+
+        acq_time = scene[datasets[0]].compute().acq_time.mean().data
+
         obs = np.stack(obs, -1)
 
-        return xr.Dataset(
+        data = xr.Dataset({
             "obs": (("y", "x", "channels"), obs)
-        )
+        })
+        data["time"] = to_datetime64(time)
+        data["acq_time_mean"] = acq_time
+        return data
 
 
 class SEVIRIInputData(Input, MinMaxNormalized):
@@ -186,4 +198,5 @@ class SEVIRIInputData(Input, MinMaxNormalized):
             time = time + time_step
 
 
-seviri_rs = SEVIRIInputData("seviri_rs", l1b_rs_msg_seviri, "full")
+seviri_rs = SEVIRIInputData("seviri_rs", l1b_rs_msg_seviri, "all")
+seviri = SEVIRIInputData("seviri", l1b_msg_seviri, "all")

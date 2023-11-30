@@ -12,8 +12,13 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
+from pansat.time import to_datetime
 
-def round_time(time, minutes=15):
+
+def round_time(
+        time: datetime,
+        minutes: int = 15
+) -> datetime:
     """
     Round time to closest 15 minutes.
 
@@ -24,8 +29,10 @@ def round_time(time, minutes=15):
     Return:
         A 'datetime.datetime' object representing the rounded time.
     """
+    if isinstance(minutes, timedelta):
+        minutes = minutes.total_seconds() // 60
 
-    time = pd.Timestamp(time).to_pydatetime()
+    time = to_datetime(time)
     year = time.year
     month = time.month
     day = time.day

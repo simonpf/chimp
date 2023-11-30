@@ -126,6 +126,8 @@ def run(args):
     import chimp.data.gridsat
     import chimp.data.patmosx
     import chimp.data.ssmi
+    import chimp.data.seviri
+    import chimp.data.daily_precip
 
     #
     # Check and load inputs.

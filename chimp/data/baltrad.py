@@ -19,7 +19,7 @@ import xarray as xr
 from chimp.utils import round_time
 
 
-class Baltrad:
+class BaltradFile:
     """
     Interface class to read Baltrad data.
     """
