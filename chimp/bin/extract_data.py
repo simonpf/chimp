@@ -219,13 +219,16 @@ def run(args):
 
     for task, date in zip(tasks, dates):
         try:
-            task.result()
+            ret = task.result()
         except Exception as e:
             LOGGER.exception(
                 "The following error was encountered while processing file '%s': %s %s",
                 f"{year}-{month:02}-{day:02}",
                 type(e),
                 e)
+            ret = 1
+
+        if ret is not None and ret > 0:
             month, day = date
             failed_days.append((year, month, day))
 
@@ -233,4 +236,4 @@ def run(args):
     # Write failed days to file
     with open(output / f".{inpt.name}_failed.txt", "w") as failed:
         for year, month, day in failed_days:
-            failed.write(f"{year} {month} {day}")
+            failed.write(f"{year} {month} {day}\n")
