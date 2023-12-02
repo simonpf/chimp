@@ -207,7 +207,12 @@ class SSMI(Input, MinMaxNormalized):
                 data_asc = None
                 data_des = None
                 for rec in recs:
-                    data = load_observations(rec.local_path)
+                    # Some files are empty so we want to skip those.
+                    try:
+                        data = load_observations(rec.local_path)
+                    except KeyError:
+                        continue
+
                     data_asc = resample_data(
                         data,
                         domain,
