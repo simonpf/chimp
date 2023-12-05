@@ -301,17 +301,16 @@ class Input(InputBase, MinMaxNormalized):
             slices = scale_slices(slices, rel_scale)
             with xr.open_dataset(input_file) as data:
                 vars = self.variables
-                if isinstance(vars, str):
-                    x_s = data[vars][dict(zip(self.spatial_dims, slices))]
-                    x_s = x_s.transpose(*(("channels",) + self.spatial_dims))
-                    x_s = x_s.data
-                    # Expand dims in case of single-channel inputs.
+                if not isinstance(vars, list):
+                    vars = [vars]
+                all_data = []
+                for vrbl in vars:
+                    x_s = data[vrbl][dict(zip(self.spatial_dims, slices))].data
                     if x_s.ndim < 3:
                         x_s = x_s[None]
-                else:
-                    x_s = np.stack(
-                        [data[vrbl][row_slice, col_slice].data for vrbl in vars]
-                    )
+                    x_s = np.transpose(x_s, (2, 0, 1))
+                    all_data.append(x_s)
+                x_s = np.concatenate(all_data, axis=0)
 
             # Apply augmentations
             if rotate is not None:
