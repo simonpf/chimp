@@ -16,10 +16,7 @@ import pandas as pd
 from pansat import Product, TimeRange
 from pansat.roi import any_inside
 from pansat.download.providers.eumetsat import EUMETSATProvider
-from pansat.products.satellite.meteosat import (
-    l1b_msg_seviri,
-    l1b_rs_msg_seviri
-)
+from pansat.products.satellite.meteosat import l1b_msg_seviri, l1b_rs_msg_seviri
 from pansat.time import to_datetime64
 from pyresample import geometry, kd_tree
 from satpy import Scene
@@ -63,17 +60,17 @@ def save_file(dataset, time_step, output_folder):
     """
     filename = get_output_filename("seviri", dataset["time"].data, time_step)
     output_filename = Path(output_folder) / filename
-    comp = {"dtype": "int16", "scale_factor": 0.01, "zlib": True, "_FillValue": -99}
+    comp = {"dtype": "int16", "scale_factor": 0.05, "zlib": True, "_FillValue": -99}
     encoding = {"obs": comp}
     print(dataset)
     dataset.to_netcdf(output_filename, encoding=encoding)
 
 
 def download_and_resample_data(
-        product: Product,
-        time: datetime,
-        domain: geometry.AreaDefinition,
-        channel_configuration: str
+    product: Product,
+    time: datetime,
+    domain: geometry.AreaDefinition,
+    channel_configuration: str,
 ) -> xr.Dataset:
     """
     Download, load and resample SEVIRI data.
@@ -96,7 +93,7 @@ def download_and_resample_data(
     rec = recs[closest[0]].get()
 
     with TemporaryDirectory() as tmp:
-        with ZipFile(rec.local_path, 'r') as zip_ref:
+        with ZipFile(rec.local_path, "r") as zip_ref:
             zip_ref.extractall(tmp)
         files = list(Path(tmp).glob("*.nat"))
         scene = Scene(files)
@@ -104,21 +101,18 @@ def download_and_resample_data(
 
         datasets = CHANNEL_CONFIGURATIONS[channel_configuration]
         scene.load(datasets)
-        scene_r = scene.resample(domain)
+        scene_r = scene.resample(domain, radius_of_influence=4e3, cache_dir=".")
 
         obs = []
         names = []
         for name in datasets:
             obs.append(scene_r[name].compute().data)
 
-
         acq_time = scene[datasets[0]].compute().acq_time.mean().data
 
         obs = np.stack(obs, -1)
 
-        data = xr.Dataset({
-            "obs": (("y", "x", "channels"), obs)
-        })
+        data = xr.Dataset({"obs": (("y", "x", "channels"), obs)})
         data["time"] = to_datetime64(time)
         data["acq_time_mean"] = acq_time
         return data
@@ -129,12 +123,8 @@ class SEVIRIInputData(Input, MinMaxNormalized):
     Input class implementing an interface to extract and load SEVIRI input
     data.
     """
-    def __init__(
-            self,
-            name: str,
-            pansat_product: Product,
-            channel_configuration: str
-    ):
+
+    def __init__(self, name: str, pansat_product: Product, channel_configuration: str):
         """
         Args:
             name: The name of the input
@@ -142,20 +132,20 @@ class SEVIRIInputData(Input, MinMaxNormalized):
                 from which to extract the observations.
             channel_configuration: A 'str' specifying the channel configuration.
         """
-        super().__init__(name, 2, ["refls", "tbs"])
+        super().__init__(name, 2, ["obs"])
         self.pansat_product = pansat_product
         self.channel_configuration = channel_configuration
 
     def process_day(
-            self,
-            domain,
-            year,
-            month,
-            day,
-            output_folder,
-            path=None,
-            time_step=timedelta(minutes=15),
-            include_scan_time=False
+        self,
+        domain,
+        year,
+        month,
+        day,
+        output_folder,
+        path=None,
+        time_step=timedelta(minutes=15),
+        include_scan_time=False,
     ):
         """
         Extract training data from a day of GOES observations.
@@ -184,14 +174,13 @@ class SEVIRIInputData(Input, MinMaxNormalized):
         end_time = datetime(year, month, day) + timedelta(hours=23, minutes=59)
         time = start_time
         while time < end_time:
-
             output_filename = get_output_filename("seviri", time, time_step)
             if not (output_folder / output_filename).exists():
                 dataset = download_and_resample_data(
                     self.pansat_product,
                     time,
                     domain[self.scale],
-                    self.channel_configuration
+                    self.channel_configuration,
                 )
                 save_file(dataset, time_step, output_folder)
 
