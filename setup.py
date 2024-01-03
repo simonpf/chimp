@@ -18,6 +18,7 @@ setup(
     author="Simon Pfreundschuh",
     author_email="simon.pfreundschuh@chalmers.se",
     install_requires=[
+        "click",
         "rich",
         "torch",
         "pytorch-lightning",
@@ -27,16 +28,16 @@ setup(
         "pandas",
         "quantnn",
         "tensorboard",
-        "dask"
+        "dask",
     ],
     packages=find_packages(),
     python_requires=">=3.6",
     project_urls={
         "Source": "https://github.com/simonpf/chimp/",
     },
-    entry_points = {
-        'console_scripts': ['chimp=chimp.bin:chimp'],
+    entry_points={
+        "console_scripts": ["chimp=chimp.cli:chimp"],
     },
     include_package_data=True,
-    package_data={'chimp': ['areas/*.yml']},
+    package_data={"chimp": ["areas/*.yml"]},
 )

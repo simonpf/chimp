@@ -13,13 +13,13 @@ from chimp.data.source import DataSource
 
 
 def find_random_scene(
-        reference_data,
-        path,
-        rng,
-        multiple=4,
-        window_size=256,
-        qi_thresh=0.8,
-        valid_fraction=0.2
+    reference_data,
+    path,
+    rng,
+    multiple=4,
+    window_size=256,
+    qi_thresh=0.8,
+    valid_fraction=0.2,
 ):
     """
     Finds a random scene in the reference data that has given minimum
@@ -42,7 +42,6 @@ def find_random_scene(
         of the random crop.
     """
     with xr.open_dataset(path) as data:
-
         qi = data[reference_data.quality_index].data
 
         found = False
@@ -69,14 +68,13 @@ def find_random_scene(
     return (i_start, i_end, j_start, j_end)
 
 
-
-
 @dataclass
 class RetrievalTarget:
     """
     This dataclass holds properties of retrieval targets provided
     by a reference dataset.
     """
+
     name: str
     lower_limit: Optional[float] = None
 
@@ -89,17 +87,14 @@ class ReferenceData(DataSource):
     """
     This dataclass holds properties of reference datasets.
     """
+
     name: str
     scale: int
     targets: List[RetrievalTarget]
     quality_index: str
 
     def __init__(
-            self,
-            name: str,
-            scale: int,
-            targets: list[RetrievalTarget],
-            quality_index: str
+        self, name: str, scale: int, targets: list[RetrievalTarget], quality_index: str
     ):
         super().__init__(name)
         ALL_REFERENCE_DATA[name] = self
@@ -120,6 +115,9 @@ def get_reference_data(name: Union[str, ReferenceData]) -> ReferenceData:
         A ReferenceData object that can be used to load reference data
         from the requested dataset.
     """
+    from . import baltrad
+    from . import mrms
+
     if isinstance(name, DataSource):
         return name
     if name in ALL_REFERENCE_DATA:

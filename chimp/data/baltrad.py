@@ -23,6 +23,7 @@ from pansat.catalog import Index
 from pansat.products import Product, FilenameRegexpMixin
 
 from chimp.data import ReferenceData
+from chimp.data.reference import RetrievalTarget
 from chimp.utils import round_time
 from chimp.data.resample import resample_data
 from chimp.data.utils import get_output_filename
@@ -33,7 +34,6 @@ def _load_projection_info(path):
     Loads the projection info from the Baltrad file.
     """
     with File(path, "r") as data:
-
         projdef = data["where"].attrs["projdef"].decode() + " +units=m"
         size_x = data["where"].attrs["xsize"]
         size_y = data["where"].attrs["ysize"]
@@ -66,6 +66,7 @@ class BaltradData(FilenameRegexpMixin, Product):
     """
     pansat product class to access BALTRAD data.
     """
+
     def __init__(self):
         self.filename_regexp = re.compile(
             r"comp_pcappi_blt2km_pn150_(?P<date>\d{8}T\d{6})Z_(\w*).h5"
@@ -116,8 +117,6 @@ class BaltradData(FilenameRegexpMixin, Product):
         """
         return LonLatRect(-180, -90, 180, 90)
 
-
-
     def open(self, rec: FileRecord) -> xr.Dataset:
         """
         Load data from Baltrad file.
@@ -132,9 +131,7 @@ class BaltradData(FilenameRegexpMixin, Product):
         if not isinstance(rec, FileRecord):
             rec = FileRecord(rec)
 
-
         with File(rec.local_path, "r") as data:
-
             #
             # DBZ
             #
@@ -180,7 +177,6 @@ class BaltradData(FilenameRegexpMixin, Product):
             area = _load_projection_info(rec.local_path)
             dataset.attrs["projection"] = area
 
-
             lons, lats = area.get_lonlats()
             dataset["longitude"] = (("y", "x"), lons)
             dataset["latitude"] = (("y", "x"), lats)
@@ -196,12 +192,10 @@ class Baltrad(ReferenceData):
     The Baltrad input data class that extracts radar reflectivity and
     estimates from BALTRAD files.
     """
+
     def __init__(self):
         super().__init__(
-            "baltrad",
-            scale=2,
-            targets=["dbz"],
-            quality_index="qi"
+            "baltrad", scale=2, targets=[RetrievalTarget("dbz")], quality_index="qi"
         )
 
     def process_day(
@@ -248,19 +242,18 @@ class Baltrad(ReferenceData):
             domain = domain[self.scale]
 
         while start_time < end_time:
-
-            granules = index.find(TimeRange(
-                time - 0.5 * time_step,
-                time + 0.5 * time_step,
-            ))
+            granules = index.find(
+                TimeRange(
+                    time - 0.5 * time_step,
+                    time + 0.5 * time_step,
+                )
+            )
             if len(granules) > 0:
                 data = baltrad_product.open(granules[0].file_record)
                 data = resample_data(data, domain, radius_of_influence=4e3)
 
                 output_filename = get_output_filename(
-                    "baltrad",
-                    time,
-                    minutes=time_step.total_seconds() // 60
+                    "baltrad", time, minutes=time_step.total_seconds() // 60
                 )
                 data.to_netcdf(output_folder / output_filename)
 

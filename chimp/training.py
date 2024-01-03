@@ -4,17 +4,31 @@ chimp.training
 
 Module implementing training functionality.
 """
+import click
+from dataclasses import dataclass
+import logging
 from pathlib import Path
 import re
-from typing import Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pytorch_lightning as pl
 import torch
+from torch import nn
 
 from pytorch_lightning.callbacks import Callback
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
-from quantnn import metrics
+from pytorch_retrieve.architectures import compile_architecture
+from pytorch_retrieve.config import read_config_file, get_config_attr, ComputeConfig
+from pytorch_retrieve.utils import (
+    read_model_config,
+    read_training_config,
+    read_compute_config,
+)
+import pytorch_retrieve as pr
+from pytorch_retrieve import metrics
+from pytorch_retrieve.lightning import LightningRetrieval
+from pytorch_retrieve.training import run_training
 from torch.utils.data import DataLoader
 
 from chimp.data.training_data import SingleStepDataset, SequenceDataset
@@ -91,12 +105,12 @@ def get_optimizer_and_scheduler(training_config, model, previous_optimizer=None)
         return optimizer, scheduler, callbacks
 
     scheduler = getattr(torch.optim.lr_scheduler, training_config.scheduler)
-    scheduler_kwargs = training_config.scheduler_kwargs
-    if scheduler_kwargs is None:
-        scheduler_kwargs = {}
+    scheduler_args = training_config.scheduler_args
+    if scheduler_args is None:
+        scheduler_args = {}
     scheduler = scheduler(
         optimizer=optimizer,
-        **scheduler_kwargs,
+        **scheduler_args,
     )
     scheduler.stepwise = training_config.stepwise_scheduling
 
@@ -377,3 +391,329 @@ def find_most_recent_checkpoint(path: Path, model_name: str) -> Path:
             versions.append(int(match.group(1)[2:]))
     ind = np.argmax(versions)
     return checkpoint_files[ind]
+
+
+@dataclass
+class TrainingConfig(pr.training.TrainingConfigBase):
+    """
+    A dataclass to hold parameters of a single training stage.
+    """
+
+    training_data_path: Path
+    validation_data_path: Path
+    input_datasets: List[str]
+    reference_datasets: List[str]
+    sample_rate: int
+    sequence_length: int
+    window_size: int
+    augment: bool
+    time_step: int
+
+    n_epochs: int
+    batch_size: int
+    optimizer: str
+    optimizer_kwargs: Optional[dict] = None
+    scheduler: str = None
+    scheduler_args: Optional[dict] = None
+    gradient_clipping: Optional[float] = None
+    minimum_lr: Optional[float] = None
+    reuse_optimizer: bool = False
+    stepwise_scheduling: bool = False
+    metrics: Optional[Dict[str, List["Metric"]]] = None
+
+    log_every_n_steps: Optional[int] = None
+
+    @classmethod
+    def parse(cls, name, config_dict: Dict[str, object]):
+        """
+        Parses a single training stage from a dictionary of training settings.
+
+        Args:
+            name: Name of the training stage.
+            config_dict: The dictionary containing the training settings.
+
+        Return:
+            A TrainingConfig object containing the settings from the dictionary.
+        """
+        training_data_path = get_config_attr(
+            "training_data_path", str, config_dict, f"training stage '{name}'"
+        )
+        validation_data_path = get_config_attr(
+            "validation_data_path",
+            str,
+            config_dict,
+            f"training stage '{name}'",
+            required=False,
+        )
+        input_datasets = get_config_attr(
+            "input_datasets", list, config_dict, f"training stage '{name}'"
+        )
+        reference_datasets = get_config_attr(
+            "reference_datasets", list, config_dict, f"training stage '{name}'"
+        )
+        sample_rate = get_config_attr(
+            "sample_rate", int, config_dict, f"training stage '{name}'", 1
+        )
+        sequence_length = get_config_attr(
+            "sequence_length", int, config_dict, f"training stage '{name}'", 1
+        )
+        window_size = get_config_attr(
+            "window_size", int, config_dict, f"training stage '{name}'", 128
+        )
+        augment = get_config_attr(
+            "augment", bool, config_dict, f"training stage '{name}'", True
+        )
+        time_step = get_config_attr(
+            "time_step", str, config_dict, f"training stage '{name}'", required=False
+        )
+
+        dataset_module = get_config_attr(
+            "dataset_module", str, config_dict, f"training stage '{name}'"
+        )
+        training_dataset = get_config_attr(
+            "training_dataset", str, config_dict, f"training stage '{name}'"
+        )
+        training_dataset_args = get_config_attr(
+            "training_dataset_args", dict, config_dict, f"training stage '{name}'"
+        )
+        validation_dataset = get_config_attr(
+            "validation_dataset",
+            str,
+            config_dict,
+            f"training stage '{name}'",
+            training_dataset,
+        )
+        validation_dataset_args = get_config_attr(
+            "validation_dataset_args", dict, config_dict, f"training stage '{name}'", ""
+        )
+        if validation_dataset_args == "":
+            validation_dataset_args = None
+
+        n_epochs = get_config_attr(
+            "n_epochs", int, config_dict, f"training stage '{name}'"
+        )
+        batch_size = get_config_attr(
+            "batch_size", int, config_dict, f"training stage '{name}'"
+        )
+
+        optimizer = get_config_attr(
+            "optimizer", str, config_dict, f"training stage '{name}'"
+        )
+        optimizer_kwargs = get_config_attr(
+            "optimizer_kwargs", dict, config_dict, f"training stage '{name}'", {}
+        )
+
+        scheduler = get_config_attr(
+            "scheduler", str, config_dict, f"training stage '{name}'", "none"
+        )
+        if scheduler == "none":
+            scheduler = None
+        scheduler_args = get_config_attr(
+            "scheduler_args", dict, config_dict, f"training stage '{name}'", {}
+        )
+        gradient_clipping = get_config_attr(
+            "gradient_clipping", float, config_dict, f"training stage '{name}'", -1.0
+        )
+        if gradient_clipping < 0:
+            gradient_clipping = None
+
+        minimum_lr = get_config_attr(
+            "minimum_lr", float, config_dict, f"training stage '{name}'", -1.0
+        )
+        if minimum_lr < 0:
+            minimum_lr = None
+
+        reuse_optimizer = get_config_attr(
+            "reuse_optimizer", bool, config_dict, f"training stage '{name}'", False
+        )
+        stepwise_scheduling = get_config_attr(
+            "stepwise_scheduling", bool, config_dict, f"training stage '{name}'", False
+        )
+
+        metrics = config_dict.get("metrics", [])
+
+        log_every_n_steps = config_dict.get("log_every_n_steps", -1)
+        if log_every_n_steps < 0:
+            if n_epochs < 100:
+                log_every_n_steps = 1
+            else:
+                log_every_n_steps = 50
+
+        return TrainingConfig(
+            training_data_path=training_data_path,
+            validation_data_path=validation_data_path,
+            input_datasets=input_datasets,
+            reference_datasets=reference_datasets,
+            sample_rate=sample_rate,
+            sequence_length=sequence_length,
+            window_size=window_size,
+            augment=augment,
+            time_step=time_step,
+            n_epochs=n_epochs,
+            optimizer=optimizer,
+            optimizer_kwargs=optimizer_kwargs,
+            scheduler=scheduler,
+            scheduler_args=scheduler_args,
+            batch_size=batch_size,
+            gradient_clipping=gradient_clipping,
+            minimum_lr=minimum_lr,
+            reuse_optimizer=reuse_optimizer,
+            stepwise_scheduling=stepwise_scheduling,
+            metrics=metrics,
+            log_every_n_steps=log_every_n_steps,
+        )
+
+    def get_training_dataset(
+        self,
+    ) -> object:
+        """
+        Instantiates the appropriate training dataset.
+        """
+        if self.sequence_length == 1:
+            return SingleStepDataset(
+                self.training_data_path,
+                inputs=self.input_datasets,
+                reference_data=self.reference_datasets[0],
+                sample_rate=self.sample_rate,
+                normalize=False,
+                augment=self.augment,
+                window_size=self.window_size,
+                missing_value_policy="none",
+            )
+        else:
+            return SequenceDataset(
+                self.training_data_path,
+                inputs=self.input_datasets,
+                reference_data=self.reference_datasets[0],
+                sample_rate=self.sample_rate,
+                normalize=False,
+                window_size=self.window_size,
+                sequence_length=self.sequence_length,
+                missing_value_policy="none",
+                augment=self.augment,
+            )
+
+    def get_validation_dataset(self):
+        """
+        Instantiates the appropriate validation dataset.
+        """
+        if self.sequence_length == 1:
+            return SingleStepDataset(
+                self.validation_data_path,
+                inputs=self.input_datasets,
+                reference_data=self.reference_datasets[0],
+                sample_rate=self.sample_rate,
+                normalize=False,
+                augment=False,
+                window_size=self.window_size,
+                missing_value_policy="none",
+                validation=True,
+            )
+        else:
+            return SequenceDataset(
+                self.validation_data_path,
+                inputs=self.input_datasets,
+                reference_data=self.reference_datasets[0],
+                sample_rate=self.sample_rate,
+                normalize=False,
+                window_size=self.window_size,
+                sequence_length=self.sequence_length,
+                missing_value_policy="none",
+                augment=False,
+                validation=True,
+            )
+
+
+@click.argument("experiment_name")
+@click.option(
+    "--model_path",
+    default=None,
+    help="The model directory. Defaults to the current working directory",
+)
+@click.option(
+    "--model_config",
+    default=None,
+    help=(
+        "Path to the model config file. If not provided, pytorch_retrieve "
+        " will look for a 'model.toml' or 'model.yaml' file in the current "
+        " directory."
+    ),
+)
+@click.option(
+    "--training_config",
+    default=None,
+    help=(
+        "Path to the training config file. If not provided, pytorch_retrieve "
+        " will look for a 'training.toml' or 'training.yaml' file in the current "
+        " directory."
+    ),
+)
+@click.option(
+    "--compute_config",
+    default=None,
+    help=(
+        "Path to the compute config file defining the compute environment for "
+        " the training."
+    ),
+)
+@click.option(
+    "--resume",
+    "-r",
+    "resume",
+    default=False,
+    help=("If set, training will continue from a checkpoint file if available."),
+)
+def cli(
+    experiment_name: str,
+    model_path: Optional[Path],
+    model_config: Optional[Path],
+    training_config: Optional[Path],
+    compute_config: Optional[Path],
+    resume: bool = False,
+) -> int:
+    """
+    Train retrieval model.
+
+    This command runs the training of the retrieval model specified by the
+    model and training configuration files.
+
+    """
+    import chimp.data.seviri
+    import chimp.data.gpm
+    import chimp.data.goes
+    import chimp.data.cpcir
+    import chimp.data.baltrad
+    import chimp.data.mrms
+
+    if model_path is None:
+        model_path = Path(".")
+
+    LOGGER = logging.getLogger(__name__)
+    model_config = read_model_config(LOGGER, model_path, model_config)
+    if model_config is None:
+        return 1
+    retrieval_model = compile_architecture(model_config)
+
+    training_config = read_training_config(LOGGER, model_path, training_config)
+    if training_config is None:
+        return 1
+    training_schedule = {
+        name: TrainingConfig.parse(name, cfg) for name, cfg in training_config.items()
+    }
+
+    module = LightningRetrieval(retrieval_model, "retrieval_module", training_schedule)
+
+    compute_config = read_compute_config(LOGGER, model_path, compute_config)
+
+    checkpoint = None
+    if resume:
+        checkpoint = find_most_recent_checkpoint(
+            model_path / "checkpoints", module.name
+        )
+
+    run_training(
+        model_path,
+        module,
+        compute_config=compute_config,
+        checkpoint=checkpoint,
+    )

@@ -27,6 +27,8 @@ import torch.distributed as dist
 import xarray as xr
 import pandas as pd
 
+from pytorch_retrieve.tensors.masked_tensor import MaskedTensor
+
 
 from chimp import data
 from chimp.definitions import MASK
@@ -87,10 +89,10 @@ NORMALIZER_MW_183.stats = {
 }
 
 
-
 ###############################################################################
 # Loader functions for the difference input types.
 ###############################################################################
+
 
 def collate_recursive(sample, batch=None):
     """
@@ -115,9 +117,7 @@ def collate_recursive(sample, batch=None):
         elif isinstance(sample, list):
             return [collate_recursive(sample_t, None) for sample_t in sample]
         elif isinstance(sample, dict):
-            return {
-                k: collate_recursive(sample_k) for k, sample_k in sample.items()
-            }
+            return {k: collate_recursive(sample_k) for k, sample_k in sample.items()}
         elif isinstance(sample, torch.Tensor):
             return [sample]
         elif sample is None:
@@ -129,14 +129,16 @@ def collate_recursive(sample, batch=None):
                 pass
     else:
         if isinstance(sample, tuple):
-            return tuple([
-                collate_recursive(sample_t, batch_t)
-                 for sample_t, batch_t in zip(sample, batch)
-            ])
+            return tuple(
+                [
+                    collate_recursive(sample_t, batch_t)
+                    for sample_t, batch_t in zip(sample, batch)
+                ]
+            )
         elif isinstance(sample, list):
             return [
                 collate_recursive(sample_t, batch_t)
-                 for sample_t, batch_t in zip(sample, batch)
+                for sample_t, batch_t in zip(sample, batch)
             ]
         elif isinstance(sample, dict):
             return {
@@ -152,10 +154,7 @@ def collate_recursive(sample, batch=None):
                 return batch + [torch.as_tensor(sample)]
             except ValueError:
                 pass
-    raise ValueError(
-        "Encountered invalid type '%s' in collate function.",
-        type(sample)
-    )
+    raise ValueError("Encountered invalid type '%s' in collate function.", type(sample))
 
 
 def is_tensor(x):
@@ -188,13 +187,8 @@ def stack(batch):
         except ValueError:
             return [stack(batch_t) for batch_t in batch]
     elif isinstance(batch, dict):
-        return {
-            k: stack(batch_k) for k, batch_k in batch.items()
-        }
-    raise ValueError(
-        "Encountered invalid type '%s' in stack function.",
-        type(batch)
-    )
+        return {k: stack(batch_k) for k, batch_k in batch.items()}
+    raise ValueError("Encountered invalid type '%s' in stack function.", type(batch))
 
 
 def sparse_collate(samples):
@@ -214,13 +208,11 @@ def sparse_collate(samples):
     return stack(batch)
 
 
-
-
 def generate_input(
-        inpt: data.Input,
-        size: Tuple[int],
-        policy: str,
-        rng: np.random.Generator,
+    inpt: data.Input,
+    size: Tuple[int],
+    policy: str,
+    rng: np.random.Generator,
 ):
     """
     Generate input values for missing inputs.
@@ -241,15 +233,13 @@ def generate_input(
     elif policy == "random":
         return rng.normal(size=(inpt.n_channels,) + size)
     elif policy == "mean":
-        return inpt.normalizer(inpt.mean * np.ones(
-            shape=(inpt.n_channels, size, size),
-            dtype="float32"
-        ))
+        return inpt.normalizer(
+            inpt.mean * np.ones(shape=(inpt.n_channels, size, size), dtype="float32")
+        )
     elif policy == "missing":
-        return inpt.normalizer(np.nan * np.ones(
-            shpare=(inpt.n_channels, size, size),
-            dtype="float32"
-        ))
+        return inpt.normalizer(
+            np.nan * np.ones(shpare=(inpt.n_channels, size, size), dtype="float32")
+        )
 
     raise ValueError(
         f"Missing input policy '{policy}' is not known. Choose between 'random'"
@@ -263,6 +253,7 @@ class SampleRecord:
     Record holding the paths of the files for a single training
     sample.
     """
+
     radar: Path = None
     geo: Path = None
     mw: Path = None
@@ -286,14 +277,13 @@ class SampleRecord:
         return has_input
 
 
-
-
 class SingleStepDataset:
     """
     Dataset class for the CHIMP training data.
 
     Implements the PyTorch Dataset interface.
     """
+
     def __init__(
         self,
         folder,
@@ -309,7 +299,7 @@ class SingleStepDataset:
         augment=True,
         missing_value_policy="sparse",
         time_step=None,
-        validation=False
+        validation=False,
     ):
         """
         Args:
@@ -373,12 +363,17 @@ class SingleStepDataset:
             reference_files = reference_files[::subsample]
 
         samples = {
-            time: [ref_file,] + [None,] * self.n_inputs for
-            time, ref_file in zip(times, reference_files)
+            time: [
+                ref_file,
+            ]
+            + [
+                None,
+            ]
+            * self.n_inputs
+            for time, ref_file in zip(times, reference_files)
         }
 
         self.base_scale = self.reference_data.scale
-
 
         self.scales = {}
         self.max_scale = 0
@@ -387,7 +382,6 @@ class SingleStepDataset:
             times = np.array(list(map(get_date, src_files)))
             scale = None
             for time, src_file in zip(times, src_files):
-
                 if scale is None:
                     with xr.open_dataset(src_file) as src_data:
                         scale = inpt.scale // self.base_scale
@@ -420,14 +414,20 @@ class SingleStepDataset:
             seed = int.from_bytes(os.urandom(4), "big") + w_id
         self.rng = np.random.default_rng(seed)
 
+    def worker_init_fn(self, *args):
+        """
+        Pytorch retrieve interface.
+        """
+        return self.init_rng(*args)
+
     def load_sample(
-            self,
-            files: Tuple[Path],
-            slices: Optional[Tuple[int]],
-            window_size: int,
-            forecast: bool = False,
-            rotate: Optional[float] = None,
-            flip: bool = False,
+        self,
+        files: Tuple[Path],
+        slices: Optional[Tuple[int]],
+        window_size: int,
+        forecast: bool = False,
+        rotate: Optional[float] = None,
+        flip: bool = False,
     ):
         """
         Load training sample.
@@ -469,7 +469,6 @@ class SingleStepDataset:
             qual = qual.data[row_slice, col_slice]
             invalid = qual < self.quality_threshold
             for target in self.reference_data.targets:
-
                 y_t = data[target.name].data[row_slice, col_slice]
                 if not np.issubdtype(y_t.dtype, np.floating):
                     y_t = y_t.astype(np.int64)
@@ -482,16 +481,11 @@ class SingleStepDataset:
                     y_t[y_t < 0] = np.nan
                     small = y_t < target.lower_limit
                     rnd = self.rng.uniform(-5, -3, small.sum())
-                    y_t[small] = 10 ** rnd
-                y_t[invalid] = MASK
+                    y_t[small] = 10**rnd
+                # y_t[invalid] = MASK
                 if rotate is not None:
                     y_t = ndimage.rotate(
-                        y_t,
-                        rotate,
-                        order=0,
-                        axes=(-2, -1),
-                        reshape=False,
-                        cval=np.nan
+                        y_t, rotate, order=0, axes=(-2, -1), reshape=False, cval=np.nan
                     )
 
                     height = y_t.shape[-2]
@@ -508,9 +502,12 @@ class SingleStepDataset:
                 if flip:
                     y_t = np.flip(y_t, -1)
 
-                if np.issubdtype(y_t.dtype, np.floating):
-                    y_t = np.nan_to_num(y_t, nan=MASK, copy=True)
-                y[target.name] = torch.tensor(y_t.copy())
+                # if np.issubdtype(y_t.dtype, np.floating):
+                #    y_t = np.nan_to_num(y_t, nan=MASK, copy=True)
+
+                mask = torch.tensor(np.isnan(y_t))
+                tensor = torch.tensor(y_t.copy())
+                y[target.name] = MaskedTensor(tensor, mask=mask)
 
         # Load input data.
         x = {}
@@ -524,17 +521,16 @@ class SingleStepDataset:
                 self.rng,
                 self.missing_value_policy,
                 rotate=rotate,
-                flip=flip
+                flip=flip,
+                normalize=self.normalize,
             )
             x[inpt.name] = x_s
 
         return x, y
 
-
     def __len__(self):
         """Number of samples in dataset."""
         return len(self.samples) * self.sample_rate
-
 
     def __getitem__(self, index):
         """Return ith training sample."""
@@ -561,20 +557,15 @@ class SingleStepDataset:
             self.rng,
             multiple=4,
             window_size=window_size,
-            qi_thresh=self.quality_threshold
+            qi_thresh=self.quality_threshold,
         )
 
-
         x, y = self.load_sample(
-            self.samples[scene_index],
-            slices,
-            self.window_size,
-            rotate=ang,
-            flip=flip
+            self.samples[scene_index], slices, self.window_size, rotate=ang, flip=flip
         )
 
         has_input = any((x[inpt.name] is not None for inpt in self.inputs))
-        has_output = any (
+        has_output = any(
             (y[target.name] is not None for target in self.reference_data.targets)
         )
 
@@ -584,9 +575,7 @@ class SingleStepDataset:
 
         return x, y
 
-
     def plot(self, key, domain):
-
         sample = self.samples[key]
 
         keys = list(domain.keys())
@@ -599,10 +588,12 @@ class SingleStepDataset:
 
         f = plt.figure(figsize=(20, 20))
         gs = GridSpec(4, 5)
-        axs = np.array([[
-            f.add_subplot(gs[i, j], projection=crs) for j in range(5)
-            ] for i in range(4)
-        ])
+        axs = np.array(
+            [
+                [f.add_subplot(gs[i, j], projection=crs) for j in range(5)]
+                for i in range(4)
+            ]
+        )
 
         radar_data = xr.load_dataset(sample.radar)
 
@@ -624,7 +615,9 @@ class SingleStepDataset:
             data_visir = xr.load_dataset(sample.visir)
             for i in range(5):
                 ax = axs[1, i]
-                ax.imshow(data_visir[f"visir_{(i + 1):02}"].data, extent=extent, cmap=cmap)
+                ax.imshow(
+                    data_visir[f"visir_{(i + 1):02}"].data, extent=extent, cmap=cmap
+                )
                 ax.coastlines(color="w")
 
         if sample.mw is not None:
@@ -632,30 +625,18 @@ class SingleStepDataset:
             if "mw_90" in data_mw:
                 for i in range(2):
                     ax = axs[2, i]
-                    ax.imshow(
-                        data_mw["mw_90"].data[..., i],
-                        extent=extent,
-                        cmap=cmap
-                    )
+                    ax.imshow(data_mw["mw_90"].data[..., i], extent=extent, cmap=cmap)
                     ax.coastlines(color="w")
             if "mw_160" in data_mw:
                 for i in range(2):
                     ax = axs[2, i + 2]
-                    ax.imshow(
-                        data_mw["mw_160"].data[..., i],
-                        extent=extent,
-                        cmap=cmap
-                    )
+                    ax.imshow(data_mw["mw_160"].data[..., i], extent=extent, cmap=cmap)
                     ax.coastlines(color="w")
 
             if "mw_183" in data_mw:
                 for i in range(5):
                     ax = axs[3, i]
-                    ax.imshow(
-                        data_mw["mw_183"].data[..., i],
-                        extent=extent,
-                        cmap=cmap
-                    )
+                    ax.imshow(data_mw["mw_183"].data[..., i], extent=extent, cmap=cmap)
                     ax.coastlines(color="w")
 
         return f, axs
@@ -690,7 +671,6 @@ class SingleStepDataset:
         ax.set_title("MHS (89 GHz)")
 
         def animator(frame):
-
             sample = self.samples[keys[frame]]
 
             radar_data = xr.load_dataset(sample.radar)
@@ -750,27 +730,20 @@ class SingleStepDataset:
             with xr.open_dataset(self.samples[key].visir) as data:
                 load_visir_obs(x, data, normalize=self.normalize)
         else:
-            x["visir"] = -1.5 * torch.ones(
-                (5,) + shape,
-                dtype=torch.float
-            )
+            x["visir"] = -1.5 * torch.ones((5,) + shape, dtype=torch.float)
 
         shape = tuple([n // 2 for n in y.shape])
         if self.samples[key].geo is not None:
             with xr.open_dataset(self.samples[key].geo) as data:
                 load_geo_obs(x, data, normalize=self.normalize)
         else:
-            x["geo"] = torch.as_tensor(
-                -1.5 * np.ones((11,) + shape),
-                dtype=torch.float
-            )
+            x["geo"] = torch.as_tensor(-1.5 * np.ones((11,) + shape), dtype=torch.float)
 
         shape = tuple([n // 4 for n in y.shape])
         # Microwave data
         if self.samples[key].mw is not None:
             with xr.open_dataset(self.samples[key].mw) as data:
-                load_microwave_obs(x, data, normalize=self.normalize
-                )
+                load_microwave_obs(x, data, normalize=self.normalize)
         else:
             x["mw_90"] = torch.as_tensor(
                 -1.5 * np.ones((2,) + shape),
@@ -864,9 +837,7 @@ class SingleStepDataset:
 
         return x, slice_y, slice_x
 
-
     def full_domain(self, start_time=None, end_time=None):
-
         valid = np.ones(self.keys.size, dtype="bool")
         if start_time is not None:
             valid = valid * (self.keys >= start_time)
@@ -877,15 +848,10 @@ class SingleStepDataset:
         time_steps = np.argsort(self.keys[indices])
 
         for time_step in time_steps:
-            x, y = self.load_sample(
-                self.samples[indices[time_step]],
-                None,
-                None
-            )
+            x, y = self.load_sample(self.samples[indices[time_step]], None, None)
             time = self.keys[indices[time_step]]
             x = sparse_collate([x])
             yield time, x, y
-
 
     def get_forecast_input(self, forecast_time, n_obs):
         """
@@ -951,6 +917,7 @@ class CHIMPPretrainDataset(SingleStepDataset):
 
     Implements the PyTorch Dataset interface.
     """
+
     def __init__(
         self,
         folder,
@@ -965,7 +932,7 @@ class CHIMPPretrainDataset(SingleStepDataset):
         quality_threshold=0.8,
         augment=True,
         missing_value_policy="sparse",
-        time_step=None
+        time_step=None,
     ):
         super().__init__(
             folder,
@@ -980,13 +947,12 @@ class CHIMPPretrainDataset(SingleStepDataset):
             quality_threshold=quality_threshold,
             augment=augment,
             missing_value_policy=missing_value_policy,
-            time_step=time_step
+            time_step=time_step,
         )
         samples_by_input = [[] for _ in inputs]
         for scene_index in range(len(self.samples)):
             sample = self.samples[scene_index]
             for i in range(len(inputs)):
-
                 # Input not available at time step
                 if sample[1 + i] is None:
                     continue
@@ -1004,11 +970,7 @@ class CHIMPPretrainDataset(SingleStepDataset):
         new_starts = []
         for i in range(len(inputs)):
             new_starts.append(
-                self.rng.choice(
-                    samples_by_input[i],
-                    most_obs,
-                    replace=True
-                )
+                self.rng.choice(samples_by_input[i], most_obs, replace=True)
             )
         self.sequence_starts = np.concatenate(new_starts)
         self.obs_per_input = most_obs
@@ -1026,7 +988,7 @@ class CHIMPPretrainDataset(SingleStepDataset):
             self.rng,
             multiple=16 // inpt.scale,
             window_size=self.window_size // scl,
-            rqi_thresh=self.quality_threshold
+            rqi_thresh=self.quality_threshold,
         )
 
         if slices is None:
@@ -1034,7 +996,6 @@ class CHIMPPretrainDataset(SingleStepDataset):
             return self[new_index]
 
         slices = tuple((index * scl for index in slices))
-
 
         xs = []
         ys = []
@@ -1047,15 +1008,11 @@ class CHIMPPretrainDataset(SingleStepDataset):
             flip = False
 
         x, y = self.load_sample(
-            self.samples[scene_index],
-            slices,
-            self.window_size,
-            rotate=ang,
-            flip=flip
+            self.samples[scene_index], slices, self.window_size, rotate=ang, flip=flip
         )
 
         has_input = any((x[inpt.name] is not None for inpt in self.inputs))
-        has_output = any (
+        has_output = any(
             (y[target.name] is not None for target in self.reference_data.targets)
         )
 
@@ -1070,6 +1027,7 @@ class SequenceDataset(SingleStepDataset):
     """
     Dataset class for temporal merging of satellite observations.
     """
+
     def __init__(
         self,
         folder,
@@ -1086,7 +1044,7 @@ class SequenceDataset(SingleStepDataset):
         augment=True,
         forecast=0,
         validation=False,
-        time_step=None
+        time_step=None,
     ):
         """
         Args:
@@ -1116,7 +1074,7 @@ class SequenceDataset(SingleStepDataset):
             end_time=end_time,
             quality_threshold=quality_threshold,
             augment=augment,
-            validation=validation
+            validation=validation,
         )
 
         self.sequence_length = sequence_length
@@ -1127,16 +1085,13 @@ class SequenceDataset(SingleStepDataset):
         if time_step is None:
             time_step = deltas.min()
         self.sequence_starts = np.where(
-            deltas.astype("timedelta64[s]")
-            <= sequence_length * time_step
+            deltas.astype("timedelta64[s]") <= sequence_length * time_step
         )[0]
         self.forecast = forecast
-
 
     def __len__(self):
         """Number of samples in an epoch."""
         return len(self.sequence_starts) * self.sample_rate
-
 
     def __getitem__(self, index):
         """Return training sample."""
@@ -1164,7 +1119,7 @@ class SequenceDataset(SingleStepDataset):
             self.rng,
             multiple=4,
             window_size=window_size,
-            qi_thresh=self.quality_threshold
+            qi_thresh=self.quality_threshold,
         )
 
         x = []
@@ -1173,11 +1128,7 @@ class SequenceDataset(SingleStepDataset):
         for i in range(self.sequence_length):
             index = start_index + i
             x_i, y_i = self.load_sample(
-                self.samples[index],
-                slices,
-                self.window_size,
-                rotate=ang,
-                flip=flip
+                self.samples[index], slices, self.window_size, rotate=ang, flip=flip
             )
             if i > self.sequence_length - self.forecast - 1:
                 x.append({})
@@ -1212,12 +1163,7 @@ def plot_sample(x, y):
         ax.imshow(y[i])
 
 
-def plot_date_distribution(
-        path,
-        keys=None,
-        show_sensors=False,
-        ax=None
-):
+def plot_date_distribution(path, keys=None, show_sensors=False, ax=None):
     """
     Plot the number of training input samples per day.
 
@@ -1237,7 +1183,6 @@ def plot_date_distribution(
     time_min = None
     time_max = None
     for key in keys:
-
         files = list(Path(path).glob(f"**/{key}*.nc"))
         times_k = [
             datetime.strptime(name.name[len(key) + 1 : -3], "%Y%m%d_%H_%M")
@@ -1299,6 +1244,7 @@ def make_wave_x(size, w, theta, t=0.0):
     x, y = np.meshgrid(x, x)
     return np.sin(w * x + theta + 2 * np.pi * t / 20.0)
 
+
 def make_wave_y(size, w, theta, t=0.0):
     """
     Create a 2D image of a wave with given angular velocity and
@@ -1314,12 +1260,13 @@ class StreamData:
     A synthetic dataset that requires the network to merge information
     from different streams.
     """
+
     def __init__(
-            self,
-            size=(128, 128),
-            availability=(0.1, 0.1, 0.1),
-            n_samples=5_000,
-            sequence_length=1
+        self,
+        size=(128, 128),
+        availability=(0.1, 0.1, 0.1),
+        n_samples=5_000,
+        sequence_length=1,
     ):
         self.size = size
         self.init_function(0)
@@ -1328,7 +1275,6 @@ class StreamData:
         self.availability = availability
         self.n_samples = n_samples
         self.sequence_length = sequence_length
-
 
     def init_function(self, w_id):
         """
@@ -1344,9 +1290,7 @@ class StreamData:
     def __len__(self):
         return self.n_samples
 
-
     def make_sample(self, w_x, theta_x, w_y, theta_y, t=0.0):
-
         base_size = self.size[0]
         med_size = base_size // 2
         small_size = med_size // 2
@@ -1379,7 +1323,7 @@ class StreamData:
         x_mw_183 = np.tile(y_1[np.newaxis], (5, 1, 1))
         for i in range(2):
             i = self.rng.integers(0, 4)
-            x_mw_183[i] = -3#self.rng.normal(size=x_mw_183.shape[1:])
+            x_mw_183[i] = -3  # self.rng.normal(size=x_mw_183.shape[1:])
 
         r = self.rng.random()
         if r > self.availability[2]:
@@ -1400,13 +1344,11 @@ class StreamData:
             "geo": to_tensor(x_geo),
             "mw_90": to_tensor(x_mw_90),
             "mw_160": to_tensor(x_mw_160),
-            "mw_183": to_tensor(x_mw_183)
+            "mw_183": to_tensor(x_mw_183),
         }
         return x, y
 
-
     def __getitem__(self, index):
-
         w_x = self.rng.uniform(1, 5)
         theta_x = self.rng.uniform(0, np.pi)
         w_y = self.rng.uniform(1, 5)
@@ -1421,12 +1363,10 @@ class StreamData:
         x = []
         y = []
         for i in range(self.sequence_length):
-            x_i, y_i = self.make_sample(w_x, theta_x, w_y, theta_y, t=v*i)
+            x_i, y_i = self.make_sample(w_x, theta_x, w_y, theta_y, t=v * i)
             x.append(x_i)
             y.append(y_i)
         return x, y
-
-
 
 
 class TestDataset:
@@ -1436,11 +1376,8 @@ class TestDataset:
     steps. The purpose of this dataset is to test the sequence model
     architectures.
     """
-    def __init__(
-            self,
-            sequence_length=1,
-            size=(128, 128)
-    ):
+
+    def __init__(self, sequence_length=1, size=(128, 128)):
         """
         Args:
             sequence_length: The length of input sequences.
@@ -1505,41 +1442,35 @@ class TestDataset:
         y = [torch.as_tensor(y_i, dtype=torch.float32) for y_i in y]
 
         xs = []
-        for visir, geo, mw_90, mw_160, mw_183 in zip(x_visir, x_geo, x_mw_90, x_mw_160, x_mw_183):
-            visir = (
-                torch.as_tensor(visir, dtype=torch.float32) +
-                torch.as_tensor(self.rng.uniform(-0.05, 0.05, size=visir.shape),
-                             dtype=torch.float32)
+        for visir, geo, mw_90, mw_160, mw_183 in zip(
+            x_visir, x_geo, x_mw_90, x_mw_160, x_mw_183
+        ):
+            visir = torch.as_tensor(visir, dtype=torch.float32) + torch.as_tensor(
+                self.rng.uniform(-0.05, 0.05, size=visir.shape), dtype=torch.float32
             )
-            geo = (
-                torch.as_tensor(geo, dtype=torch.float32) +
-                torch.as_tensor(self.rng.uniform(-0.05, 0.05, size=geo.shape),
-                             dtype=torch.float32)
+            geo = torch.as_tensor(geo, dtype=torch.float32) + torch.as_tensor(
+                self.rng.uniform(-0.05, 0.05, size=geo.shape), dtype=torch.float32
             )
             geo[:5] = visir[..., ::2, ::2]
-            mw_90 = (
-                torch.as_tensor(mw_90, dtype=torch.float32) +
-                torch.as_tensor(self.rng.uniform(-0.05, 0.05, size=mw_90.shape),
-                             dtype=torch.float32)
+            mw_90 = torch.as_tensor(mw_90, dtype=torch.float32) + torch.as_tensor(
+                self.rng.uniform(-0.05, 0.05, size=mw_90.shape), dtype=torch.float32
             )
-            mw_160 = (
-                torch.as_tensor(mw_160, dtype=torch.float32) +
-                torch.as_tensor(self.rng.uniform(-0.05, 0.05, size=mw_160.shape),
-                             dtype=torch.float32)
+            mw_160 = torch.as_tensor(mw_160, dtype=torch.float32) + torch.as_tensor(
+                self.rng.uniform(-0.05, 0.05, size=mw_160.shape), dtype=torch.float32
             )
-            mw_183 = (
-                torch.as_tensor(mw_183, dtype=torch.float32) +
-                torch.as_tensor(self.rng.uniform(-0.05, 0.05, size=mw_183.shape),
-                             dtype=torch.float32)
+            mw_183 = torch.as_tensor(mw_183, dtype=torch.float32) + torch.as_tensor(
+                self.rng.uniform(-0.05, 0.05, size=mw_183.shape), dtype=torch.float32
             )
 
-            xs.append({
-                "visir": visir,
-                "geo": geo,
-                "mw_90": mw_90,
-                "mw_160": mw_160,
-                "mw_183": mw_183
-            })
+            xs.append(
+                {
+                    "visir": visir,
+                    "geo": geo,
+                    "mw_90": mw_90,
+                    "mw_160": mw_160,
+                    "mw_183": mw_183,
+                }
+            )
         return xs, y
 
 
@@ -1565,17 +1496,17 @@ def random_spectral_field(rng, n, lower, upper, energy):
     v[mask] = rng.uniform(-1, 1, size=mask.sum()).astype(np.float32)
     e = sum(v[mask] ** 2)
     v[mask] *= np.sqrt(energy / e)
-    v = v * np.sqrt(n ** 2)
+    v = v * np.sqrt(n**2)
     return v
+
 
 def normalize_field(v, energy):
     n = v.shape[0]
-    e = sum(v ** 2)
+    e = sum(v**2)
     nothing = e < 1e-9
     e[nothing] = 1.0
     v[nothing] = 0.0
-    return v * np.sqrt(energy / e) * np.sqrt(n ** 2)
-
+    return v * np.sqrt(energy / e) * np.sqrt(n**2)
 
 
 class SuperpositionDataset:
@@ -1583,15 +1514,16 @@ class SuperpositionDataset:
     Synthetic dataset mapping band-filtered and corrupted views of a random
     field to the full random field.
     """
+
     def __init__(
-            self,
-            size,
-            n_samples=1000,
-            availability=None,
-            sparse=False,
-            n_steps=1,
-            snr=0.0,
-            composition="sum"
+        self,
+        size,
+        n_samples=1000,
+        availability=None,
+        sparse=False,
+        n_steps=1,
+        snr=0.0,
+        composition="sum",
     ):
         """
         Args:
@@ -1649,10 +1581,9 @@ class SuperpositionDataset:
         med_e = random_spectral_field(self.rng, self.size, 0.2, 0.3, 1.0)
         hi_e = random_spectral_field(self.rng, self.size, 0.05, 0.2, 1.0)
 
-        t =  random_spectral_field(self.rng, self.size, 0.1, 0.2, 1.0)
+        t = random_spectral_field(self.rng, self.size, 0.1, 0.2, 1.0)
 
         for i in range(n_steps):
-
             l = i / n_steps
             r = 1.0 - l
             low = fft.idctn(l * low_s + r * low_e, norm="ortho")
@@ -1664,38 +1595,33 @@ class SuperpositionDataset:
             else:
                 y = np.abs(low) * np.abs(med) + np.abs(med) * np.abs(hi)
 
-            x_visir = (
-                hi[None] +
-                self.snr * self.rng.normal(size=(5,) + (self.size,) * 2)
+            x_visir = hi[None] + self.snr * self.rng.normal(
+                size=(5,) + (self.size,) * 2
             )
-            x_geo = (
-                med[None, ::2, ::2] +
-                self.snr * self.rng.normal(size=(11,) + (self.size // 2,) * 2)
+            x_geo = med[None, ::2, ::2] + self.snr * self.rng.normal(
+                size=(11,) + (self.size // 2,) * 2
             )
-            x_mw_90 = (
-                low[None, ::4, ::4] +
-                self.snr * self.rng.normal(size=(2,) + (self.size // 4,) * 2)
+            x_mw_90 = low[None, ::4, ::4] + self.snr * self.rng.normal(
+                size=(2,) + (self.size // 4,) * 2
             )
-            x_mw_160 = (
-                low[None, ::4, ::4] +
-                self.snr * self.rng.normal(size=(2,) + (self.size // 4,) * 2)
+            x_mw_160 = low[None, ::4, ::4] + self.snr * self.rng.normal(
+                size=(2,) + (self.size // 4,) * 2
             )
-            x_mw_183 = (
-                low[None, ::4, ::4] +
-                self.snr * self.rng.normal(size=(5,) + (self.size // 4,) * 2)
+            x_mw_183 = low[None, ::4, ::4] + self.snr * self.rng.normal(
+                size=(5,) + (self.size // 4,) * 2
             )
 
-            if (self.rng.random() > self.availability[0]):
+            if self.rng.random() > self.availability[0]:
                 if self.sparse:
                     x_visir = None
                 else:
                     x_visir[:] = -3
-            if (self.rng.random() > self.availability[1]):
+            if self.rng.random() > self.availability[1]:
                 if self.sparse:
                     x_geo = None
                 else:
                     x_geo[:] = -3
-            if (self.rng.random() > self.availability[2]):
+            if self.rng.random() > self.availability[2]:
                 if self.sparse:
                     x_mw_90 = None
                     x_mw_160 = None
@@ -1721,7 +1647,7 @@ class SuperpositionDataset:
                 "geo": x_geo,
                 "mw_90": x_mw_90,
                 "mw_160": x_mw_160,
-                "mw_183": x_mw_183
+                "mw_183": x_mw_183,
             }
             xs.append(x)
             ys.append(y)
@@ -1735,7 +1661,7 @@ class SuperpositionDataset:
         axs = np.array([f.add_subplot(1, 4, i + 1) for i in range(4)])
 
         if self.n_steps == 1:
-            ind =  -1
+            ind = -1
             ax = axs[0]
             ax.imshow(x["visir"][0], norm=norm)
             ax.set_title("(a) VISIR", loc="left")
@@ -1754,6 +1680,7 @@ class SuperpositionDataset:
 
             return f
         else:
+
             def draw_frame(index):
                 x_i = x[index]
                 y_i = y[index]
@@ -1774,7 +1701,4 @@ class SuperpositionDataset:
                 ax.set_title("(d) Output", loc="left")
                 ax.imshow(y_i, norm=norm)
 
-            return FuncAnimation(
-                f, draw_frame, range(len(x))
-            )
-
+            return FuncAnimation(f, draw_frame, range(len(x)))

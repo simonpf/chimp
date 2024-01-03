@@ -62,7 +62,6 @@ def save_file(dataset, time_step, output_folder):
     output_filename = Path(output_folder) / filename
     comp = {"dtype": "int16", "scale_factor": 0.05, "zlib": True, "_FillValue": -99}
     encoding = {"obs": comp}
-    print(dataset)
     dataset.to_netcdf(output_filename, encoding=encoding)
 
 

@@ -126,6 +126,9 @@ def get_input(name: Union[str, InputBase]) -> InputBase:
     Raises:
         ValueError if there is no input with the given name
     """
+    from . import seviri
+    from . import gpm
+
     if isinstance(name, InputBase):
         return name
     return InputBase.get_input(name)
@@ -253,6 +256,8 @@ class Input(InputBase, MinMaxNormalized):
             tensor = torch.where(mask, -1.5, tensor)
         elif missing_value_policy == "masked":
             tensor = MaskedTensor(tensor.to(dtype=torch.float32), mask=mask)
+        elif missing_value_policy == "none":
+            pass
         else:
             raise ValueError(
                 f"Missing input policy '{missing_value_policy}' is not known. Choose between 'sparse'"
@@ -289,7 +294,7 @@ class Input(InputBase, MinMaxNormalized):
                 which the input should be rotated.
             flip: Bool indicated whether or not to flip the input along the
                 last dimensions.
-            normalizer: Whether or not the inputs should be normalized.
+            normalize: Whether or not the inputs should be normalized.
         """
         rel_scale = self.scale / base_scale
 
@@ -343,7 +348,10 @@ class Input(InputBase, MinMaxNormalized):
         if missing_value_policy == "sparse":
             missing_value_policy = "missing"
 
-        x_s = self.normalizer(x_s)
+        if normalize:
+            x_s = self.normalizer(x_s)
+        else:
+            x_s = x_s.copy()
         x_s = torch.tensor(x_s, dtype=torch.float32)
         if missing_value_policy == "masked":
             x_s = MaskedTensor(x_s)

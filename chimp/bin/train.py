@@ -41,63 +41,32 @@ def add_parser(subparsers):
         "experiment_name",
         metavar="name",
         type=str,
-        help=(
-            "A name identifying the model to be trained."
-        )
+        help=("A name identifying the model to be trained."),
     )
     parser.add_argument(
-        "training_data",
-        metavar="training_data",
-        type=str,
-        help="Folder containing the training data.",
-    )
-    parser.add_argument(
-        "model_config",
+        "--model_config",
         metavar="model_config",
         type=str,
         help=(
-            "Path to a model configuration file, an existing model, "
-            " or a model checkpoint."
-        )
-    )
-    parser.add_argument(
-        "training_config",
-        metavar="training_config",
-        type=str,
-        help=(
-            "Path to a training configuration file specifying the"
-            " training regime."
-        )
-    )
-    parser.add_argument(
-        "--validation_data",
-        metavar="path",
-        type=str,
-        help="Folder containing the validation data.",
-        default=None
-    )
-    parser.add_argument(
-        "--batch_size",
-        metavar="N",
-        type=int,
-        default=4,
-        help="The batch size to use during training.",
-    )
-    parser.add_argument(
-        "--output_path",
-        metavar="path",
-        type=str,
+            "Path to a model configuration file "
+            " or a model checkpoint. If not provided 'chimp' expects "
+            " a file called 'model.toml' or 'model.yaml' file from which "
+            " the configuration will be loaded."
+        ),
         default=None,
-        help=(
-            "Path pointing to a directory at which log and training output"
-            " will be stored. If not specified, the directory in which the "
-            " training config is located will be used."
-        )
     )
     parser.add_argument(
-        "--resume",
-        action="store_true"
+        "--training_config",
+        metavar="model_config",
+        type=str,
+        help=(
+            "Path to a training configuration file If not provided 'chimp' expects "
+            " a file called 'training.toml' or 'training.yaml' in the current "
+            " working directory  from which the configuration will be loaded."
+        ),
+        default=None,
     )
+    parser.add_argument("--resume", action="store_true")
 
     parser.set_defaults(func=run)
 
@@ -109,98 +78,61 @@ def run(args):
     Args:
         args: The namespace object provided by the top-level parser.
     """
-    from torch.optim import AdamW, SGD
-    from torch.optim.lr_scheduler import CosineAnnealingLR
-    import pytorch_lightning as pl
-    from pytorch_lightning.callbacks import LearningRateMonitor, Callback
-    from pytorch_lightning.strategies import DDPStrategy
-    from quantnn.qrnn import QRNN
-    from quantnn import metrics
-    from quantnn import transformations
-    from chimp import models
-    from chimp.config import parse_model_config, parse_training_config
-    from chimp.training import train, find_most_recent_checkpoint
-    from chimp.models import compile_mrnn
+    import chimp.data.seviri
+    import chimp.data.gpm
+    import chimp.data.goes
+    import chimp.data.cpcir
+    import chimp.data.baltrad
+    import chimp.data.mrms
 
-    logging.basicConfig(level=logging.INFO, force=True)
+    from pytorch_retrieve.architectures import load_and_compile_model
+    from pytorch_retrieve.config import read_config_file, TrainingConfig
+    from pytorch_retrieve.lightning import RetrievalModule
+    from pytorch_retrieve.training import parse_training_config, run_training
 
-    #
-    # Prepare training and validation data.
-    #
-
-    training_data = Path(args.training_data)
-    if not training_data.exists():
-        LOGGER.error(
-            f"Provided training data path '{training_data}' doesn't exist."
-        )
-        sys.exit()
-
-    validation_data = args.validation_data
-    if validation_data is not None:
-        validation_data = Path(validation_data)
-        if not validation_data.exists():
+    # Parse model config
+    model_config = args.model_config
+    if model_config is None:
+        model_config = list(Path(".").glob("model.????"))
+        if len(model_config) > 1:
             LOGGER.error(
-                f"Provided validation data path '{validation_data}' "
-                "doesn't exist."
+                "No explicit path to model configuration file provided and "
+                " the working directory contains more than one model.???? "
+                "file."
             )
-            sys.exit()
-
-    model_config_path = Path(args.model_config)
-    if not model_config_path.exists():
-        LOGGER.error(
-            "Model argument must point to an existing model configuration "
-            " file, or an existing model or training checkpoint."
-        )
-        sys.exit()
-
-    training_config_path = Path(args.training_config)
-    if not training_config_path.exists():
-        LOGGER.error(
-            "'training_config' must point to an existing training config "
-            "file."
-        )
-        sys.exit()
-
-    # Use parent folder of config file if no explicit output directory
-    # is specified.
-    output_path = args.output_path
-    if output_path is None:
-        output_path = training_config_path.parent
-    else:
-        output_path = Path(output_path)
-
-    model_config = parse_model_config(model_config_path)
-    mrnn = compile_mrnn(model_config)
-
-    ckpt_path = find_most_recent_checkpoint(output_path, args.experiment_name)
-
-    if ckpt_path is not None:
-        if args.resume:
-            LOGGER.info(
-                f"Continuing training from checkpoint at '{ckpt_path}'."
+            return 1
+        model_config = model_config[0]
+        if not model_config.suffix in [".toml", ".yaml"]:
+            LOGGER.error(
+                "Model configuration file should be in '.toml' or '.yaml' " "format."
             )
-        elif ckpt_path is not None:
-            LOGGER.info(
-                f"Not continuing from checkpoint checkpoint '{ckpt_path}' "
-                " because --resume flag has not been set."
+    model = load_and_compile_model(model_config)
+
+    # Parse training config
+    training_config = args.training_config
+    if training_config is None:
+        training_config = list(Path(".").glob("training.????"))
+        if len(training_config) == 0:
+            LOGGER.error(
+                "No explicit path to a training configuration file provided and "
+                " the working directory does not contain a file "
+                "matching the pattern training.????. "
             )
-            ckpt_path = None
-    else:
-        LOGGER.info(
-            f"Not continuing from checkpoint checkpoint '{ckpt_path}' "
-            " because --resume flag has not been set."
-        )
-        ckpt_path = None
+            return 1
+        if len(training_config) > 1:
+            LOGGER.error(
+                "No explicit path to a training configuration file provided and "
+                " the working directory contains more than one training.???? "
+                "file."
+            )
+            return 1
+        training_config = training_config[0]
+        if not training_config.suffix in [".toml", ".yaml"]:
+            LOGGER.error(
+                "training configuration file should be in '.toml' or '.yaml' " "format."
+            )
 
+    training_schedule = parse_training_config(training_config)
 
-    training_configs = parse_training_config(args.training_config)
-
-    train(
-        args.experiment_name,
-        mrnn,
-        training_configs,
-        training_data,
-        validation_data,
-        output_path=output_path,
-        ckpt_path=ckpt_path
-    )
+    retrieval_module = RetrievalModule(model, training_schedule=training_schedule)
+    run_training(Path("."), retrieval_module, None)
