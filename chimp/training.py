@@ -19,7 +19,7 @@ from torch import nn
 from pytorch_lightning.callbacks import Callback
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from pytorch_retrieve.architectures import compile_architecture
-from pytorch_retrieve.config import read_config_file, get_config_attr, ComputeConfig
+from pytorch_retrieve.config import get_config_attr, ComputeConfig
 from pytorch_retrieve.utils import (
     read_model_config,
     read_training_config,
@@ -704,6 +704,8 @@ def cli(
     module = LightningRetrieval(retrieval_model, "retrieval_module", training_schedule)
 
     compute_config = read_compute_config(LOGGER, model_path, compute_config)
+    if compute_config is not None:
+        compute_config = ComputeConfig.parse(compute_config)
 
     checkpoint = None
     if resume:
