@@ -18,8 +18,6 @@ from matplotlib.animation import FuncAnimation
 import numpy as np
 from scipy import fft
 from scipy import ndimage
-from quantnn.normalizer import MinMaxNormalizer
-from quantnn.packed_tensor import PackedTensor
 import torch
 from torch import nn
 from torch.utils.data import IterableDataset
@@ -36,176 +34,6 @@ from chimp.utils import get_date
 from chimp.data import get_reference_data
 from chimp.data import get_input, get_reference_data
 from chimp.data import input, reference
-
-###############################################################################
-# Normalizer objects
-###############################################################################
-
-NORMALIZER_GEO = MinMaxNormalizer(np.ones((12, 1, 1)), feature_axis=0)
-NORMALIZER_GEO.stats = {
-    0: (0.0, 110.0),
-    1: (0.0, 130),
-    2: (0.0, 110),
-    3: (200, 330),
-    4: (210, 260),
-    5: (200, 270),
-    6: (200, 300),
-    7: (220, 270),
-    8: (200, 300),
-    9: (200, 300),
-    10: (200, 280),
-}
-
-
-NORMALIZER_VISIR = MinMaxNormalizer(np.ones((5, 1, 1)), feature_axis=0)
-NORMALIZER_VISIR.stats = {
-    0: (0.0, 320.0),
-    1: (0.0, 320.0),
-    2: (0.0, 320.0),
-    3: (180, 310),
-    4: (180, 310),
-}
-
-
-NORMALIZER_MW_90 = MinMaxNormalizer(np.ones((2, 1, 1)), feature_axis=0)
-NORMALIZER_MW_90.stats = {
-    0: (150, 300),
-    1: (150, 300),
-}
-
-NORMALIZER_MW_160 = MinMaxNormalizer(np.ones((2, 1, 1)), feature_axis=0)
-NORMALIZER_MW_160.stats = {
-    0: (150, 300),
-    1: (150, 300),
-}
-
-NORMALIZER_MW_183 = MinMaxNormalizer(np.ones((5, 1, 1)), feature_axis=0)
-NORMALIZER_MW_183.stats = {
-    0: (190, 290),
-    1: (190, 290),
-    2: (190, 290),
-    3: (190, 290),
-    4: (190, 290),
-}
-
-
-###############################################################################
-# Loader functions for the difference input types.
-###############################################################################
-
-
-def collate_recursive(sample, batch=None):
-    """
-    Recursive collate function that descends into tuple, lists and
-    dicts, and collects tensors and collects tensors and None values
-    into lists.
-
-    Args:
-        sample: Sample may be a tuple, list or dict or any nested
-            combination of those containing either tensors or None.
-        batch: Previously collected samples.
-
-    Return:
-        The returned value has the same structure as ``sample`` but the
-        leaf values are replaced by lists containing the original leaf
-        values. If batch is not ``None`` then these lists also contain
-        the previously collected leaf-lists from batch.
-    """
-    if batch is None:
-        if isinstance(sample, tuple):
-            return tuple([collate_recursive(sample_t, None) for sample_t in sample])
-        elif isinstance(sample, list):
-            return [collate_recursive(sample_t, None) for sample_t in sample]
-        elif isinstance(sample, dict):
-            return {k: collate_recursive(sample_k) for k, sample_k in sample.items()}
-        elif isinstance(sample, torch.Tensor):
-            return [sample]
-        elif sample is None:
-            return [sample]
-        else:
-            try:
-                return [torch.as_tensor(sample)]
-            except ValueError:
-                pass
-    else:
-        if isinstance(sample, tuple):
-            return tuple(
-                [
-                    collate_recursive(sample_t, batch_t)
-                    for sample_t, batch_t in zip(sample, batch)
-                ]
-            )
-        elif isinstance(sample, list):
-            return [
-                collate_recursive(sample_t, batch_t)
-                for sample_t, batch_t in zip(sample, batch)
-            ]
-        elif isinstance(sample, dict):
-            return {
-                k: collate_recursive(sample_k, batch[k])
-                for (k, sample_k) in sample.items()
-            }
-        elif isinstance(sample, torch.Tensor):
-            return batch + [sample]
-        elif sample is None:
-            return batch + [sample]
-        else:
-            try:
-                return batch + [torch.as_tensor(sample)]
-            except ValueError:
-                pass
-    raise ValueError("Encountered invalid type '%s' in collate function.", type(sample))
-
-
-def is_tensor(x):
-    """
-    Helper function to determine whether an object is a tensor.
-    """
-    return isinstance(x, torch.Tensor)
-
-
-def stack(batch):
-    """
-    Stack collected samples into sparse tensors.
-
-    batch:
-        An optionally nested structure of tuples, list, and dicts
-        with lists of tensors and None values as leaves.
-
-    Return:
-        A copy of batch but with all leaves replaced by corresponding
-        packed tensors.
-    """
-    if isinstance(batch, tuple):
-        return tuple([stack(batch_t) for batch_t in batch])
-    elif isinstance(batch, list):
-        try:
-            if all(map(is_tensor, batch)):
-                return torch.stack(batch)
-            batch = PackedTensor.stack(batch)
-            return batch
-        except ValueError:
-            return [stack(batch_t) for batch_t in batch]
-    elif isinstance(batch, dict):
-        return {k: stack(batch_k) for k, batch_k in batch.items()}
-    raise ValueError("Encountered invalid type '%s' in stack function.", type(batch))
-
-
-def sparse_collate(samples):
-    """
-    Collate a list of samples into a batch of packed tensors.
-
-    Args:
-        samples: A list of samples to collate into a batch.
-
-    Return:
-        A batch of input samples with all input samples collected
-        into PackedTensors.
-    """
-    batch = None
-    for sample in samples:
-        batch = collate_recursive(sample, batch)
-    return stack(batch)
 
 
 def generate_input(
@@ -850,7 +678,6 @@ class SingleStepDataset:
         for time_step in time_steps:
             x, y = self.load_sample(self.samples[indices[time_step]], None, None)
             time = self.keys[indices[time_step]]
-            x = sparse_collate([x])
             yield time, x, y
 
     def get_forecast_input(self, forecast_time, n_obs):
@@ -906,7 +733,6 @@ class SingleStepDataset:
             if not has_input:
                 return None
 
-            x = sparse_collate([x])
             inputs.append((x, y, slice_y, slice_x, key))
         return inputs
 
@@ -1122,19 +948,18 @@ class SequenceDataset(SingleStepDataset):
             qi_thresh=self.quality_threshold,
         )
 
-        x = []
-        y = []
+        x = {}
+        y = {}
         start_index = self.sequence_starts[index]
         for i in range(self.sequence_length):
             index = start_index + i
             x_i, y_i = self.load_sample(
                 self.samples[index], slices, self.window_size, rotate=ang, flip=flip
             )
-            if i > self.sequence_length - self.forecast - 1:
-                x.append({})
-            else:
-                x.append(x_i)
-            y.append(y_i)
+            for name, inpt in x_i.items():
+                x.setdefault(name, []).append(inpt)
+            for name, output in y_i.items():
+                y.setdefault(name, []).append(output)
         return x, y
 
 

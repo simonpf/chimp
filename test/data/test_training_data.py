@@ -5,22 +5,16 @@ Tests for chimp.data.training_data.
 import os
 from pathlib import Path
 
-from conftest import (
-    mrms_surface_precip_data,
-    cpcir_data,
-    gmi_data
-)
+from conftest import mrms_surface_precip_data, cpcir_data, gmi_data
 import numpy as np
 import pytest
 import torch
 
 from chimp.areas import CONUS
 from chimp.data.training_data import (
-    collate_recursive,
-    sparse_collate,
     SingleStepDataset,
     SequenceDataset,
-    CHIMPPretrainDataset
+    CHIMPPretrainDataset,
 )
 
 TEST_DATA = os.environ.get("CHIMP_TEST_DATA", None)
@@ -31,88 +25,15 @@ NEEDS_TEST_DATA = pytest.mark.skipif(
 )
 
 
-def test_collate_recursive():
-    """
-    Test recursive part of collate function.
-    """
-    x = torch.ones((1))
-    y = 2.0 * torch.ones((1))
-    c = collate_recursive((x, y))
-    assert c == ([x], [y])
-    c = collate_recursive((y, x), c)
-    assert c == ([x, y], [y, x])
-
-    c = collate_recursive(({"x_geo": x}, y))
-    assert c == ({"x_geo": [x]}, [y])
-    c = collate_recursive(({"x_geo": y}, x), c)
-    assert c == ({"x_geo": [x, y]}, [y, x])
-
-    # Test conversion of numpy types
-    x = np.ones((1))
-    x_t = torch.as_tensor(x)
-    y = 2.0 * np.ones((1))
-    y_t = torch.as_tensor(y)
-    c = collate_recursive((x, y))
-    c = collate_recursive((y, x), c)
-
-    assert (c[0][0] == 1.0).all()
-    assert (c[0][1] == 2.0).all()
-    assert (c[1][0] == 2.0).all()
-    assert (c[1][1] == 1.0).all()
-
-
-def test_sparse_collate():
-    """
-    Test collate function for sparse data.
-    """
-    x = torch.ones((1))
-    y = 2.0 * torch.ones((1))
-    b = [(x, y), (None, y), (x, None), (None, None)]
-    x, y = sparse_collate(b)
-
-    assert x.batch_size == 4
-    assert x.batch_indices == [0, 2]
-    assert y.batch_size == 4
-    assert y.batch_indices == [0, 1]
-
-
-    x = torch.ones((1))
-    y = 2.0 * torch.ones((1))
-    b = [
-        ({"geo": x}, y),
-        ({"geo": None}, y),
-        ({"geo": x}, None),
-        ({"geo": None}, None)
-    ]
-    x, y = sparse_collate(b)
-
-    assert x["geo"].batch_size == 4
-    assert x["geo"].batch_indices == [0, 2]
-    assert y.batch_size == 4
-    assert y.batch_indices == [0, 1]
-
-    # Make sure collating returns full tensors if no elements are sparse.
-    x = torch.ones((1))
-    y = 2.0 * torch.ones((1))
-    b = [(x, y), (x, y), (x, y), (x, y)]
-    x, y = sparse_collate(b)
-    assert isinstance(x, torch.Tensor)
-
-
 def test_find_files_single_step(cpcir_data, mrms_surface_precip_data):
     """
     Test that the training data finds the expected start times for
     sampling sequences.
     """
     training_data = SingleStepDataset(
-        cpcir_data,
-        reference_data="mrms",
-        inputs=["cpcir"],
-        sample_rate=1
+        cpcir_data, reference_data="mrms", inputs=["cpcir"], sample_rate=1
     )
     assert len(training_data) == 24
-
-
 
 
 def test_sparse_data(cpcir_data, gmi_data, mrms_surface_precip_data):
@@ -124,33 +45,11 @@ def test_sparse_data(cpcir_data, gmi_data, mrms_surface_precip_data):
         reference_data="mrms",
         inputs=["cpcir", "gmi"],
         missing_value_policy="sparse",
-        window_size = 128
+        window_size=128,
     )
     x, y = training_data[1]
     assert x["gmi"] is None
     assert x["cpcir"].shape[1:] == (128, 128)
-
-
-def test_pretrain_dataset(cpcir_data, gmi_data, mrms_surface_precip_data):
-    """
-    Test that the training data finds the expected start times for
-    sampling sequences.
-    """
-    for i in range(10):
-        inputs = ["gmi", "cpcir"]
-        training_data = CHIMPPretrainDataset(
-            cpcir_data,
-            reference_data="mrms",
-            inputs=inputs,
-            missing_value_policy="sparse"
-        )
-        assert len(training_data.sequence_starts) == 24
-
-        x, y = training_data[0]
-        assert x["gmi"] is not None
-
-        x, y = training_data[4]
-        assert x["cpcir"] is not None
 
 
 def test_full_domain(cpcir_data, gmi_data, mrms_surface_precip_data):
@@ -163,7 +62,7 @@ def test_full_domain(cpcir_data, gmi_data, mrms_surface_precip_data):
             cpcir_data,
             reference_data="mrms",
             inputs=inputs,
-            missing_value_policy="sparse"
+            missing_value_policy="sparse",
         )
 
         iter = training_data.full_domain()
@@ -172,11 +71,7 @@ def test_full_domain(cpcir_data, gmi_data, mrms_surface_precip_data):
         assert x["cpcir"].shape[-2:] == (960, 1920)
 
 
-def test_missing_input_policies(
-        cpcir_data,
-        gmi_data,
-        mrms_surface_precip_data
-):
+def test_missing_input_policies(cpcir_data, gmi_data, mrms_surface_precip_data):
     """
     Test that missing inputs are handled correctly.
     """
@@ -185,34 +80,32 @@ def test_missing_input_policies(
         reference_data="mrms",
         inputs=["cpcir", "gmi"],
         missing_value_policy="sparse",
-        window_size = 128
+        window_size=128,
     )
     x, y = training_data[1]
     assert x["gmi"] is None
     assert x["cpcir"].shape[1:] == (128, 128)
     assert np.all(np.isfinite(x["cpcir"].numpy()))
 
-
     training_data = SingleStepDataset(
         cpcir_data,
         reference_data="mrms",
         inputs=["cpcir", "gmi"],
         missing_value_policy="random",
-        window_size = 128
+        window_size=128,
     )
     x, y = training_data[1]
     assert x["gmi"].shape[1:] == (128, 128)
     assert np.all(np.isfinite(x["gmi"].numpy()))
     assert x["cpcir"].shape[1:] == (128, 128)
     assert np.all(np.isfinite(x["cpcir"].numpy()))
-
 
     training_data = SingleStepDataset(
         cpcir_data,
         reference_data="mrms",
         inputs=["cpcir", "gmi"],
         missing_value_policy="missing",
-        window_size = 128
+        window_size=128,
     )
     x, y = training_data[1]
     assert x["gmi"].shape[1:] == (128, 128)
@@ -220,13 +113,12 @@ def test_missing_input_policies(
     assert x["cpcir"].shape[1:] == (128, 128)
     assert np.all(np.isfinite(x["cpcir"].numpy()))
 
-
     training_data = SingleStepDataset(
         cpcir_data,
         reference_data="mrms",
         inputs=["cpcir", "gmi"],
         missing_value_policy="mean",
-        window_size = 128
+        window_size=128,
     )
     x, y = training_data[1]
     assert x["gmi"].shape[1:] == (128, 128)
@@ -239,6 +131,7 @@ def test_missing_input_policies(
 # Sequence dataset
 ###############################################################################
 
+
 def test_find_files_sequence(cpcir_data, mrms_surface_precip_data):
     """
     Test that the training data finds the expected start times for
@@ -249,7 +142,7 @@ def test_find_files_sequence(cpcir_data, mrms_surface_precip_data):
         reference_data="mrms",
         inputs=["cpcir"],
         sample_rate=1,
-        sequence_length=8
+        sequence_length=8,
     )
     assert len(training_data) == 16
 
@@ -264,8 +157,8 @@ def test_load_sample_sequence(cpcir_data, mrms_surface_precip_data):
         reference_data="mrms",
         inputs=["cpcir"],
         sample_rate=1,
-        sequence_length=8
+        sequence_length=8,
     )
     x, y = training_data[0]
-    assert len(x) == 8
-    assert len(y) == 8
+    assert len(x["cpcir"]) == 8
+    assert len(y["surface_precip"]) == 8

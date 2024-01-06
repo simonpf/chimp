@@ -2,7 +2,6 @@ import os
 
 import pytest
 import numpy as np
-from quantnn.mrnn import MRNN
 from scipy.fft import idctn
 import xarray as xr
 
@@ -15,24 +14,19 @@ from chimp.config import (
     OutputConfig,
     EncoderConfig,
     DecoderConfig,
-    ModelConfig
+    ModelConfig,
 )
 from chimp.data import get_input, get_reference_data
 from chimp.data.training_data import SingleStepDataset, SequenceDataset
-from chimp.models import compile_mrnn
 
 
 HAS_PANSAT_PASSWORD = "PANSAT_PASSWORD" in os.environ
 NEEDS_PANSAT = pytest.mark.skipif(
-    not HAS_PANSAT_PASSWORD,
-    reason="PANSAT_PASSWORD not set."
+    not HAS_PANSAT_PASSWORD, reason="PANSAT_PASSWORD not set."
 )
 
 
-def random_spectral_field(
-        size,
-        min_var
-):
+def random_spectral_field(size, min_var):
     """
     Create random spectral fields with minimum scale of spatial
     variation.
@@ -47,7 +41,7 @@ def random_spectral_field(
     """
     wny = 0.5 * np.arange(size[0]) / size[0]
     wnx = 0.5 * np.arange(size[1]) / size[1]
-    wn = np.sqrt(wny[..., None] ** 2 + wnx ** 2)
+    wn = np.sqrt(wny[..., None] ** 2 + wnx**2)
     scale = 1 / wn
 
     coeffs = np.random.rand(*size)
@@ -73,14 +67,13 @@ def mrms_surface_precip_data(tmp_path):
     times = np.arange(
         np.datetime64("2020-01-01T00:00:00", "s"),
         np.datetime64("2020-01-01T12:00:00", "s"),
-        np.timedelta64(30, "m")
+        np.timedelta64(30, "m"),
     )
     lons, lats = areas.CONUS_4.get_lonlats()
     lons = lons[0]
     lats = lats[..., 0]
 
     for time in times:
-
         rqi = random_spectral_field((lats.size, lons.size), 10)
         rqi += rqi.min()
         med = np.median(rqi)
@@ -89,13 +82,15 @@ def mrms_surface_precip_data(tmp_path):
         sp = random_spectral_field((lats.size, lons.size), 10).astype("float32")
 
         filename = mrms.get_output_filename(time)
-        dataset = xr.Dataset({
-            "latitude": (("latitude"), lats),
-            "longitude": (("longitude"), lons),
-            "surface_precip": (("latitude", "longitude"), sp),
-            "rqi": (("latitude", "longitude"), rqi),
-            "time": ((), time)
-        })
+        dataset = xr.Dataset(
+            {
+                "latitude": (("latitude"), lats),
+                "longitude": (("longitude"), lons),
+                "surface_precip": (("latitude", "longitude"), sp),
+                "rqi": (("latitude", "longitude"), rqi),
+                "time": ((), time),
+            }
+        )
         dataset.to_netcdf(data_path / filename)
 
     return tmp_path
@@ -113,7 +108,7 @@ def cpcir_data(tmp_path):
     times = np.arange(
         np.datetime64("2020-01-01T00:00:00", "s"),
         np.datetime64("2020-01-01T06:00:00", "s"),
-        np.timedelta64(30, "m")
+        np.timedelta64(30, "m"),
     )
 
     lons, lats = areas.CONUS_4.get_lonlats()
@@ -121,18 +116,17 @@ def cpcir_data(tmp_path):
     lats = lats[..., 0]
 
     for time in times:
-
-        tbs = random_spectral_field(
-            (lats.size, lons.size),
-            10
-        )[None].astype("float32")
+        tbs = random_spectral_field((lats.size, lons.size), 10)[..., None].astype(
+            "float32"
+        )
         filename = cpcir.get_output_filename(time.item(), 30)
-        dataset = xr.Dataset({
-            "time": ((), time),
-            "tbs": (("channels", "y", "x"), tbs),
-        })
+        dataset = xr.Dataset(
+            {
+                "time": ((), time),
+                "tbs": (("y", "x", "channels"), tbs),
+            }
+        )
         dataset.to_netcdf(data_path / filename)
-
 
     return tmp_path
 
@@ -149,7 +143,7 @@ def gmi_data(tmp_path):
     times = np.arange(
         np.datetime64("2020-01-01T00:00:00", "s"),
         np.datetime64("2020-01-01T06:00:00", "s"),
-        np.timedelta64(120, "m")
+        np.timedelta64(120, "m"),
     )
 
     lons, lats = areas.CONUS_4.get_lonlats()
@@ -157,11 +151,9 @@ def gmi_data(tmp_path):
     lats = lats[..., 0]
 
     for time in times:
-
-        tbs = np.stack([
-            random_spectral_field((lats.size, lons.size), 10)
-            for _ in range(13)
-        ])
+        tbs = np.stack(
+            [random_spectral_field((lats.size, lons.size), 10) for _ in range(13)]
+        )
 
         time_py = time.item()
         year = time_py.year
@@ -170,10 +162,12 @@ def gmi_data(tmp_path):
         hour = time_py.hour
         minute = time_py.minute
         filename = f"gmi_{year}{month:02}{day:02}_{hour:02}_{minute:02}.nc"
-        dataset = xr.Dataset({
-            "time": ((), time),
-            "tbs": (("channels", "y", "x"), tbs),
-        })
+        dataset = xr.Dataset(
+            {
+                "time": ((), time),
+                "tbs": (("y", "x", "channels"), tbs),
+            }
+        )
         dataset.to_netcdf(data_path / filename)
 
     return tmp_path
@@ -191,7 +185,7 @@ def mhs_data(tmp_path):
     times = np.arange(
         np.datetime64("2020-01-01T00:00:00", "s"),
         np.datetime64("2020-01-01T06:00:00", "s"),
-        np.timedelta64(120, "m")
+        np.timedelta64(120, "m"),
     )
 
     lons, lats = areas.CONUS_8.get_lonlats()
@@ -199,11 +193,9 @@ def mhs_data(tmp_path):
     lats = lats[..., 0]
 
     for time in times:
-
-        tbs = np.stack([
-            random_spectral_field((lats.size, lons.size), 10)
-            for _ in range(5)
-        ])
+        tbs = np.stack(
+            [random_spectral_field((lats.size, lons.size), 10) for _ in range(5)]
+        )
 
         time_py = time.item()
         year = time_py.year
@@ -212,13 +204,16 @@ def mhs_data(tmp_path):
         hour = time_py.hour
         minute = time_py.minute
         filename = f"mhs_{year}{month:02}{day:02}_{hour:02}_{minute:02}.nc"
-        dataset = xr.Dataset({
-            "time": ((), time),
-            "tbs": (("channels", "y", "x"), tbs),
-        })
+        dataset = xr.Dataset(
+            {
+                "time": ((), time),
+                "tbs": (("channels", "y", "x"), tbs),
+            }
+        )
         dataset.to_netcdf(data_path / filename)
 
     return tmp_path
+
 
 @pytest.fixture
 def ssmis_data(tmp_path):
@@ -232,7 +227,7 @@ def ssmis_data(tmp_path):
     times = np.arange(
         np.datetime64("2020-01-01T00:30:00", "s"),
         np.datetime64("2020-01-01T06:00:00", "s"),
-        np.timedelta64(120, "m")
+        np.timedelta64(120, "m"),
     )
 
     lons, lats = areas.CONUS_8.get_lonlats()
@@ -240,11 +235,9 @@ def ssmis_data(tmp_path):
     lats = lats[..., 0]
 
     for time in times:
-
-        tbs = np.stack([
-            random_spectral_field((lats.size, lons.size), 10)
-            for _ in range(11)
-        ])
+        tbs = np.stack(
+            [random_spectral_field((lats.size, lons.size), 10) for _ in range(11)]
+        )
 
         time_py = time.item()
         year = time_py.year
@@ -253,10 +246,12 @@ def ssmis_data(tmp_path):
         hour = time_py.hour
         minute = time_py.minute
         filename = f"ssmis_{year}{month:02}{day:02}_{hour:02}_{minute:02}.nc"
-        dataset = xr.Dataset({
-            "time": ((), time),
-            "tbs": (("channels", "y", "x"), tbs),
-        })
+        dataset = xr.Dataset(
+            {
+                "time": ((), time),
+                "tbs": (("channels", "y", "x"), tbs),
+            }
+        )
         dataset.to_netcdf(data_path / filename)
 
     return tmp_path
@@ -274,7 +269,7 @@ def amsr2_data(tmp_path):
     times = np.arange(
         np.datetime64("2020-01-01T00:30:00", "s"),
         np.datetime64("2020-01-01T06:00:00", "s"),
-        np.timedelta64(60, "m")
+        np.timedelta64(60, "m"),
     )
 
     lons, lats = areas.CONUS_4.get_lonlats()
@@ -282,11 +277,9 @@ def amsr2_data(tmp_path):
     lats = lats[..., 0]
 
     for time in times:
-
-        tbs = np.stack([
-            random_spectral_field((lats.size, lons.size), 10)
-            for _ in range(12)
-        ])
+        tbs = np.stack(
+            [random_spectral_field((lats.size, lons.size), 10) for _ in range(12)]
+        )
 
         time_py = time.item()
         year = time_py.year
@@ -295,10 +288,12 @@ def amsr2_data(tmp_path):
         hour = time_py.hour
         minute = time_py.minute
         filename = f"amsr2_{year}{month:02}{day:02}_{hour:02}_{minute:02}.nc"
-        dataset = xr.Dataset({
-            "time": ((), time),
-            "tbs": (("channels", "y", "x"), tbs),
-        })
+        dataset = xr.Dataset(
+            {
+                "time": ((), time),
+                "tbs": (("channels", "y", "x"), tbs),
+            }
+        )
         dataset.to_netcdf(data_path / filename)
 
     return tmp_path
@@ -316,7 +311,7 @@ def atms_data(tmp_path):
     times = np.arange(
         np.datetime64("2020-01-01T00:30:00", "s"),
         np.datetime64("2020-01-01T06:00:00", "s"),
-        np.timedelta64(60, "m")
+        np.timedelta64(60, "m"),
     )
 
     lons, lats = areas.CONUS_16.get_lonlats()
@@ -324,11 +319,9 @@ def atms_data(tmp_path):
     lats = lats[..., 0]
 
     for time in times:
-
-        tbs = np.stack([
-            random_spectral_field((lats.size, lons.size), 10)
-            for _ in range(9)
-        ])
+        tbs = np.stack(
+            [random_spectral_field((lats.size, lons.size), 10) for _ in range(9)]
+        )
 
         time_py = time.item()
         year = time_py.year
@@ -337,10 +330,12 @@ def atms_data(tmp_path):
         hour = time_py.hour
         minute = time_py.minute
         filename = f"atms_{year}{month:02}{day:02}_{hour:02}_{minute:02}.nc"
-        dataset = xr.Dataset({
-            "time": ((), time),
-            "tbs": (("channels", "y", "x"), tbs),
-        })
+        dataset = xr.Dataset(
+            {
+                "time": ((), time),
+                "tbs": (("channels", "y", "x"), tbs),
+            }
+        )
         dataset.to_netcdf(data_path / filename)
 
     return tmp_path
@@ -358,7 +353,7 @@ def _data(tmp_path):
     times = np.arange(
         np.datetime64("2020-01-01T00:30:00", "s"),
         np.datetime64("2020-01-01T06:00:00", "s"),
-        np.timedelta64(60, "m")
+        np.timedelta64(60, "m"),
     )
 
     lons, lats = areas.CONUS_8.get_lonlats()
@@ -366,11 +361,9 @@ def _data(tmp_path):
     lats = lats[..., 0]
 
     for time in times:
-
-        tbs = np.stack([
-            random_spectral_field((lats.size, lons.size), 10)
-            for _ in range(11)
-        ])
+        tbs = np.stack(
+            [random_spectral_field((lats.size, lons.size), 10) for _ in range(11)]
+        )
 
         time_py = time.item()
         year = time_py.year
@@ -379,10 +372,12 @@ def _data(tmp_path):
         hour = time_py.hour
         minute = time_py.minute
         filename = f"amsr2_{year}{month:02}{day:02}_{hour:02}_{minute:02}.nc"
-        dataset = xr.Dataset({
-            "time": ((), time),
-            "tbs": (("channels", "y", "x"), tbs),
-        })
+        dataset = xr.Dataset(
+            {
+                "time": ((), time),
+                "tbs": (("channels", "y", "x"), tbs),
+            }
+        )
         dataset.to_netcdf(data_path / filename)
 
     return tmp_path
@@ -395,16 +390,10 @@ def cpcir_gmi_mrnn():
     """
     input_configs = [
         InputConfig(
-            get_input("cpcir"),
-            stem_depth=1,
-            stem_kernel_size=3,
-            stem_downsampling=1
+            get_input("cpcir"), stem_depth=1, stem_kernel_size=3, stem_downsampling=1
         ),
         InputConfig(
-            get_input("gmi"),
-            stem_depth=2,
-            stem_kernel_size=7,
-            stem_downsampling=2
+            get_input("gmi"), stem_depth=2, stem_kernel_size=7, stem_downsampling=2
         ),
     ]
     output_configs = [
@@ -412,7 +401,7 @@ def cpcir_gmi_mrnn():
             get_reference_data("mrms"),
             "surface_precip",
             "quantile_loss",
-            quantiles=np.linspace(0, 1, 34)[1:-1]
+            quantiles=np.linspace(0, 1, 34)[1:-1],
         ),
     ]
 
@@ -421,7 +410,7 @@ def cpcir_gmi_mrnn():
         channels=[16, 32, 64, 128],
         stage_depths=[2, 2, 4, 4],
         downsampling_factors=[2, 2, 2],
-        combined=False
+        combined=False,
     )
 
     decoder_config = DecoderConfig(
@@ -432,23 +421,21 @@ def cpcir_gmi_mrnn():
         skip_connections=True,
     )
     model_config = ModelConfig(
-        input_configs,
-        output_configs,
-        encoder_config,
-        decoder_config
+        input_configs, output_configs, encoder_config, decoder_config
     )
     mrnn = compile_mrnn(model_config)
     return mrnn
 
+
 @pytest.fixture
 def training_data_multi(
-        cpcir_data,
-        gmi_data,
-        mhs_data,
-        ssmis_data,
-        amsr2_data,
-        atms_data,
-        mrms_surface_precip_data
+    cpcir_data,
+    gmi_data,
+    mhs_data,
+    ssmis_data,
+    amsr2_data,
+    atms_data,
+    mrms_surface_precip_data,
 ):
     """
     Fixture providing a sequence dataset with inputs from CPCIR, GMI and
@@ -463,12 +450,9 @@ def training_data_multi(
     )
     return dataset
 
+
 @pytest.fixture
-def training_data_seq(
-        gmi_data,
-        cpcir_data,
-        mrms_surface_precip_data
-):
+def training_data_seq(gmi_data, cpcir_data, mrms_surface_precip_data):
     """
     Fixture providing a sequence dataset with inputs from CPCIR, GMI and
     MRMS outputs.
@@ -480,9 +464,10 @@ def training_data_seq(
         window_size=128,
         missing_value_policy="masked",
         sequence_length=4,
-        forecast=0
+        forecast=0,
     )
     return dataset
+
 
 @pytest.fixture
 def cpcir_gmi_seq_mrnn():
@@ -492,16 +477,10 @@ def cpcir_gmi_seq_mrnn():
     """
     input_configs = [
         InputConfig(
-            get_input("cpcir"),
-            stem_depth=1,
-            stem_kernel_size=3,
-            stem_downsampling=1
+            get_input("cpcir"), stem_depth=1, stem_kernel_size=3, stem_downsampling=1
         ),
         InputConfig(
-            get_input("gmi"),
-            stem_depth=2,
-            stem_kernel_size=7,
-            stem_downsampling=2
+            get_input("gmi"), stem_depth=2, stem_kernel_size=7, stem_downsampling=2
         ),
     ]
     output_configs = [
@@ -509,7 +488,7 @@ def cpcir_gmi_seq_mrnn():
             get_reference_data("mrms"),
             "surface_precip",
             "quantile_loss",
-            quantiles=np.linspace(0, 1, 34)[1:-1]
+            quantiles=np.linspace(0, 1, 34)[1:-1],
         ),
     ]
 
@@ -519,7 +498,7 @@ def cpcir_gmi_seq_mrnn():
         stage_depths=[2, 2, 4, 4],
         downsampling_factors=[2, 2, 2],
         combined=False,
-        multi_scale=False
+        multi_scale=False,
     )
 
     decoder_config = DecoderConfig(
@@ -534,7 +513,7 @@ def cpcir_gmi_seq_mrnn():
         output_configs,
         encoder_config,
         decoder_config,
-        temporal_merging=True
+        temporal_merging=True,
     )
     mrnn = compile_mrnn(model_config)
     return mrnn
