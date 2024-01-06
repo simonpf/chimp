@@ -100,7 +100,7 @@ def download_and_resample_data(
 
         datasets = CHANNEL_CONFIGURATIONS[channel_configuration]
         scene.load(datasets)
-        scene_r = scene.resample(domain, radius_of_influence=4e3, cache_dir=".")
+        scene_r = scene.resample(domain, radius_of_influence=4e3)
 
         obs = []
         names = []
