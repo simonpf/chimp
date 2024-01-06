@@ -9,8 +9,6 @@ from calendar import monthrange
 from datetime import timedelta
 import logging
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
-import importlib
-import multiprocessing as mp
 from pathlib import Path
 
 from chimp import areas
