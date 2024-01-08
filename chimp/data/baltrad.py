@@ -195,7 +195,7 @@ class Baltrad(ReferenceData):
 
     def __init__(self):
         super().__init__(
-            "baltrad", scale=2, targets=[RetrievalTarget("dbz")], quality_index="qi"
+            "baltrad", scale=4, targets=[RetrievalTarget("dbz")], quality_index="qi"
         )
 
     def process_day(
