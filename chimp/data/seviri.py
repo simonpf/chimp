@@ -131,7 +131,7 @@ class SEVIRIInputData(Input, MinMaxNormalized):
                 from which to extract the observations.
             channel_configuration: A 'str' specifying the channel configuration.
         """
-        super().__init__(name, 2, ["obs"])
+        super().__init__(name, 4, ["obs"])
         self.pansat_product = pansat_product
         self.channel_configuration = channel_configuration
 
