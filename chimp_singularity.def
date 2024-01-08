@@ -5,6 +5,7 @@ From: /home/simonpf/src/chimp_singularity/chimp_conda.sif
     /home/simonpf/src/pansat /pansat
     /home/simonpf/src/quantnn /quantnn
     /home/simonpf/src/chimp /chimp
+    /home/simonpf/src/pytorch_retrieve /pytorch_retrieve
 
 %environment
     export PATH="/opt/conda/bin:$PATH"
@@ -13,6 +14,7 @@ From: /home/simonpf/src/chimp_singularity/chimp_conda.sif
 %post
     /opt/conda/envs/chimp/bin/python3 -m pip install -e /pansat
     /opt/conda/envs/chimp/bin/python3 -m pip install -e /quantnn
+    /opt/conda/envs/chimp/bin/python3 -m pip install -e /pytorch_retrieve
     /opt/conda/envs/chimp/bin/python3 -m pip install -e /chimp
     /opt/conda/envs/chimp/bin/python3 -m pip install notebook
     echo ". /singularity_shell_init.sh" >> $SINGULARITY_ENVIRONMENT
