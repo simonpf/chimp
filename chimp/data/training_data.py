@@ -971,10 +971,12 @@ class SequenceDataset(SingleStepDataset):
                 y.setdefault(name, []).append(output)
 
         if self.forecast > 0:
-            x["lead_times"] = [
-                step * self.time_step.astype("int64") // 60
-                for step in range(1, self.forecast + 1)
-            ]
+            x["lead_times"] = torch.tensor(
+                [
+                    step * self.time_step.astype("int64") // 60
+                    for step in range(1, self.forecast + 1)
+                ]
+            )
         return x, y
 
 
