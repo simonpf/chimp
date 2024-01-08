@@ -79,6 +79,10 @@ def cli(
     model_config: Optional[Path],
     training_config: Optional[Path],
     compute_config: Optional[Path],
+    min_lr: float,
+    max_lr: float,
+    n_steps: int,
+    plot: bool,
 ) -> int:
     """
     Train retrieval model.
