@@ -162,3 +162,17 @@ def test_load_sample_sequence(cpcir_data, mrms_surface_precip_data):
     x, y = training_data[0]
     assert len(x["cpcir"]) == 8
     assert len(y["surface_precip"]) == 8
+
+    # Test reduced output size.
+    training_data = SequenceDataset(
+        cpcir_data,
+        reference_data="mrms",
+        inputs=["cpcir"],
+        sample_rate=1,
+        sequence_length=8,
+        shrink_output=2,
+    )
+    x, y = training_data[0]
+    assert len(x["cpcir"]) == 8
+    assert len(y["surface_precip"]) == 8
+    assert y["surface_precip"][0].shape[-1] == x["cpcir"][0].shape[-1] // 2

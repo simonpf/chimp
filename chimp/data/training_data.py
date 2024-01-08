@@ -22,6 +22,7 @@ import torch
 from torch import nn
 from torch.utils.data import IterableDataset
 import torch.distributed as dist
+import torchvision
 import xarray as xr
 import pandas as pd
 
@@ -869,6 +870,7 @@ class SequenceDataset(SingleStepDataset):
         missing_value_policy="masked",
         augment=True,
         forecast=0,
+        shrink_output=None,
         validation=False,
         time_step=None,
     ):
@@ -910,10 +912,12 @@ class SequenceDataset(SingleStepDataset):
         deltas = times[sequence_length:] - times[:-sequence_length]
         if time_step is None:
             time_step = deltas.min()
+        self.time_step = time_step
         self.sequence_starts = np.where(
             deltas.astype("timedelta64[s]") <= sequence_length * time_step
         )[0]
         self.forecast = forecast
+        self.shrink_output = shrink_output
 
     def __len__(self):
         """Number of samples in an epoch."""
@@ -959,7 +963,18 @@ class SequenceDataset(SingleStepDataset):
             for name, inpt in x_i.items():
                 x.setdefault(name, []).append(inpt)
             for name, output in y_i.items():
+                if self.shrink_output is not None:
+                    size = self.window_size // self.shrink_output
+                    output = torchvision.transforms.functional.center_crop(
+                        output, (size, size)
+                    )
                 y.setdefault(name, []).append(output)
+
+        if self.forecast > 0:
+            x["lead_times"] = [
+                step * self.time_step.astype("int64") // 60
+                for step in range(1, self.forecast + 1)
+            ]
         return x, y
 
 

@@ -405,6 +405,8 @@ class TrainingConfig(pr.training.TrainingConfigBase):
     reference_datasets: List[str]
     sample_rate: int
     sequence_length: int
+    forecast: int
+    shrink_output: Optional[int]
     window_size: int
     augment: bool
     time_step: int
@@ -456,6 +458,12 @@ class TrainingConfig(pr.training.TrainingConfigBase):
         )
         sequence_length = get_config_attr(
             "sequence_length", int, config_dict, f"training stage '{name}'", 1
+        )
+        forecast = get_config_attr(
+            "forecast", int, config_dict, f"training stage '{name}'", 0
+        )
+        shrink_output = get_config_attr(
+            "shrink_output", int, config_dict, f"training stage '{name}'", None
         )
         window_size = get_config_attr(
             "window_size", int, config_dict, f"training stage '{name}'", 128
@@ -546,6 +554,8 @@ class TrainingConfig(pr.training.TrainingConfigBase):
             reference_datasets=reference_datasets,
             sample_rate=sample_rate,
             sequence_length=sequence_length,
+            forecast=forecast,
+            shrink_output=shrink_output,
             window_size=window_size,
             augment=augment,
             time_step=time_step,
@@ -589,6 +599,8 @@ class TrainingConfig(pr.training.TrainingConfigBase):
                 normalize=False,
                 window_size=self.window_size,
                 sequence_length=self.sequence_length,
+                forecast=self.forecast,
+                shrink_output=self.shrink_output,
                 missing_value_policy="none",
                 augment=self.augment,
             )
@@ -618,6 +630,8 @@ class TrainingConfig(pr.training.TrainingConfigBase):
                 normalize=False,
                 window_size=self.window_size,
                 sequence_length=self.sequence_length,
+                forecast=self.forecast,
+                shrink_output=self.shrink_output,
                 missing_value_policy="none",
                 augment=False,
                 validation=True,
