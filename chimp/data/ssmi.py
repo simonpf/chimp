@@ -32,7 +32,6 @@ def load_observations(path: Path) -> xr.Dataset:
          An xarray.Dataset containing the loaded data.
     """
     with xr.open_dataset(path) as data:
-
         scan_time = data["scan_time_lores"].data
         latitude_lores = data["lat_lores"].data
         longitude_lores = data["lon_lores"].data
@@ -47,33 +46,34 @@ def load_observations(path: Path) -> xr.Dataset:
                 data["fcdr_tb37h"].data,
                 data["fcdr_tb37v"].data,
             ],
-            axis=-1
+            axis=-1,
         )
         obs_hires = np.stack(
             [
                 data["fcdr_tb85h"].data,
                 data["fcdr_tb85v"].data,
             ],
-            axis=-1
+            axis=-1,
         )
 
-    return xr.Dataset({
-        "scan_time": (("scans_lores",), scan_time),
-        "latitude_lores": (("scans_lores", "pixels_lores"), latitude_lores),
-        "longitude_lores": (("scans_lores", "pixels_lores"), longitude_lores),
-        "obs_lores": (("scans_lores", "pixels_lores", "channels_lores"), obs_lores),
-        "latitude_hires": (("scans_hires", "pixels_hires"), latitude_hires),
-        "longitude_hires": (("scans_hires", "pixels_hires"), longitude_hires),
-        "obs_hires": (("scans_hires", "pixels_hires", "channels_hires"), obs_hires),
-    })
-
+    return xr.Dataset(
+        {
+            "scan_time": (("scans_lores",), scan_time),
+            "latitude_lores": (("scans_lores", "pixels_lores"), latitude_lores),
+            "longitude_lores": (("scans_lores", "pixels_lores"), longitude_lores),
+            "obs_lores": (("scans_lores", "pixels_lores", "channels_lores"), obs_lores),
+            "latitude_hires": (("scans_hires", "pixels_hires"), latitude_hires),
+            "longitude_hires": (("scans_hires", "pixels_hires"), longitude_hires),
+            "obs_hires": (("scans_hires", "pixels_hires", "channels_hires"), obs_hires),
+        }
+    )
 
 
 def resample_data(
-        dataset: xr.Dataset,
-        target_grid: pyresample.AreaDefinition,
-        output_data: Optional[xr.Dataset],
-        orbit_part="asc"
+    dataset: xr.Dataset,
+    target_grid: pyresample.AreaDefinition,
+    output_data: Optional[xr.Dataset],
+    orbit_part="asc",
 ):
     """
     Resample xarray.Dataset data to global grid.
@@ -92,15 +92,16 @@ def resample_data(
     if output_data is None:
         obs_lores = np.nan * np.zeros(lons_t.shape + (5,))
         obs_hires = np.nan * np.zeros(lons_t.shape + (2,))
-        output_data = xr.Dataset({
-            "latitude": (("latitude",), lats_t[:, 0]),
-            "longitude": (("longitude",), lons_t[0]),
-            "obs_lores": (("latitude", "longitude", "channels_lores"), obs_lores),
-            "obs_hires": (("latitude", "longitude", "channels_hires"), obs_hires),
-        })
+        output_data = xr.Dataset(
+            {
+                "latitude": (("latitude",), lats_t[:, 0]),
+                "longitude": (("longitude",), lons_t[0]),
+                "obs_lores": (("latitude", "longitude", "channels_lores"), obs_lores),
+                "obs_hires": (("latitude", "longitude", "channels_hires"), obs_hires),
+            }
+        )
 
     for res in ["lores", "hires"]:
-
         lons = dataset[f"longitude_{res}"].data
         lats = dataset[f"latitude_{res}"].data
 
@@ -115,29 +116,17 @@ def resample_data(
             continue
 
         swath = SwathDefinition(lons=lons[orbit], lats=lats[orbit])
-        target = SwathDefinition(
-            lons=lons_t,
-            lats=lats_t
-        )
+        target = SwathDefinition(lons=lons_t, lats=lats_t)
 
         info = kd_tree.get_neighbour_info(
-                swath,
-                target,
-                radius_of_influence=64e3,
-                neighbours=1
+            swath, target, radius_of_influence=64e3, neighbours=1
         )
         ind_in, ind_out, inds, _ = info
 
-        obs =  dataset[f"obs_{res}"].data[orbit]
+        obs = dataset[f"obs_{res}"].data[orbit]
 
         obs_r = kd_tree.get_sample_from_neighbour_info(
-            'nn',
-            target.shape,
-            obs,
-            ind_in,
-            ind_out,
-            inds,
-            fill_value=np.nan
+            "nn", target.shape, obs, ind_in, ind_out, inds, fill_value=np.nan
         )
 
         valid = np.isfinite(obs_r)
@@ -146,27 +135,25 @@ def resample_data(
     return output_data
 
 
-
-
-
 class SSMI(Input, MinMaxNormalized):
     """
     Provides an interface to extract and load training data from the PATMOS-X
     dataset.
     """
+
     def __init__(self):
         super().__init__("ssmi", 1, ["obs_asc", "obs_des"])
 
     def process_day(
-            self,
-            domain,
-            year,
-            month,
-            day,
-            output_folder,
-            path=None,
-            time_step=timedelta(days=1),
-            include_scan_time=False
+        self,
+        domain,
+        year,
+        month,
+        day,
+        output_folder,
+        path=None,
+        time_step=timedelta(days=1),
+        include_scan_time=False,
     ):
         """
         Extract training data for a given day.
@@ -193,12 +180,8 @@ class SSMI(Input, MinMaxNormalized):
         if isinstance(domain, dict):
             domain = domain[16]
 
-
         while time < end:
-            time_range = TimeRange(
-                time,
-                time + time_step - timedelta(seconds=1)
-            )
+            time_range = TimeRange(time, time + time_step - timedelta(seconds=1))
 
             recs = ssmi_csu.find_files(time_range)
             recs = [rec.get() for rec in recs]
@@ -210,21 +193,10 @@ class SSMI(Input, MinMaxNormalized):
                     # Some files are empty so we want to skip those.
                     try:
                         data = load_observations(rec.local_path)
+                        data_asc = resample_data(data, domain, data_asc, "asc")
+                        data_des = resample_data(data, domain, data_des, "des")
                     except KeyError:
                         continue
-
-                    data_asc = resample_data(
-                        data,
-                        domain,
-                        data_asc,
-                        "asc"
-                    )
-                    data_des = resample_data(
-                        data,
-                        domain,
-                        data_des,
-                        "des"
-                    )
 
                 data_asc = data_asc.rename(
                     obs_lores="obs_lores_asc",
@@ -240,7 +212,9 @@ class SSMI(Input, MinMaxNormalized):
                 )
 
                 filename = time.strftime("ssmi_%Y%m%d_%H%M.nc")
-                data.to_netcdf(output_folder / filename)
+
+                encodings = {obs: {"dtype": "float32", "zlib": True}}
+                data.to_netcdf(output_folder / filename, encoding=encodings)
 
             time = time + time_step
 
