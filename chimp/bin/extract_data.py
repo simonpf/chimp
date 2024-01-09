@@ -127,6 +127,7 @@ def run(args):
     import chimp.data.seviri
     import chimp.data.daily_precip
     import chimp.data.baltrad
+    import chimp.data.s2s
 
     #
     # Check and load inputs.

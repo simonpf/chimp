@@ -11,12 +11,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import List
 
-from h5py import File
 import numpy as np
 import pandas as pd
-import dask.array as da
-from pyproj import Transformer
-from pyresample.geometry import AreaDefinition
 from scipy.stats import binned_statistic_2d
 from pansat.download.providers import IowaStateProvider
 from pansat.products.satellite import persiann, gpm
