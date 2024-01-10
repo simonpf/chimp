@@ -265,6 +265,20 @@ class Input(InputBase, MinMaxNormalized):
             )
         return tensor
 
+    def find_files(self, base_path: Path) -> List[Path]:
+        """
+        Find input files.
+
+        Args:
+            base_path: Base path of the data containing the input data in a
+                sub-folder.
+
+        Return:
+            List of available input files.
+        """
+        pattern = "*????????_??_??.nc"
+        return sorted(list((base_path / self.name).glob(pattern)))
+
     def load_sample(
         self,
         input_file: Path,
@@ -275,8 +289,7 @@ class Input(InputBase, MinMaxNormalized):
         missing_value_policy: str,
         rotate: Optional[float] = None,
         flip: Optional[bool] = False,
-        normalize: Optional[bool] = True,
-    ) -> np.ndarray:
+    ) -> torch.Tensor:
         """
         Load input data sample from file.
 
@@ -294,7 +307,9 @@ class Input(InputBase, MinMaxNormalized):
                 which the input should be rotated.
             flip: Bool indicated whether or not to flip the input along the
                 last dimensions.
-            normalize: Whether or not the inputs should be normalized.
+
+        Return:
+            A torch tensor containing the loaded input data.
         """
         rel_scale = self.scale / base_scale
 
@@ -348,11 +363,7 @@ class Input(InputBase, MinMaxNormalized):
         if missing_value_policy == "sparse":
             missing_value_policy = "missing"
 
-        if normalize:
-            x_s = self.normalizer(x_s)
-        else:
-            x_s = x_s.copy()
-        x_s = torch.tensor(x_s, dtype=torch.float32)
+        x_s = torch.tensor(x_s.copy(), dtype=torch.float32)
         if missing_value_policy == "masked":
             x_s = MaskedTensor(x_s)
         x_s = self.replace_missing(x_s, missing_value_policy, rng)

@@ -27,13 +27,38 @@ NEEDS_TEST_DATA = pytest.mark.skipif(
 
 def test_find_files_single_step(cpcir_data, mrms_surface_precip_data):
     """
-    Test that the training data finds the expected start times for
-    sampling sequences.
+    Instantiate single-step dataset and ensure that:
+        - The identified training samples matches the expected number.
+        - Sub-sampling by time reduces the number of samples.
+        - Setting time limits reduces the number of training samples.
+
     """
     training_data = SingleStepDataset(
-        cpcir_data, reference_data="mrms", inputs=["cpcir"], sample_rate=1
+        cpcir_data,
+        input_datasets=["cpcir"],
+        reference_datasets=["mrms"],
+        sample_rate=1
     )
     assert len(training_data) == 24
+
+    training_data = SingleStepDataset(
+        cpcir_data,
+        input_datasets=["cpcir"],
+        reference_datasets=["mrms"],
+        sample_rate=1,
+        time_step=np.timedelta64(60, "m")
+    )
+    assert len(training_data) == 12
+
+    training_data = SingleStepDataset(
+        cpcir_data,
+        input_datasets=["cpcir"],
+        reference_datasets=["mrms"],
+        sample_rate=1,
+        start_time=np.datetime64("2020-01-01T06:00:00"),
+        end_time=np.datetime64("2020-01-01T12:00:00")
+    )
+    assert len(training_data) == 12
 
 
 def test_sparse_data(cpcir_data, gmi_data, mrms_surface_precip_data):
@@ -42,33 +67,16 @@ def test_sparse_data(cpcir_data, gmi_data, mrms_surface_precip_data):
     """
     training_data = SingleStepDataset(
         cpcir_data,
-        reference_data="mrms",
-        inputs=["cpcir", "gmi"],
+        reference_datasets=["mrms"],
+        input_datasets=["cpcir", "gmi"],
         missing_value_policy="sparse",
-        window_size=128,
+        scene_size=128,
     )
     x, y = training_data[1]
     assert x["gmi"] is None
     assert x["cpcir"].shape[1:] == (128, 128)
 
 
-def test_full_domain(cpcir_data, gmi_data, mrms_surface_precip_data):
-    """
-    Test loading of full domain data.
-    """
-    for i in range(10):
-        inputs = ["cpcir", "gmi"]
-        training_data = CHIMPPretrainDataset(
-            cpcir_data,
-            reference_data="mrms",
-            inputs=inputs,
-            missing_value_policy="sparse",
-        )
-
-        iter = training_data.full_domain()
-        time, x, y = next(iter)
-
-        assert x["cpcir"].shape[-2:] == (960, 1920)
 
 
 def test_missing_input_policies(cpcir_data, gmi_data, mrms_surface_precip_data):
@@ -77,10 +85,10 @@ def test_missing_input_policies(cpcir_data, gmi_data, mrms_surface_precip_data):
     """
     training_data = SingleStepDataset(
         cpcir_data,
-        reference_data="mrms",
-        inputs=["cpcir", "gmi"],
+        input_datasets=["cpcir", "gmi"],
+        reference_datasets=["mrms"],
         missing_value_policy="sparse",
-        window_size=128,
+        scene_size=128,
     )
     x, y = training_data[1]
     assert x["gmi"] is None
@@ -89,10 +97,10 @@ def test_missing_input_policies(cpcir_data, gmi_data, mrms_surface_precip_data):
 
     training_data = SingleStepDataset(
         cpcir_data,
-        reference_data="mrms",
-        inputs=["cpcir", "gmi"],
+        input_datasets=["cpcir", "gmi"],
+        reference_datasets=["mrms"],
         missing_value_policy="random",
-        window_size=128,
+        scene_size=128,
     )
     x, y = training_data[1]
     assert x["gmi"].shape[1:] == (128, 128)
@@ -102,10 +110,10 @@ def test_missing_input_policies(cpcir_data, gmi_data, mrms_surface_precip_data):
 
     training_data = SingleStepDataset(
         cpcir_data,
-        reference_data="mrms",
-        inputs=["cpcir", "gmi"],
+        reference_datasets=["mrms"],
+        input_datasets=["cpcir", "gmi"],
         missing_value_policy="missing",
-        window_size=128,
+        scene_size=128,
     )
     x, y = training_data[1]
     assert x["gmi"].shape[1:] == (128, 128)
@@ -115,10 +123,10 @@ def test_missing_input_policies(cpcir_data, gmi_data, mrms_surface_precip_data):
 
     training_data = SingleStepDataset(
         cpcir_data,
-        reference_data="mrms",
-        inputs=["cpcir", "gmi"],
+        reference_datasets=["mrms"],
+        input_datasets=["cpcir", "gmi"],
         missing_value_policy="mean",
-        window_size=128,
+        scene_size=128,
     )
     x, y = training_data[1]
     assert x["gmi"].shape[1:] == (128, 128)
@@ -139,8 +147,8 @@ def test_find_files_sequence(cpcir_data, mrms_surface_precip_data):
     """
     training_data = SequenceDataset(
         cpcir_data,
-        reference_data="mrms",
-        inputs=["cpcir"],
+        input_datasets=["cpcir"],
+        reference_datasets=["mrms"],
         sample_rate=1,
         sequence_length=8,
     )
@@ -149,13 +157,15 @@ def test_find_files_sequence(cpcir_data, mrms_surface_precip_data):
 
 def test_load_sample_sequence(cpcir_data, mrms_surface_precip_data):
     """
-    Test that the training data finds the expected start times for
-    sampling sequences.
+    Instantiate a sequence dataset and ensure that:
+        - The expected number of training samples is found.
+        - Inputs are lists of the sequence length
+        - shrink_output:
     """
     training_data = SequenceDataset(
         cpcir_data,
-        reference_data="mrms",
-        inputs=["cpcir"],
+        reference_datasets=["mrms"],
+        input_datasets=["cpcir"],
         sample_rate=1,
         sequence_length=8,
     )
@@ -164,10 +174,9 @@ def test_load_sample_sequence(cpcir_data, mrms_surface_precip_data):
     assert len(y["surface_precip"]) == 8
 
     # Test reduced output size.
-    training_data = SequenceDataset(
-        cpcir_data,
-        reference_data="mrms",
-        inputs=["cpcir"],
+    training_data = SequenceDataset(cpcir_data,
+        reference_datasets=["mrms"],
+        input_datasets=["cpcir"],
         sample_rate=1,
         sequence_length=8,
         shrink_output=2,
@@ -176,3 +185,44 @@ def test_load_sample_sequence(cpcir_data, mrms_surface_precip_data):
     assert len(x["cpcir"]) == 8
     assert len(y["surface_precip"]) == 8
     assert y["surface_precip"][0].shape[-1] == x["cpcir"][0].shape[-1] // 2
+
+
+def test_load_sample_forecast(cpcir_data, mrms_surface_precip_data):
+    """
+    Test that the training data finds the expected start times for
+    sampling sequences.
+    """
+    training_data = SequenceDataset(
+        cpcir_data,
+        reference_datasets=["mrms"],
+        input_datasets=["cpcir"],
+        sample_rate=1,
+        sequence_length=8,
+        include_input_steps=False,
+        forecast=4
+    )
+    assert len(training_data) == 12
+    x, y = training_data[0]
+    assert len(x["cpcir"]) == 8
+    assert len(y["surface_precip"]) == 4
+    assert "lead_times" in x
+    assert len(x["lead_times"]) == 4
+
+    # Test reduced output size.
+    training_data = SequenceDataset(
+        cpcir_data,
+        reference_datasets=["mrms"],
+        input_datasets=["cpcir"],
+        sample_rate=1,
+        sequence_length=8,
+        shrink_output=2,
+        forecast=4,
+        include_input_steps=True
+    )
+    assert len(training_data) == 12
+    x, y = training_data[0]
+    assert len(x["cpcir"]) == 8
+    assert len(y["surface_precip"]) == 12
+    assert y["surface_precip"][0].shape[-1] == x["cpcir"][0].shape[-1] // 2
+    assert "lead_times" in x
+    assert len(x["lead_times"]) == 4

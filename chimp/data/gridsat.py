@@ -122,7 +122,12 @@ class GridSat(Input, MinMaxNormalized):
                 gridsat_data = gridsat_data.interp(time=time)
 
             filename = time.strftime("gridsat_%Y%m%d_%H%M.nc")
-            gridsat_data.to_netcdf(output_folder / filename)
+
+            encodings = {
+                obs: {"dtype": "float32", "zlib": True}
+                for obs in gridsat_data.variables
+            }
+            gridsat_data.to_netcdf(output_folder / filename, encoding=encodings)
 
             time = time + time_step
 

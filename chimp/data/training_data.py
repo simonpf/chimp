@@ -9,7 +9,7 @@ from datetime import datetime
 from math import ceil
 import os
 from pathlib import Path
-from typing import Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Union
 
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
@@ -23,6 +23,7 @@ from torch import nn
 from torch.utils.data import IterableDataset
 import torch.distributed as dist
 import torchvision
+from torchvision.transforms.functional import center_crop
 import xarray as xr
 import pandas as pd
 
@@ -115,36 +116,32 @@ class SingleStepDataset:
 
     def __init__(
         self,
-        folder,
-        inputs,
-        reference_data,
-        sample_rate=1,
-        sequence_length=1,
-        normalize=True,
-        window_size=128,
-        start_time=None,
-        end_time=None,
-        quality_threshold=0.8,
-        augment=True,
-        missing_value_policy="sparse",
-        time_step=None,
-        validation=False,
+        path: Path,
+        input_datasets: List[str],
+        reference_datasets: List[str],
+        sample_rate: int = 1,
+        scene_size: int = 128,
+        start_time: Optional[np.datetime64] = None,
+        end_time: Optional[np.datetime64] = None,
+        augment: bool = True,
+        missing_value_policy: str = "sparse",
+        time_step: Optional[np.timedelta64] = None,
+        validation: bool = False,
+        quality_threshold: Union[float, List[float]] = 0.8
     ):
         """
         Args:
-            folder: The root folder containing the training data.
-            reference_data: Name of the folder containing the reference
-                data.
-            inputs: List of names of inputs specifying the input data.
+            path: The root directory containing the training data.
+            input_datasets: List of the input datasets or their names from which
+                to load the retrieval input data.
+            reference_datasets: List of the reference datasets or their names
+                from which to load the reference data.
             sample_rate: How often each scene should be sampled per epoch.
-            normalize: Whether inputs should be normalized.
-            window_size: Size of the training scenes.
+            scene_size: Size of the training scenes.
             start_time: Start time of time interval to which to restrict
                 training data.
             end_time: End time of a time interval to which to restrict the
                 training data.
-            quality_threshold: Threshold for radar quality index used to mask
-                the radar measurements.
             augment: Whether to apply random transformations to the training
                 inputs.
             missing_value_policy: A string indicating how to handle missing input
@@ -156,79 +153,98 @@ class SingleStepDataset:
                     'sparse': Instead of a tensor 'None' is returned.
             time_step: Minimum time step between consecutive reference samples.
                 Can be used to sub-sample the reference data.
-            validation: If 'True' sampling will reproduce identical scenes.
+            validation: If 'True', repeated sampling will reproduce identical scenes.
+            quality_threshold: Thresholds for the quality indices applied to limit
+                reference data pixels.
         """
-        self.folder = Path(folder)
+        self.path = Path(path)
 
-        self.reference_data = get_reference_data(reference_data)
+        self.input_datasets = [
+            get_input(input_dataset) for input_dataset in input_datasets
+        ]
+        self.reference_datasets = [
+            get_reference_data(reference_dataset)
+            for reference_dataset in reference_datasets
+        ]
 
-        if inputs is None:
-            inputs = ["visir", "geo", "mw"]
-        self.inputs = [get_input(inpt) for inpt in inputs]
-
-        self.n_inputs = len(inputs)
         self.sample_rate = sample_rate
-        self.normalize = normalize
-        self.quality_threshold = quality_threshold
         self.augment = augment
         self.missing_value_policy = missing_value_policy
 
-        pattern = "*????????_??_??.nc"
+        n_input_datasets = len(self.input_datasets)
+        n_reference_datasets = len(self.reference_datasets)
+        n_datasets = n_input_datasets + n_reference_datasets
 
-        # Find all reference files and select those within time range.
-        reference_files = sorted(
-            list((self.folder / self.reference_data.name).glob(pattern))
+        sample_files = {}
+        for ref_ind, reference_dataset in enumerate(self.reference_datasets):
+            files = reference_dataset.find_files(self.path)
+            times = np.array(list(map(get_date, files)))
+            for time, filename in zip(times, files):
+                files = sample_files.setdefault(time, ([None] * n_datasets))
+                files[ref_ind] = filename
+
+        if len(sample_files) == 0:
+            raise RuntimeError(
+                f"Found no reference data files in path '{self.path}' for "
+                f" reference data '{self.reference_data.name}'."
+            )
+
+        for input_ind, input_dataset in enumerate(self.input_datasets):
+            input_files = input_dataset.find_files(self.path)
+            times = np.array(list(map(get_date, input_files)))
+            for time, input_file in zip(times, input_files):
+                if time in sample_files:
+                    sample_files[time][n_reference_datasets + input_ind] = input_file
+
+        self.base_scale = min(
+            [reference_dataset.scale for reference_dataset in self.reference_datasets]
         )
-        times = np.array(list(map(get_date, reference_files)))
+        self.max_scale = 0
+        self.scales = {}
+        for input_dataset in self.input_datasets:
+            scale = input_dataset.scale // self.base_scale
+            self.scales[input_dataset.name] = scale
+            self.max_scale = max(self.max_scale, scale)
+
+        times = np.array(list(sample_files.keys()))
+        samples = np.array(list(sample_files.values()))
+        reference_files = samples[:, :n_reference_datasets]
+        input_files = samples[:, n_reference_datasets:]
+
         if start_time is not None and end_time is not None:
             indices = (times >= start_time) * (times < end_time)
             times = times[indices]
-            reference_files = [reference_files[i] for i in np.where(indices)[0]]
+            reference_files = reference_files[indices]
+            input_files = input_files[indices]
 
         if time_step is not None:
-            d_t = np.timedelta64(time_step.seconds, "s")
             d_t_files = times[1] - times[0]
-            subsample = int(d_t / d_t_files)
+            subsample = int(
+                time_step.astype("timedelta64[s]") /
+                d_t_files.astype("timedelta64[s]")
+            )
+            times = times[::subsample]
             reference_files = reference_files[::subsample]
+            input_files = input_files[::subsample]
 
-        samples = {
-            time: [
-                ref_file,
-            ]
-            + [
-                None,
-            ]
-            * self.n_inputs
-            for time, ref_file in zip(times, reference_files)
-        }
+        self.times = times
+        self.reference_files = reference_files
+        self.input_files = input_files
 
-        self.base_scale = self.reference_data.scale
+        # Ensure that data is consistent
+        assert len(self.times) == len(self.reference_files)
+        assert len(self.times) == len(self.input_files)
 
-        self.scales = {}
-        self.max_scale = 0
-        for src_ind, inpt in enumerate(self.inputs):
-            src_files = sorted(list((self.folder / inpt.name).glob(pattern)))
-            times = np.array(list(map(get_date, src_files)))
-            scale = None
-            for time, src_file in zip(times, src_files):
-                if scale is None:
-                    with xr.open_dataset(src_file) as src_data:
-                        scale = inpt.scale // self.base_scale
-                        self.scales[inpt.name] = scale
-                        self.max_scale = max(self.max_scale, scale)
-
-                sample = samples.get(time)
-                if sample is not None:
-                    sample[src_ind + 1] = src_file
-
-        self.keys = np.array(list(samples.keys()))
-        self.samples = np.array(list(samples.values()))
-        self.window_size = window_size
-
+        self.scene_size = scene_size
         self.validation = validation
         if self.validation:
             self.augment = False
         self.init_rng()
+
+        if isinstance(quality_threshold, float):
+            quality_threshold = [quality_threshold] * n_reference_datasets
+        self.quality_threshold = quality_threshold
+
 
     def init_rng(self, w_id=0):
         """
@@ -249,11 +265,11 @@ class SingleStepDataset:
         """
         return self.init_rng(*args)
 
-    def load_sample(
+    def load_reference_sample(
         self,
         files: Tuple[Path],
         slices: Optional[Tuple[int]],
-        window_size: int,
+        scene_size: int,
         forecast: bool = False,
         rotate: Optional[float] = None,
         flip: bool = False,
@@ -267,7 +283,7 @@ class SingleStepDataset:
             slices: Tuple ``(i_start, i_end, j_start, j_end)`` defining
                 defining the crop of the domain. If set to 'None', the full
                 domain is loaded.
-            window_size: The window size specified with respect to the
+            scene_size: The window size specified with respect to the
                 reference data.
             forecast: If 'True', no input data will be loaded and all inputs
                 will be set to None.
@@ -280,8 +296,8 @@ class SingleStepDataset:
             with ``x`` containing the training inputs and ``y`` the
             corresponding outputs.
         """
-        if isinstance(window_size, int):
-            window_size = (window_size,) * 2
+        if isinstance(scene_size, int):
+            scene_size = (scene_size,) * 2
 
         if slices is not None:
             i_start, i_end, j_start, j_end = slices
@@ -293,449 +309,119 @@ class SingleStepDataset:
 
         # Load reference data.
         y = {}
-        with xr.open_dataset(files[0]) as data:
-            qual = data[self.reference_data.quality_index]
-            qual = qual.data[row_slice, col_slice]
-            invalid = qual < self.quality_threshold
-            for target in self.reference_data.targets:
-                y_t = data[target.name].data[row_slice, col_slice]
-                if not np.issubdtype(y_t.dtype, np.floating):
-                    y_t = y_t.astype(np.int64)
+        for dataset_ind, reference_dataset in enumerate(self.reference_datasets):
+            y.update(
+                reference_dataset.load_sample(
+                    files[dataset_ind],
+                    scene_size,
+                    self.base_scale,
+                    slices,
+                    self.rng,
+                    rotate=rotate,
+                    flip=flip,
+                    quality_threshold=self.quality_threshold[dataset_ind]
+                )
+            )
+        return y
 
-                # Set window size here if it is None
-                if window_size is None:
-                    window_size = y_t.shape[-2:]
 
-                if target.lower_limit is not None:
-                    y_t[y_t < 0] = np.nan
-                    small = y_t < target.lower_limit
-                    rnd = self.rng.uniform(-5, -3, small.sum())
-                    y_t[small] = 10**rnd
-                # y_t[invalid] = MASK
-                if rotate is not None:
-                    y_t = ndimage.rotate(
-                        y_t, rotate, order=0, axes=(-2, -1), reshape=False, cval=np.nan
-                    )
+    def load_input_sample(
+        self,
+        files: Tuple[Path],
+        slices: Optional[Tuple[int]],
+        scene_size: int,
+        forecast: bool = False,
+        rotate: Optional[float] = None,
+        flip: bool = False,
+    ) -> Dict[str, torch.Tensor]:
+        """
+        Load input for given training sample.
 
-                    height = y_t.shape[-2]
-                    if height > window_size[0]:
-                        d_l = (height - window_size[0]) // 2
-                        d_r = d_l + window_size[0]
-                        y_t = y_t[..., d_l:d_r, :]
-                    width = y_t.shape[-1]
-                    if width > window_size[1]:
-                        d_l = (width - window_size[1]) // 2
-                        d_r = d_l + window_size[1]
-                        y_t = y_t[..., d_l:d_r]
+        Args:
+            files: Numpy array containing the paths to the files to load.
+            slices: Tuple ``(i_start, i_end, j_start, j_end)`` defining
+                defining the crop of the domain. If set to 'None', the full
+                domain is loaded.
+            scene_size: The window size specified with respect to the
+                reference data.
+            forecast: If 'True', no input data will be loaded and all inputs
+                will be set to None.
+            rotate: If provided, should be float specifying the degree by which
+                to rotate the input.
+            flip: If 'True', input will be flipped along the last axis.
 
-                if flip:
-                    y_t = np.flip(y_t, -1)
+        Return:
+            A dictionary mapping input dataset names to corresponding input
+            data tensors.
+        """
+        if isinstance(scene_size, int):
+            scene_size = (scene_size,) * 2
 
-                # if np.issubdtype(y_t.dtype, np.floating):
-                #    y_t = np.nan_to_num(y_t, nan=MASK, copy=True)
+        if slices is not None:
+            i_start, i_end, j_start, j_end = slices
+            row_slice = slice(i_start, i_end)
+            col_slice = slice(j_start, j_end)
+        else:
+            row_slice = slice(0, None)
+            col_slice = slice(0, None)
 
-                mask = torch.tensor(np.isnan(y_t))
-                tensor = torch.tensor(y_t.copy())
-                y[target.name] = MaskedTensor(tensor, mask=mask)
-
-        # Load input data.
         x = {}
-        for input_ind, inpt in enumerate(self.inputs):
-            input_file = files[input_ind + 1]
-            x_s = inpt.load_sample(
+        for input_ind, input_dataset in enumerate(self.input_datasets):
+            input_file = files[input_ind]
+            x_s = input_dataset.load_sample(
                 input_file,
-                window_size,
+                scene_size,
                 self.base_scale,
                 slices,
                 self.rng,
                 self.missing_value_policy,
                 rotate=rotate,
                 flip=flip,
-                normalize=self.normalize,
             )
-            x[inpt.name] = x_s
-
-        return x, y
+            x[input_dataset.name] = x_s
+        return x
 
     def __len__(self):
         """Number of samples in dataset."""
-        return len(self.samples) * self.sample_rate
+        return len(self.times) * self.sample_rate
 
     def __getitem__(self, index):
         """Return ith training sample."""
-        n_starts = len(self.samples)
-        scene_index = index % n_starts
+        n_samples = len(self.times)
+        sample_index = index % n_samples
 
         # We load a larger window when input is rotated to avoid
         # missing values.
         if self.augment:
-            window_size = int(1.42 * self.window_size)
-            rem = window_size % self.max_scale
+            scene_size = int(1.42 * self.scene_size)
+            rem = scene_size % self.max_scale
             if rem != 0:
-                window_size += self.max_scale - rem
+                scene_size += self.max_scale - rem
             ang = -180 + 360 * self.rng.random()
             flip = self.rng.random() > 0.5
         else:
-            window_size = self.window_size
+            scene_size = self.scene_size
             ang = None
             flip = False
 
         slices = reference.find_random_scene(
-            self.reference_data,
-            self.samples[scene_index][0],
+            self.reference_datasets[0],
+            self.reference_files[sample_index][0],
             self.rng,
             multiple=4,
-            window_size=window_size,
-            qi_thresh=self.quality_threshold,
+            scene_size=scene_size,
+            quality_threshold=self.quality_threshold[0]
         )
 
-        x, y = self.load_sample(
-            self.samples[scene_index], slices, self.window_size, rotate=ang, flip=flip
+        x = self.load_input_sample(
+            self.input_files[sample_index], slices, self.scene_size, rotate=ang, flip=flip
         )
-
-        has_input = any((x[inpt.name] is not None for inpt in self.inputs))
-        has_output = any(
-            (y[target.name] is not None for target in self.reference_data.targets)
+        y = self.load_reference_sample(
+            self.reference_files[sample_index], slices, self.scene_size, rotate=ang, flip=flip
         )
-
-        if not has_input or not has_output:
-            new_index = self.rng.integers(0, len(self))
-            return self[new_index]
 
         return x, y
 
-    def plot(self, key, domain):
-        sample = self.samples[key]
-
-        keys = list(domain.keys())
-        domain = domain[min(keys)]
-
-        crs = domain.to_cartopy_crs()
-        extent = domain.area_extent
-        extent = (extent[0], extent[2], extent[1], extent[3])
-        cmap = "plasma"
-
-        f = plt.figure(figsize=(20, 20))
-        gs = GridSpec(4, 5)
-        axs = np.array(
-            [
-                [f.add_subplot(gs[i, j], projection=crs) for j in range(5)]
-                for i in range(4)
-            ]
-        )
-
-        radar_data = xr.load_dataset(sample.radar)
-
-        ax = axs[0, 0]
-        dbz = radar_data.dbz.data.copy()
-        dbz[radar_data.qi.data < self.quality_threshold] = np.nan
-        img = ax.imshow(dbz, extent=extent, vmin=-20, vmax=40, cmap=cmap)
-        ax.coastlines(color="w")
-
-        if sample.geo is not None:
-            channels = [1, 4, 7, 11]
-            data_geo = xr.load_dataset(sample.geo)
-            for i, ch in enumerate(channels):
-                ax = axs[0, 1 + i]
-                ax.imshow(data_geo[f"geo_{ch:02}"].data, extent=extent, cmap=cmap)
-                ax.coastlines(color="w")
-
-        if sample.visir is not None:
-            data_visir = xr.load_dataset(sample.visir)
-            for i in range(5):
-                ax = axs[1, i]
-                ax.imshow(
-                    data_visir[f"visir_{(i + 1):02}"].data, extent=extent, cmap=cmap
-                )
-                ax.coastlines(color="w")
-
-        if sample.mw is not None:
-            data_mw = xr.load_dataset(sample.mw)
-            if "mw_90" in data_mw:
-                for i in range(2):
-                    ax = axs[2, i]
-                    ax.imshow(data_mw["mw_90"].data[..., i], extent=extent, cmap=cmap)
-                    ax.coastlines(color="w")
-            if "mw_160" in data_mw:
-                for i in range(2):
-                    ax = axs[2, i + 2]
-                    ax.imshow(data_mw["mw_160"].data[..., i], extent=extent, cmap=cmap)
-                    ax.coastlines(color="w")
-
-            if "mw_183" in data_mw:
-                for i in range(5):
-                    ax = axs[3, i]
-                    ax.imshow(data_mw["mw_183"].data[..., i], extent=extent, cmap=cmap)
-                    ax.coastlines(color="w")
-
-        return f, axs
-
-    def make_animator(self, start_time, end_time):
-        indices = (self.keys >= start_time) * (self.keys <= end_time)
-        keys = self.keys[indices]
-
-        crs = domain.to_cartopy_crs()
-        extent = domain.area_extent
-        extent = (extent[0], extent[2], extent[1], extent[3])
-
-        f = plt.figure(figsize=(10, 12))
-        gs = GridSpec(2, 2)
-        axs = np.array(
-            [
-                [f.add_subplot(gs[i, j], projection=crs) for j in range(2)]
-                for i in range(2)
-            ]
-        )
-
-        ax = axs[0, 0]
-        ax.set_title("Radar")
-
-        ax = axs[0, 1]
-        ax.set_title("geo 12u")
-
-        ax = axs[1, 0]
-        ax.set_title("VISIR")
-
-        ax = axs[1, 1]
-        ax.set_title("MHS (89 GHz)")
-
-        def animator(frame):
-            sample = self.samples[keys[frame]]
-
-            radar_data = xr.load_dataset(sample.radar)
-            ax = axs[0, 0]
-            dbz = radar_data.dbz.data.copy()
-            dbz[radar_data.qi.data < self.quality_threshold] = np.nan
-            img = ax.imshow(dbz, extent=extent, vmin=-20, vmax=20)
-            ax.coastlines(color="grey")
-
-            ax = axs[0, 1]
-            if sample.geo is not None:
-                geo_data = xr.load_dataset(sample.geo)
-                ax.imshow(geo_data.channel_10, extent=extent)
-                ax.coastlines(color="grey")
-            else:
-                img = np.nan * np.ones((2, 2))
-                img = ax.imshow(img, extent=extent)
-                ax.coastlines(color="grey")
-
-            ax = axs[1, 0]
-            if sample.avhrr is not None:
-                avhrr_data = xr.load_dataset(sample.avhrr)
-                img = ax.imshow(avhrr_data.channel_5, extent=extent)
-                ax.coastlines(color="grey")
-            else:
-                img = np.nan * np.ones((2, 2))
-                img = ax.imshow(img, extent=extent)
-                ax.coastlines(color="grey")
-
-            ax = axs[1, 1]
-            if sample.mhs is not None:
-                mhs_data = xr.load_dataset(sample.mhs)
-                img = ax.imshow(mhs_data.channel_01, extent=extent)
-                ax.coastlines(color="grey")
-            else:
-                img = np.nan * np.ones((2, 2))
-                img = ax.imshow(img, extent=extent)
-                ax.coastlines(color="grey")
-
-            return [img]
-
-        return f, axs, animator
-
-    def load_full_data(self, key):
-        with xr.open_dataset(self.samples[key].radar) as data:
-            shape = data.dbz.data.shape
-            y = data.dbz.data.copy()
-            y[data.qi.data < self.quality_threshold] = np.nan
-
-        y = torch.as_tensor(y, dtype=torch.float)
-        shape = y.shape
-
-        x = {}
-
-        # VISIR data
-        if self.samples[key].visir is not None:
-            with xr.open_dataset(self.samples[key].visir) as data:
-                load_visir_obs(x, data, normalize=self.normalize)
-        else:
-            x["visir"] = -1.5 * torch.ones((5,) + shape, dtype=torch.float)
-
-        shape = tuple([n // 2 for n in y.shape])
-        if self.samples[key].geo is not None:
-            with xr.open_dataset(self.samples[key].geo) as data:
-                load_geo_obs(x, data, normalize=self.normalize)
-        else:
-            x["geo"] = torch.as_tensor(-1.5 * np.ones((11,) + shape), dtype=torch.float)
-
-        shape = tuple([n // 4 for n in y.shape])
-        # Microwave data
-        if self.samples[key].mw is not None:
-            with xr.open_dataset(self.samples[key].mw) as data:
-                load_microwave_obs(x, data, normalize=self.normalize)
-        else:
-            x["mw_90"] = torch.as_tensor(
-                -1.5 * np.ones((2,) + shape),
-                dtype=torch.float,
-            )
-            x["mw_160"] = torch.as_tensor(
-                -1.5 * np.ones((2,) + shape),
-                dtype=torch.float,
-            )
-            x["mw_183"] = torch.as_tensor(
-                -1.5 * np.ones((5,) + shape),
-                dtype=torch.float,
-            )
-
-        return x, y
-
-    def pad_input(self, x, multiple=32):
-        """
-        Pad retrieval input to a size that is a multiple of a given n.
-
-        Args:
-            x: A dict containing the input to pad.
-            multiple: The number n.
-
-        Return:
-            A tuple ``(x_pad, y_slice, x_slice)`` containing the padded input
-            ``x_pad`` and column- and row-slices to extract the unpadded
-            output.
-        """
-        input_visir = x["visir"]
-        input_geo = x["geo"]
-        input_mw_90 = x["mw_90"]
-        input_mw_160 = x["mw_160"]
-        input_mw_183 = x["mw_183"]
-
-        shape = input_visir.shape[-2:]
-
-        padding_y = np.ceil(shape[0] / multiple) * multiple - shape[0]
-        padding_y_l = padding_y // 2
-        padding_y_r = padding_y - padding_y_l
-        padding_x = np.ceil(shape[1] / multiple) * multiple - shape[1]
-        padding_x_l = padding_x // 2
-        padding_x_r = padding_x - padding_x_l
-        padding = (
-            int(padding_x_l),
-            int(padding_x_r),
-            int(padding_y_l),
-            int(padding_y_r),
-        )
-
-        slice_x = slice(int(padding_x_l), int(-padding_x_r))
-        slice_y = slice(int(padding_y_l), int(-padding_y_r))
-
-        input_visir = nn.functional.pad(input_visir, padding, mode="constant")
-        x["visir"] = input_visir
-
-        padding_y = padding_y // 2
-        padding_y_l = padding_y // 2
-        padding_y_r = padding_y - padding_y_l
-        padding_x = padding_x // 2
-        padding_x_l = padding_x // 2
-        padding_x_r = padding_x - padding_x_l
-        padding = (
-            int(padding_x_l),
-            int(padding_x_r),
-            int(padding_y_l),
-            int(padding_y_r),
-        )
-        input_geo = nn.functional.pad(input_geo, padding, mode="constant")
-        x["geo"] = input_geo
-
-        padding_y = padding_y // 2
-        padding_y_l = padding_y // 2
-        padding_y_r = padding_y - padding_y_l
-        padding_x = padding_x // 2
-        padding_x_l = padding_x // 2
-        padding_x_r = padding_x - padding_x_l
-        padding = (
-            int(padding_x_l),
-            int(padding_x_r),
-            int(padding_y_l),
-            int(padding_y_r),
-        )
-
-        input_mw_90 = nn.functional.pad(input_mw_90, padding, mode="constant")
-        x["mw_90"] = input_mw_90
-        input_mw_160 = nn.functional.pad(input_mw_160, padding, mode="constant")
-        x["mw_160"] = input_mw_160
-        input_mw_183 = nn.functional.pad(input_mw_183, padding, mode="constant")
-        x["mw_183"] = input_mw_183
-
-        return x, slice_y, slice_x
-
-    def full_domain(self, start_time=None, end_time=None):
-        valid = np.ones(self.keys.size, dtype="bool")
-        if start_time is not None:
-            valid = valid * (self.keys >= start_time)
-        if end_time is not None:
-            valid = valid * (self.keys <= end_time)
-
-        indices = np.where(valid)[0]
-        time_steps = np.argsort(self.keys[indices])
-
-        for time_step in time_steps:
-            x, y = self.load_sample(self.samples[indices[time_step]], None, None)
-            time = self.keys[indices[time_step]]
-            yield time, x, y
-
-    def get_forecast_input(self, forecast_time, n_obs):
-        """
-        Get input for a forecast.
-
-        Args:
-            forecast_time: The time a which the forecast should
-                be initiated.
-            n_obs: The number of observations previous to the
-                forecast.
-        """
-        input_indices = self.keys <= forecast_time
-        input_keys = self.keys[input_indices][-n_obs:]
-
-        if len(input_keys) < n_obs:
-            return None
-        if np.any(np.diff(input_keys) > np.timedelta64(20, "m")):
-            return None
-        if input_keys[-1] != forecast_time:
-            return None
-
-        inputs = []
-
-        for key in input_keys:
-            x, y = self.load_full_data(key)
-            x, slice_y, slice_x = self.pad_input(x, multiple=64)
-
-            has_input = False
-
-            missing_fraction = (x["geo"] < -1.4).float().mean()
-            if missing_fraction > 0.95:
-                x["geo"] = None
-            else:
-                has_input = True
-
-            missing_fraction = (x["visir"] < -1.4).float().mean()
-            if missing_fraction > 0.95:
-                x["visir"] = None
-            else:
-                has_input = True
-
-            missing_fraction = 0
-            keys_mw = ["mw_90", "mw_160", "mw_183"]
-            for mw in keys_mw:
-                missing_fraction += (x[mw] < -1.4).float().mean()
-            if missing_fraction / 3 > 0.95:
-                for mw in keys_mw:
-                    x[mw] = None
-            else:
-                has_input = True
-
-            if not has_input:
-                return None
-
-            inputs.append((x, y, slice_y, slice_x, key))
-        return inputs
 
 
 class CHIMPPretrainDataset(SingleStepDataset):
@@ -747,74 +433,69 @@ class CHIMPPretrainDataset(SingleStepDataset):
 
     def __init__(
         self,
-        folder,
-        reference_data="radar",
-        inputs=None,
+        path: Path,
+        input_datasets: List[str],
+        reference_datasets: List[str],
         sample_rate=1,
-        sequence_length=1,
-        normalize=True,
-        window_size=128,
+        scene_size=128,
         start_time=None,
         end_time=None,
-        quality_threshold=0.8,
         augment=True,
         missing_value_policy="sparse",
         time_step=None,
+        quality_threshold=0.8,
     ):
         super().__init__(
-            folder,
-            reference_data=reference_data,
-            inputs=inputs,
-            sample_rate=sample_rate,
-            sequence_length=sequence_length,
-            normalize=normalize,
-            window_size=window_size,
+            path,
+            input_datasets,
+            reference_datasets,
+            scene_size=scene_size,
             start_time=start_time,
             end_time=end_time,
-            quality_threshold=quality_threshold,
             augment=augment,
             missing_value_policy=missing_value_policy,
             time_step=time_step,
+            quality_threshold=quality_threshold,
         )
-        samples_by_input = [[] for _ in inputs]
-        for scene_index in range(len(self.samples)):
-            sample = self.samples[scene_index]
-            for i in range(len(inputs)):
+        samples_by_input = [[] for _ in self.input_datasets]
+        for scene_index in range(len(self.times)):
+            input_files = self.input_files[scene_index]
+            for input_ind in range(len(self.input_datasets)):
                 # Input not available at time step
-                if sample[1 + i] is None:
+                if input_files[input_ind] is None:
                     continue
 
-                with xr.open_dataset(sample[1 + i]) as data:
+                with xr.open_dataset(input_files[input_ind]) as data:
                     if "swath_centers" not in data.dims:
-                        samples_by_input[i].append(scene_index)
+                        samples_by_input[input_ind].append(scene_index)
                     else:
                         if data.swath_centers.size > 0:
-                            samples_by_input[i].append(scene_index)
+                            samples_by_input[input_ind].append(scene_index)
 
         most_obs = max(map(len, samples_by_input))
-        total_samples = len(inputs) * most_obs
-
-        new_starts = []
-        for i in range(len(inputs)):
-            new_starts.append(
-                self.rng.choice(samples_by_input[i], most_obs, replace=True)
+        total_samples = len(self.input_datasets) * most_obs
+        sample_indices = []
+        for input_ind in range(len(self.input_datasets)):
+            sample_indices.append(
+                self.rng.choice(samples_by_input[input_ind], most_obs, replace=True)
             )
-        self.sequence_starts = np.concatenate(new_starts)
+        self.sample_indices = np.concatenate(sample_indices)
         self.obs_per_input = most_obs
+
+    def __len__(self):
+        return len(self.sample_indices)  * self.sample_rate
 
     def __getitem__(self, index):
         """Return ith training sample."""
-
         scene_index = self.sequence_starts[index // self.sample_rate]
         input_index = index // self.obs_per_input
-        inpt = self.inputs[input_index]
 
-        scl = inpt.scale // self.reference_data.scale
-        slices = input.find_random_scene(
+        scl = inpt.scale // self.base_scale
+        slices = self.input_datasets[input_index].find_random_scene(
             self.samples[scene_index][1 + input_index],
             self.rng,
             multiple=16 // inpt.scale,
-            window_size=self.window_size // scl,
+            scene_size=self.scene_size // scl,
             rqi_thresh=self.quality_threshold,
         )
 
@@ -834,18 +515,12 @@ class CHIMPPretrainDataset(SingleStepDataset):
             ang = None
             flip = False
 
-        x, y = self.load_sample(
-            self.samples[scene_index], slices, self.window_size, rotate=ang, flip=flip
+        x = self.load_input_sample(
+            self.samples[scene_index], slices, self.scene_size, rotate=ang, flip=flip
         )
-
-        has_input = any((x[inpt.name] is not None for inpt in self.inputs))
-        has_output = any(
-            (y[target.name] is not None for target in self.reference_data.targets)
+        y = self.load_reference_sample(
+            self.samples[scene_index], slices, self.scene_size, rotate=ang, flip=flip
         )
-
-        if not has_input or not has_output:
-            new_index = self.rng.integers(0, len(self))
-            return self[new_index]
 
         return x, y
 
@@ -857,67 +532,80 @@ class SequenceDataset(SingleStepDataset):
 
     def __init__(
         self,
-        folder,
-        reference_data="mrms",
-        inputs=None,
-        sample_rate=2,
-        normalize=True,
-        window_size=256,
-        sequence_length=32,
-        start_time=None,
-        end_time=None,
-        quality_threshold=0.8,
-        missing_value_policy="masked",
-        augment=True,
-        forecast=0,
-        shrink_output=None,
-        validation=False,
-        time_step=None,
+        path: Path,
+        input_datasets: List[str],
+        reference_datasets: List[str],
+        sample_rate: int = 2,
+        scene_size: int = 256,
+        sequence_length: int = 32,
+        forecast: int = 0,
+        include_input_steps: bool = True,
+        start_time: np.datetime64 = None,
+        end_time: np.datetime64 = None,
+        quality_threshold: float = 0.8,
+        missing_value_policy: str = "masked",
+        augment: bool = True,
+        shrink_output: Optional[int] = None,
+        validation: bool = False,
+        time_step: Optional[np.timedelta64] = None,
     ):
         """
         Args:
-            folder: The path to the training data.
+            path: The path to the training data.
+            input_datasets: List of input datasets or their names from which to load
+                 the input data.
+            reference_datasets: List of reference datasets or their names from which
+                 to load the reference data.
             sample_rate: Rate for oversampling of training scenes.
-            normalize: Whether to normalize the data.
-            window_size: The size of the input data.
-            sequence_length: The length of the training sequences.
+            scene_size: The size of the input data.
+            sequence_length: The length of input data sequences.
+            forecast: The number of time steps to forecast.
+            include_input_steps: Whether reference data for the input steps should
+                be loaded as well.
             start_time: Optional start time to limit the samples.
             end_time: Optional end time to limit the available samples.
+
             augment: Whether to apply random transformations to the training
                 inputs.
-            augment: Whether to apply random flipping to the data.
             forecast: The number of samples in the sequence without input
                 observations.
+            shrink_output: If given, the reference data scenes will contain
+                only the center crop the total scene with the size of the
+                crop calculated by dividing the input size by the given factor.
             validation: If 'True' sampling will reproduce identical scenes.
+            quality_threshold: Thresholds for the quality indices applied to limit
+                reference data pixels.
         """
         super().__init__(
-            folder,
-            reference_data=reference_data,
-            inputs=inputs,
+            path,
+            input_datasets,
+            reference_datasets,
             sample_rate=sample_rate,
-            normalize=normalize,
-            window_size=window_size,
+            scene_size=scene_size,
             start_time=start_time,
-            missing_value_policy=missing_value_policy,
             end_time=end_time,
+            missing_value_policy=missing_value_policy,
             quality_threshold=quality_threshold,
             augment=augment,
             validation=validation,
         )
 
         self.sequence_length = sequence_length
+        self.forecast = forecast
+        total_length =  sequence_length + forecast
+        self.total_length = total_length
+        self.include_input_steps = include_input_steps
+        self.shrink_output = shrink_output
 
         # Find samples with a series of consecutive outputs.
-        times = self.keys
-        deltas = times[sequence_length:] - times[:-sequence_length]
+        times = self.times
+        deltas = times[self.total_length:] - times[:-self.total_length]
         if time_step is None:
             time_step = deltas.min()
         self.time_step = time_step
         self.sequence_starts = np.where(
             deltas.astype("timedelta64[s]") <= sequence_length * time_step
         )[0]
-        self.forecast = forecast
-        self.shrink_output = shrink_output
 
     def __len__(self):
         """Number of samples in an epoch."""
@@ -930,45 +618,58 @@ class SequenceDataset(SingleStepDataset):
         # We load a larger window when input is rotated to avoid
         # missing values.
         if self.augment:
-            window_size = int(1.42 * self.window_size)
-            rem = window_size % self.max_scale
+            scene_size = int(1.42 * self.scene_size)
+            rem = scene_size % self.max_scale
             if rem != 0:
-                window_size += self.max_scale - rem
+                scene_size += self.max_scale - rem
             ang = -180 + 360 * self.rng.random()
             flip = self.rng.random() > 0.5
         else:
-            window_size = self.window_size
+            scene_size = self.scene_size
             ang = None
             flip = False
 
         # Find valid input range for last sample in sequence
-        index = self.sequence_starts[index] + self.sequence_length
+        last_index = self.sequence_starts[index] + self.total_length
         slices = reference.find_random_scene(
-            self.reference_data,
-            self.samples[index][0],
+            self.reference_datasets[0],
+            self.reference_files[last_index][0],
             self.rng,
             multiple=4,
-            window_size=window_size,
-            qi_thresh=self.quality_threshold,
+            scene_size=scene_size,
+            quality_threshold=self.quality_threshold[0],
         )
 
         x = {}
         y = {}
+
         start_index = self.sequence_starts[index]
-        for i in range(self.sequence_length):
-            index = start_index + i
-            x_i, y_i = self.load_sample(
-                self.samples[index], slices, self.window_size, rotate=ang, flip=flip
-            )
-            for name, inpt in x_i.items():
-                x.setdefault(name, []).append(inpt)
-            for name, output in y_i.items():
-                if self.shrink_output is not None:
-                    size = self.window_size // self.shrink_output
-                    output = torchvision.transforms.functional.center_crop(
-                        output, (size, size)
+        for step in range(self.total_length):
+            step_index = start_index + step
+            if step < self.sequence_length:
+                x_i = self.load_input_sample(
+                    self.input_files[step_index], slices, self.scene_size, rotate=ang, flip=flip
+                )
+                for name, inpt in x_i.items():
+                    x.setdefault(name, []).append(inpt)
+                if self.include_input_steps:
+                    y_i = self.load_reference_sample(
+                        self.reference_files[step_index], slices, self.scene_size, rotate=ang, flip=flip
                     )
-                y.setdefault(name, []).append(output)
+                    if self.shrink_output:
+                        y_i = {
+                            name: center_crop(
+                                tensor, tensor.shape[-1] // self.shrink_output
+                            ) for name, tensor in y_i.items()
+                        }
+                    for name, inpt in y_i.items():
+                        y.setdefault(name, []).append(inpt)
+            else:
+                y_i = self.load_reference_sample(
+                    self.reference_files[step_index], slices, self.scene_size, rotate=ang, flip=flip
+                )
+                for name, inpt in y_i.items():
+                    y.setdefault(name, []).append(inpt)
 
         if self.forecast > 0:
             x["lead_times"] = torch.tensor(
@@ -1075,472 +776,3 @@ def plot_date_distribution(path, keys=None, show_sensors=False, ax=None):
 
     ax.legend()
     return ax
-
-
-def make_wave_x(size, w, theta, t=0.0):
-    """
-    Create a 2D image of a wave with given angular velocity and
-    phase shift propagating along the last image dimension.
-    """
-    x = np.linspace(0, 2 * np.pi, size)
-    x, y = np.meshgrid(x, x)
-    return np.sin(w * x + theta + 2 * np.pi * t / 20.0)
-
-
-def make_wave_y(size, w, theta, t=0.0):
-    """
-    Create a 2D image of a wave with given angular velocity and
-    phase shift propagating along the last image dimension.
-    """
-    x = np.linspace(0, 2 * np.pi, size)
-    x, y = np.meshgrid(x, x)
-    return np.sin(w * y + theta + 2 * np.pi * t / 20.0)
-
-
-class StreamData:
-    """
-    A synthetic dataset that requires the network to merge information
-    from different streams.
-    """
-
-    def __init__(
-        self,
-        size=(128, 128),
-        availability=(0.1, 0.1, 0.1),
-        n_samples=5_000,
-        sequence_length=1,
-    ):
-        self.size = size
-        self.init_function(0)
-        if isinstance(availability, float):
-            availability = [availability] * 3
-        self.availability = availability
-        self.n_samples = n_samples
-        self.sequence_length = sequence_length
-
-    def init_function(self, w_id):
-        """
-        Worker initialization function for multi-process data generation.
-        Seeds the workers random generator.
-
-        Args:
-            w_id: Id of the worker.
-        """
-        seed = int.from_bytes(os.urandom(4), "big") + w_id
-        self.rng = np.random.default_rng(seed)
-
-    def __len__(self):
-        return self.n_samples
-
-    def make_sample(self, w_x, theta_x, w_y, theta_y, t=0.0):
-        base_size = self.size[0]
-        med_size = base_size // 2
-        small_size = med_size // 2
-
-        y_1 = make_wave_x(base_size, w_x, theta_x, t=t)
-        w = self.rng.uniform(1, 3)
-        theta = self.rng.uniform(0, np.pi)
-        y_2 = make_wave_y(base_size, w_y, theta_y, t=t)
-
-        y = y_1 + y_2
-
-        x_visir = y_1 + 0.3 * self.rng.normal(size=y_1.shape)
-        x_visir = np.tile(x_visir[np.newaxis], (5, 1, 1))
-        r = self.rng.random()
-        if r > self.availability[0]:
-            x_visir = None
-
-        y_2 = y_2[::2, ::2]
-        x_geo = y_2 + 0.3 * self.rng.normal(size=y_2.shape)
-        x_geo = np.tile(x_geo[np.newaxis], (11, 1, 1))
-
-        r = self.rng.random()
-        if r > self.availability[1]:
-            x_geo = None
-
-        y_2 = y_2[::2, ::2]
-        x_mw_90 = np.tile(y_2[np.newaxis], (2, 1, 1))
-        x_mw_160 = np.tile(y_2[np.newaxis], (2, 1, 1))
-        y_1 = y_1[::4, ::4]
-        x_mw_183 = np.tile(y_1[np.newaxis], (5, 1, 1))
-        for i in range(2):
-            i = self.rng.integers(0, 4)
-            x_mw_183[i] = -3  # self.rng.normal(size=x_mw_183.shape[1:])
-
-        r = self.rng.random()
-        if r > self.availability[2]:
-            x_mw_90 = None
-            x_mw_160 = None
-            x_mw_183 = None
-
-        def to_tensor(x):
-            """
-            Convert data to tensor or do nothing if it is None.
-            """
-            if x is not None:
-                return torch.as_tensor(x).to(torch.float32)
-            return x
-
-        x = {
-            "visir": to_tensor(x_visir),
-            "geo": to_tensor(x_geo),
-            "mw_90": to_tensor(x_mw_90),
-            "mw_160": to_tensor(x_mw_160),
-            "mw_183": to_tensor(x_mw_183),
-        }
-        return x, y
-
-    def __getitem__(self, index):
-        w_x = self.rng.uniform(1, 5)
-        theta_x = self.rng.uniform(0, np.pi)
-        w_y = self.rng.uniform(1, 5)
-        theta_y = self.rng.uniform(0, np.pi)
-        v = self.rng.uniform(-1.5, 1.5)
-        if self.rng.random() > 0.5:
-            v *= -1
-
-        if self.sequence_length == 1:
-            return self.make_sample(w_x, theta_x, w_y, theta_y)
-
-        x = []
-        y = []
-        for i in range(self.sequence_length):
-            x_i, y_i = self.make_sample(w_x, theta_x, w_y, theta_y, t=v * i)
-            x.append(x_i)
-            y.append(y_i)
-        return x, y
-
-
-class TestDataset:
-    """
-    A synthetic dataset that calculates a running average over the inputs
-    thus forcing the network to learn to combine information across time
-    steps. The purpose of this dataset is to test the sequence model
-    architectures.
-    """
-
-    def __init__(self, sequence_length=1, size=(128, 128)):
-        """
-        Args:
-            sequence_length: The length of input sequences.
-            size: The size of the inputs.
-        """
-        seed = int.from_bytes(os.urandom(4), "big") + os.getpid()
-        self.rng = np.random.default_rng(seed)
-        self.size = size
-        self.sequence_length = sequence_length
-
-    def __len__(self):
-        """Number of samples in dataset."""
-        return 10_000
-
-    def init_function(self, w_id):
-        """
-        Worker initialization function for multi-process data generation.
-        Seeds the workers random generator.
-
-        Args:
-            w_id: Id of the worker.
-        """
-        seed = int.from_bytes(os.urandom(4), "big") + w_id
-        self.rng = np.random.default_rng(seed)
-
-    def __getitem__(self, index):
-        """
-        Generate a training sample.
-
-        Args:
-            index: Not used.
-        """
-        x_visir = [
-            self.rng.uniform(-1, 1) * np.ones((5,) + self.size, dtype=np.float32)
-            for i in range(self.sequence_length)
-        ]
-
-        size = tuple([s // 2 for s in self.size])
-        x_geo = [
-            self.rng.uniform(-1, 1) * np.ones((11,) + size, dtype=np.float32)
-            for i in range(self.sequence_length)
-        ]
-
-        size = tuple([s // 4 for s in self.size])
-        x_mw_90 = [
-            self.rng.uniform(-1, 1) * np.ones((2,) + size, dtype=np.float32)
-            for i in range(self.sequence_length)
-        ]
-        x_mw_160 = [
-            self.rng.uniform(-1, 1) * np.ones((2,) + size, dtype=np.float32)
-            for i in range(self.sequence_length)
-        ]
-        x_mw_183 = [
-            self.rng.uniform(-1, 1) * np.ones((5,) + size, dtype=np.float32)
-            for i in range(self.sequence_length)
-        ]
-
-        y = np.stack(x_visir, axis=0)[:, 0]
-        y[1:] += y[:-1]
-        y[1:] *= 0.5
-
-        y = [torch.as_tensor(y_i, dtype=torch.float32) for y_i in y]
-
-        xs = []
-        for visir, geo, mw_90, mw_160, mw_183 in zip(
-            x_visir, x_geo, x_mw_90, x_mw_160, x_mw_183
-        ):
-            visir = torch.as_tensor(visir, dtype=torch.float32) + torch.as_tensor(
-                self.rng.uniform(-0.05, 0.05, size=visir.shape), dtype=torch.float32
-            )
-            geo = torch.as_tensor(geo, dtype=torch.float32) + torch.as_tensor(
-                self.rng.uniform(-0.05, 0.05, size=geo.shape), dtype=torch.float32
-            )
-            geo[:5] = visir[..., ::2, ::2]
-            mw_90 = torch.as_tensor(mw_90, dtype=torch.float32) + torch.as_tensor(
-                self.rng.uniform(-0.05, 0.05, size=mw_90.shape), dtype=torch.float32
-            )
-            mw_160 = torch.as_tensor(mw_160, dtype=torch.float32) + torch.as_tensor(
-                self.rng.uniform(-0.05, 0.05, size=mw_160.shape), dtype=torch.float32
-            )
-            mw_183 = torch.as_tensor(mw_183, dtype=torch.float32) + torch.as_tensor(
-                self.rng.uniform(-0.05, 0.05, size=mw_183.shape), dtype=torch.float32
-            )
-
-            xs.append(
-                {
-                    "visir": visir,
-                    "geo": geo,
-                    "mw_90": mw_90,
-                    "mw_160": mw_160,
-                    "mw_183": mw_183,
-                }
-            )
-        return xs, y
-
-
-def random_spectral_field(rng, n, lower, upper, energy):
-    """
-    Create a 2D random field with a banded spectral signature.
-
-    Args:
-        n: The size of the field.
-        lower: The lower wavelength bound of the spectral band
-            with non-zero energy.
-        upper: The upper wavelength bound of the spectral band
-            with non-zero energy.
-
-    Return:
-        A 2D array containing the random field.
-    """
-    v = np.zeros((n, n), dtype=np.float32)
-    l = np.arange(n)
-    l = 1.0 / np.sqrt(l.reshape(-1, 1) ** 2 + l.reshape(1, -1) ** 2)
-
-    mask = (l >= lower) * (l < upper)
-    v[mask] = rng.uniform(-1, 1, size=mask.sum()).astype(np.float32)
-    e = sum(v[mask] ** 2)
-    v[mask] *= np.sqrt(energy / e)
-    v = v * np.sqrt(n**2)
-    return v
-
-
-def normalize_field(v, energy):
-    n = v.shape[0]
-    e = sum(v**2)
-    nothing = e < 1e-9
-    e[nothing] = 1.0
-    v[nothing] = 0.0
-    return v * np.sqrt(energy / e) * np.sqrt(n**2)
-
-
-class SuperpositionDataset:
-    """
-    Synthetic dataset mapping band-filtered and corrupted views of a random
-    field to the full random field.
-    """
-
-    def __init__(
-        self,
-        size,
-        n_samples=1000,
-        availability=None,
-        sparse=False,
-        n_steps=1,
-        snr=0.0,
-        composition="sum",
-    ):
-        """
-        Args:
-            size: The size of the random field.
-            n_samples: The number of training samples in the dataset.
-            availability: The availability of the three inputs.
-            sparse: Whether the input should be returned as packed
-                tensor.
-            n_steps: The number of frames per sample. If this is larger
-                than one, each sample is a sequence of inputs and corresponding
-                outputs.
-            snr: The signal to noise ratio (SNR) determining the strength of
-                the noise in the input observations.
-        """
-        self.size = size
-        self.n_samples = n_samples
-        self.n_steps = n_steps
-        self.snr = snr
-        if availability is None:
-            availability = [0.3, 0.3, 0.3]
-        elif isinstance(availability, float):
-            availability = [availability] * 3
-        self.availability = availability
-        self.sparse = sparse
-        self.composition = composition
-        self.init_rng()
-
-    def init_rng(self, w_id=0):
-        """
-        Initialize random number generator.
-
-        Args:
-            w_id: The worker ID which of the worker process..
-        """
-        seed = int.from_bytes(os.urandom(4), "big") + w_id
-        self.rng = np.random.default_rng(seed)
-
-    def __len__(self):
-        return self.n_samples
-
-    def __getitem__(self, i):
-        return self.make_sample(n_steps=self.n_steps)
-
-    def make_sample(self, n_steps=1):
-        """
-        Creates a pair of input and output fields.
-        """
-        xs = []
-        ys = []
-
-        low_s = random_spectral_field(self.rng, self.size, 0.3, 1.0, 1.0)
-        med_s = random_spectral_field(self.rng, self.size, 0.2, 0.3, 1.0)
-        hi_s = random_spectral_field(self.rng, self.size, 0.05, 0.2, 1.0)
-        low_e = random_spectral_field(self.rng, self.size, 0.3, 1.0, 1.0)
-        med_e = random_spectral_field(self.rng, self.size, 0.2, 0.3, 1.0)
-        hi_e = random_spectral_field(self.rng, self.size, 0.05, 0.2, 1.0)
-
-        t = random_spectral_field(self.rng, self.size, 0.1, 0.2, 1.0)
-
-        for i in range(n_steps):
-            l = i / n_steps
-            r = 1.0 - l
-            low = fft.idctn(l * low_s + r * low_e, norm="ortho")
-            med = fft.idctn(l * med_s + r * med_e, norm="ortho")
-            hi = fft.idctn(l * hi_s + r * hi_e, norm="ortho")
-
-            if self.composition == "sum":
-                y = low + med + hi
-            else:
-                y = np.abs(low) * np.abs(med) + np.abs(med) * np.abs(hi)
-
-            x_visir = hi[None] + self.snr * self.rng.normal(
-                size=(5,) + (self.size,) * 2
-            )
-            x_geo = med[None, ::2, ::2] + self.snr * self.rng.normal(
-                size=(11,) + (self.size // 2,) * 2
-            )
-            x_mw_90 = low[None, ::4, ::4] + self.snr * self.rng.normal(
-                size=(2,) + (self.size // 4,) * 2
-            )
-            x_mw_160 = low[None, ::4, ::4] + self.snr * self.rng.normal(
-                size=(2,) + (self.size // 4,) * 2
-            )
-            x_mw_183 = low[None, ::4, ::4] + self.snr * self.rng.normal(
-                size=(5,) + (self.size // 4,) * 2
-            )
-
-            if self.rng.random() > self.availability[0]:
-                if self.sparse:
-                    x_visir = None
-                else:
-                    x_visir[:] = -3
-            if self.rng.random() > self.availability[1]:
-                if self.sparse:
-                    x_geo = None
-                else:
-                    x_geo[:] = -3
-            if self.rng.random() > self.availability[2]:
-                if self.sparse:
-                    x_mw_90 = None
-                    x_mw_160 = None
-                    x_mw_183 = None
-                else:
-                    x_mw_90[:] = -3
-                    x_mw_160[:] = -3
-                    x_mw_183[:] = -3
-
-            if x_visir is not None:
-                x_visir = x_visir.astype(np.float32)
-            if x_geo is not None:
-                x_geo = x_geo.astype(np.float32)
-            if x_mw_90 is not None:
-                x_mw_90 = x_mw_90.astype(np.float32)
-            if x_mw_160 is not None:
-                x_mw_160 = x_mw_160.astype(np.float32)
-            if x_mw_183 is not None:
-                x_mw_183 = x_mw_183.astype(np.float32)
-
-            x = {
-                "visir": x_visir,
-                "geo": x_geo,
-                "mw_90": x_mw_90,
-                "mw_160": x_mw_160,
-                "mw_183": x_mw_183,
-            }
-            xs.append(x)
-            ys.append(y)
-        if n_steps == 1:
-            return xs[0], ys[0]
-        return xs, ys
-
-    def plot_sample(self, x, y):
-        norm = Normalize(-3, 3)
-        f = plt.figure(figsize=(22, 5))
-        axs = np.array([f.add_subplot(1, 4, i + 1) for i in range(4)])
-
-        if self.n_steps == 1:
-            ind = -1
-            ax = axs[0]
-            ax.imshow(x["visir"][0], norm=norm)
-            ax.set_title("(a) VISIR", loc="left")
-
-            ax = axs[1]
-            ax.imshow(x["geo"][0], norm=norm)
-            ax.set_title("(b) GEO", loc="left")
-
-            ax = axs[2]
-            ax.imshow(x["mw_183"][1], norm=norm)
-            ax.set_title("(c) MW", loc="left")
-
-            ax = axs[3]
-            ax.set_title("(d) Output", loc="left")
-            ax.imshow(y, norm=norm)
-
-            return f
-        else:
-
-            def draw_frame(index):
-                x_i = x[index]
-                y_i = y[index]
-
-                ax = axs[0]
-                ax.imshow(x_i["visir"][0], norm=norm)
-                ax.set_title("(a) VISIR", loc="left")
-
-                ax = axs[1]
-                ax.imshow(x_i["geo"][0], norm=norm)
-                ax.set_title("(b) GEO", loc="left")
-
-                ax = axs[2]
-                ax.imshow(x_i["mw_183"][1], norm=norm)
-                ax.set_title("(c) MW", loc="left")
-
-                ax = axs[3]
-                ax.set_title("(d) Output", loc="left")
-                ax.imshow(y_i, norm=norm)
-
-            return FuncAnimation(f, draw_frame, range(len(x)))
