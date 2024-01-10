@@ -212,8 +212,10 @@ class SSMI(Input, MinMaxNormalized):
                 )
 
                 filename = time.strftime("ssmi_%Y%m%d_%H%M.nc")
-
-                encodings = {obs: {"dtype": "float32", "zlib": True}}
+                encodings = {
+                    obs: {"dtype": "float32", "zlib": True}
+                    for obs in data.variables
+                }
                 data.to_netcdf(output_folder / filename, encoding=encodings)
 
             time = time + time_step
