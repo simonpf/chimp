@@ -263,6 +263,24 @@ class MRMSData(ReferenceData):
                     )
 
 
+    def find_files(self, path: Path) -> List[Path]:
+        """
+        Find reference data files.
+
+        Args:
+            path: Path to the folder containing the training data.
+
+        Return:
+            A list of found reference data files.
+        """
+        pattern = "*????????_??_??.nc"
+        reference_files = sorted(
+            list((path / "mrms").glob(pattern))
+        )
+        return reference_files
+
+
+
 mrms_precip_rate = MRMSData(
     "mrms",
     4,
