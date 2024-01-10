@@ -15,6 +15,7 @@ class DataSource:
     The data source base class keep track of all initiated source classes.
     """
     def __init__(self, name):
+        self.name = name
         ALL_SOURCES[name] = self
 
 
