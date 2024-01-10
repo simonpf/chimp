@@ -156,7 +156,13 @@ class PATMOSX(Input, MinMaxNormalized):
             data = data.interp(latitude=lats, longitude=lons)
 
             filename = time.strftime("patmosx_%Y%m%d_%H%M.nc")
-            data.to_netcdf(output_folder / filename)
+
+
+            encodings = {
+                obs: {"dtype": "float32", "zlib": True}
+                for obs in data.variables
+            }
+            data.to_netcdf(output_folder / filename, encoding=encodings)
 
             time = time + time_step
 
