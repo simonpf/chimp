@@ -5,36 +5,43 @@ chimp.data.reference
 This module provides functions for loading CHIMP reference data.
 """
 from dataclasses import dataclass
-from typing import Union, List, Optional
+from pathlib import Path
+from typing import Dict,  List, Optional, Tuple, Union
 
+import numpy as np
+from scipy import ndimage
+import torch
 import xarray as xr
 
 from chimp.data.source import DataSource
+from chimp.data.utils import scale_slices
 
 
 def find_random_scene(
-    reference_data,
-    path,
-    rng,
-    multiple=4,
-    window_size=256,
-    qi_thresh=0.8,
-    valid_fraction=0.2,
-):
+    reference_dataset,
+    path: Path,
+    rng: np.random.Generator,
+    multiple: int = 4,
+    scene_size: int = 256,
+    quality_threshold: float = 0.8,
+    valid_fraction: float = 0.2,
+) -> Tuple[int, int, int, int]:
     """
     Finds a random scene in the reference data that has given minimum
     fraction of values of values exceeding a given RQI threshold.
 
     Args:
-        reference_data: Reference data object describing the reference
-            data.
-        path: The path of the reference data file.
+        reference_dataset: Reference dataset object reprsenting the reference
+            data to load.
+        path: The path of the reference data file from which to sample a random
+            scene.
         rng: A numpy random generator instance to randomize the scene search.
         multiple: Limits the scene position to coordinates that a multiples
             of the given value.
-        qi_thresh: Threshold for the minimum RQI of a reference pixel to
-            be considered valid.
-        valid_fraction: The minimum amount of valid samples in the
+        quality_threshold: If the reference dataset has a quality index,
+            all reference data pixels below the given threshold will considered
+            invalid outputs.
+        valid_fraction: The minimum amount of valid samples in the extracted
             region.
 
     Return:
@@ -42,17 +49,17 @@ def find_random_scene(
         of the random crop.
     """
     with xr.open_dataset(path) as data:
-        qi = data[reference_data.quality_index].data
+        qi = data[reference_dataset.quality_index].data
 
         found = False
         count = 0
         while not found:
             count += 1
             n_rows, n_cols = qi.shape
-            i_start = rng.integers(0, (n_rows - window_size) // multiple)
-            i_end = i_start + window_size // multiple
-            j_start = rng.integers(0, (n_cols - window_size) // multiple)
-            j_end = j_start + window_size // multiple
+            i_start = rng.integers(0, (n_rows - scene_size) // multiple)
+            i_end = i_start + scene_size // multiple
+            j_start = rng.integers(0, (n_cols - scene_size) // multiple)
+            j_end = j_start + scene_size // multiple
 
             i_start = i_start * multiple
             i_end = i_end * multiple
@@ -62,7 +69,7 @@ def find_random_scene(
             row_slice = slice(i_start, i_end)
             col_slice = slice(j_start, j_end)
 
-            if (qi[row_slice, col_slice] > qi_thresh).mean() > valid_fraction:
+            if (qi[row_slice, col_slice] > quality_threshold).mean() > valid_fraction:
                 found = True
 
     return (i_start, i_end, j_start, j_end)
@@ -102,6 +109,103 @@ class ReferenceData(DataSource):
         self.scale = scale
         self.targets = targets
         self.quality_index = quality_index
+
+    def find_files(self, path: Path) -> List[Path]:
+        """
+        Find reference data files.
+
+        Args:
+            path: Path to the folder containing the training data.
+
+        Return:
+            A list of found reference data files.
+        """
+        pattern = "*????????_??_??.nc"
+        reference_files = sorted(
+            list((path / self.name).glob(pattern))
+        )
+        return reference_files
+
+
+    def load_sample(
+            self,
+            path: Path,
+            crop_size: int,
+            base_scale,
+            slices: Tuple[int, int, int, int],
+            rng: np.random.Generator,
+            rotate: Optional[float] = None,
+            flip: Optional[bool] = None,
+            quality_threshold: float = 0.8
+    ) -> Dict[str, torch.Tensor]:
+        """
+        Load sample from reference data.
+
+        Args:
+            path: The paeh of the reference data file from which to load the
+                sample.
+            crop_size: The size of the input slice to load to load.
+            base_scale: The scale with respect to which the slices are defined.
+            slices: Tuple of ints defining the subset of reference data to load.
+            rng: A numpy random generator object to use to generate random numbers.
+            rotate: An optional float indicating the degrees by which to rotate
+                the input.
+            flip: Whether or not the input should be flipped.
+
+        Return:
+            A dictionary mapping retrieval target names to corresponding tensors.
+        """
+        from pytorch_retrieve.tensors.masked_tensor import MaskedTensor
+        rel_scale = self.scale / base_scale
+        if isinstance(crop_size, int):
+            crop_size = (crop_size,) * self.n_dims
+        crop_size = tuple((int(size / rel_scale) for size in crop_size))
+        row_slice, col_slice = scale_slices(slices, rel_scale)
+
+        y = {}
+        with xr.open_dataset(path) as data:
+            qual = data[self.quality_index]
+            qual = qual.data[row_slice, col_slice]
+            invalid = qual < quality_threshold
+
+            for target in self.targets:
+                y_t = data[target.name].data[row_slice, col_slice]
+                if not np.issubdtype(y_t.dtype, np.floating):
+                    y_t = y_t.astype(np.int64)
+
+                # Set window size here if it is None
+                if crop_size is None:
+                    crop_size = y_t.shape[-2:]
+
+                if target.lower_limit is not None:
+                    y_t[y_t < 0] = np.nan
+                    small = y_t < target.lower_limit
+                    rnd = rng.uniform(-5, -3, small.sum())
+                    y_t[small] = 10**rnd
+
+                if rotate is not None:
+                    y_t = ndimage.rotate(
+                        y_t, rotate, order=0, axes=(-2, -1), reshape=False, cval=np.nan
+                    )
+
+                    height = y_t.shape[-2]
+                    if height > crop_size[0]:
+                        d_l = (height - crop_size[0]) // 2
+                        d_r = d_l + crop_size[0]
+                        y_t = y_t[..., d_l:d_r, :]
+                    width = y_t.shape[-1]
+                    if width > crop_size[1]:
+                        d_l = (width - crop_size[1]) // 2
+                        d_r = d_l + crop_size[1]
+                        y_t = y_t[..., d_l:d_r]
+
+                if flip:
+                    y_t = np.flip(y_t, -1)
+
+                mask = torch.tensor(np.isnan(y_t))
+                tensor = torch.tensor(y_t.copy())
+                y[target.name] = MaskedTensor(tensor, mask=mask)
+        return y
 
 
 def get_reference_data(name: Union[str, ReferenceData]) -> ReferenceData:
