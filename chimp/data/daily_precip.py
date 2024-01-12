@@ -31,6 +31,9 @@ from chimp import areas
 LOGGER = logging.getLogger(__name__)
 
 
+precip = RetrievalTarget("precipitation", None)
+
+
 class DailyPrecip(ReferenceData):
     """
     The DailyPrecip dataset consists a climatology of daily, quasi-global
@@ -46,7 +49,7 @@ class DailyPrecip(ReferenceData):
         Args:
             scale: The native scale of the precipitation dataset.
         """
-        super().__init__("daily_precip", scale, "precip", None)
+        super().__init__("daily_precip", scale, [precip], None)
 
 
     def process_day(
@@ -122,4 +125,4 @@ class DailyPrecip(ReferenceData):
             time = time + time_step
 
 
-daily_precip = DailyPrecip(10)
+daily_precip = DailyPrecip(1)
