@@ -64,6 +64,8 @@ def cli(
     import chimp.data.cpcir
     import chimp.data.baltrad
     import chimp.data.mrms
+    import chimp.data.gridsat
+    import chimp.data.daily_precip
 
     if model_path is None:
         model_path = Path(".")

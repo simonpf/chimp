@@ -582,22 +582,20 @@ class TrainingConfig(pr.training.TrainingConfigBase):
         if self.sequence_length == 1:
             return SingleStepDataset(
                 self.training_data_path,
-                inputs=self.input_datasets,
-                reference_data=self.reference_datasets[0],
+                input_datasets=self.input_datasets,
+                reference_datasets=self.reference_datasets,
                 sample_rate=self.sample_rate,
-                normalize=False,
                 augment=self.augment,
-                window_size=self.window_size,
+                scene_size=self.window_size,
                 missing_value_policy="none",
             )
         else:
             return SequenceDataset(
                 self.training_data_path,
-                inputs=self.input_datasets,
-                reference_data=self.reference_datasets[0],
+                input_datasets=self.input_datasets,
+                reference_datasets=self.reference_datasets,
                 sample_rate=self.sample_rate,
-                normalize=False,
-                window_size=self.window_size,
+                scene_size=self.window_size,
                 sequence_length=self.sequence_length,
                 forecast=self.forecast,
                 shrink_output=self.shrink_output,

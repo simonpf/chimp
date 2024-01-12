@@ -183,6 +183,7 @@ class SingleStepDataset:
                 files = sample_files.setdefault(time, ([None] * n_datasets))
                 files[ref_ind] = filename
 
+
         if len(sample_files) == 0:
             raise RuntimeError(
                 f"Found no reference data files in path '{self.path}' for "
@@ -191,6 +192,7 @@ class SingleStepDataset:
 
         for input_ind, input_dataset in enumerate(self.input_datasets):
             input_files = input_dataset.find_files(self.path)
+            print(input_dataset.name, len(input_files))
             times = np.array(list(map(get_date, input_files)))
             for time, input_file in zip(times, input_files):
                 if time in sample_files:
@@ -202,7 +204,7 @@ class SingleStepDataset:
         self.max_scale = 0
         self.scales = {}
         for input_dataset in self.input_datasets:
-            scale = input_dataset.scale // self.base_scale
+            scale = input_dataset.scale / self.base_scale
             self.scales[input_dataset.name] = scale
             self.max_scale = max(self.max_scale, scale)
 

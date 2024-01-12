@@ -49,11 +49,17 @@ def find_random_scene(
         of the random crop.
     """
     with xr.open_dataset(path) as data:
-        qi = data[reference_dataset.quality_index].data
+
+        if reference_dataset.quality_index is not None:
+            qi = data[reference_dataset.quality_index].data
+        else:
+            qi = np.isfinite(data[reference_dataset.targets[0].name].data)
 
         found = False
         count = 0
         while not found:
+            if count > 20:
+                return None
             count += 1
             n_rows, n_cols = qi.shape
             i_start = rng.integers(0, (n_rows - scene_size) // multiple)
@@ -164,9 +170,13 @@ class ReferenceData(DataSource):
 
         y = {}
         with xr.open_dataset(path) as data:
-            qual = data[self.quality_index]
-            qual = qual.data[row_slice, col_slice]
-            invalid = qual < quality_threshold
+
+            if self.quality_index is not None:
+                qual = data[self.quality_index]
+                qual = qual.data[row_slice, col_slice]
+                invalid = qual < quality_threshold
+            else:
+                invalid = None
 
             for target in self.targets:
                 y_t = data[target.name].data[row_slice, col_slice]
@@ -182,6 +192,9 @@ class ReferenceData(DataSource):
                     small = y_t < target.lower_limit
                     rnd = rng.uniform(-5, -3, small.sum())
                     y_t[small] = 10**rnd
+
+                if invalid is not None:
+                    y_t[invalid] = np.nan
 
                 if rotate is not None:
                     y_t = ndimage.rotate(
