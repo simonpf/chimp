@@ -187,7 +187,7 @@ class MinMaxNormalized:
 
 
 @dataclass
-class Input(InputBase, MinMaxNormalized):
+class Input(InputBase):
     """
     Record holding the paths of the files for a single training
     sample.
@@ -209,7 +209,6 @@ class Input(InputBase, MinMaxNormalized):
         spatial_dims: Tuple[str, str] = ("y", "x"),
     ):
         InputBase.__init__(self, name)
-        MinMaxNormalized.__init__(self, name)
 
         self.name = name
         self.scale = scale
@@ -217,10 +216,6 @@ class Input(InputBase, MinMaxNormalized):
         self.mean = mean
         self.n_dim = n_dim
         self.spatial_dims = spatial_dims[: self.n_dim]
-
-    @property
-    def n_channels(self):
-        return len(self.normalizer.stats)
 
     def replace_missing(self, tensor, missing_value_policy, rng):
         """
@@ -250,7 +245,6 @@ class Input(InputBase, MinMaxNormalized):
             means = self.mean[(slice(0, None),) + (None,) * self.n_dim] * np.ones(
                 shape=(self.n_channels,) + (1,) * self.n_dim, dtype="float32"
             )
-            means = self.normalizer(means)
             tensor = torch.where(mask, torch.tensor(means), tensor)
         elif missing_value_policy == "missing":
             tensor = torch.where(mask, -1.5, tensor)
