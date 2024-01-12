@@ -7,13 +7,14 @@ training data from the GridSat-B1 dataset.
 """
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import List
 
 import numpy as np
 from pansat import TimeRange
 from pansat.products.satellite.ncei import gridsat_b1
 import xarray as xr
 
-from chimp.data.input import Input, MinMaxNormalized
+from chimp.data.input import Input
 
 
 def load_gridsat_data(path):
@@ -49,13 +50,14 @@ def load_gridsat_data(path):
 
 
 
-class GridSat(Input, MinMaxNormalized):
+class GridSat(Input):
     """
     Provides an interface to extract and load training data from the GridSat
     B1 dataset.
     """
     def __init__(self):
         super().__init__("gridsat", 1, "obs")
+        self.n_channels = 24
 
     def process_day(
             self,
@@ -121,7 +123,7 @@ class GridSat(Input, MinMaxNormalized):
             if time_step.total_seconds() < 3 * 60 * 60:
                 gridsat_data = gridsat_data.interp(time=time)
 
-            filename = time.strftime("gridsat_%Y%m%d_%H%M.nc")
+            filename = time.strftime("gridsat_%Y%m%d_%H_%M.nc")
 
             encodings = {
                 obs: {"dtype": "float32", "zlib": True}
