@@ -505,7 +505,7 @@ class TrainingConfig(pr.training.TrainingConfigBase):
         )
 
         optimizer = get_config_attr(
-            "optimizer", str, config_dict, f"training stage '{name}'"
+            "optimizer", str, config_dict, f"training stage '{name}'", required=True
         )
         optimizer_kwargs = get_config_attr(
             "optimizer_kwargs", dict, config_dict, f"training stage '{name}'", {}
@@ -607,26 +607,26 @@ class TrainingConfig(pr.training.TrainingConfigBase):
         """
         Instantiates the appropriate validation dataset.
         """
+        if self.validation_data_path is None:
+            return None
         if self.sequence_length == 1:
             return SingleStepDataset(
                 self.validation_data_path,
-                inputs=self.input_datasets,
-                reference_data=self.reference_datasets[0],
+                input_datasets=self.input_datasets,
+                reference_datasets=self.reference_datasets,
                 sample_rate=self.sample_rate,
-                normalize=False,
                 augment=False,
-                window_size=self.window_size,
+                scene_size=self.window_size,
                 missing_value_policy="none",
                 validation=True,
             )
         else:
             return SequenceDataset(
                 self.validation_data_path,
-                inputs=self.input_datasets,
-                reference_data=self.reference_datasets[0],
+                input_datasets=self.input_datasets,
+                reference_datasets=self.reference_datasets,
                 sample_rate=self.sample_rate,
-                normalize=False,
-                window_size=self.window_size,
+                scene_size=self.window_size,
                 sequence_length=self.sequence_length,
                 forecast=self.forecast,
                 shrink_output=self.shrink_output,

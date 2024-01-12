@@ -192,7 +192,6 @@ class SingleStepDataset:
 
         for input_ind, input_dataset in enumerate(self.input_datasets):
             input_files = input_dataset.find_files(self.path)
-            print(input_dataset.name, len(input_files))
             times = np.array(list(map(get_date, input_files)))
             for time, input_file in zip(times, input_files):
                 if time in sample_files:
