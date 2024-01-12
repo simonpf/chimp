@@ -132,22 +132,27 @@ class BaltradData(FilenameRegexpMixin, Product):
             rec = FileRecord(rec)
 
         with File(rec.local_path, "r") as data:
+
             #
             # DBZ
             #
 
-            dbz = data["dataset1/data3"]["data"]
-            dataset = xr.Dataset({"dbz": (("y", "x"), dbz)})
-
+            dbz = np.array(data["dataset1/data3"]["data"][:])
             gain = data["dataset1"]["data3"]["what"].attrs["gain"]
             offset = data["dataset1"]["data3"]["what"].attrs["offset"]
             no_data = data["dataset1"]["data3"]["what"].attrs["nodata"]
             undetect = data["dataset1"]["data3"]["what"].attrs["undetect"]
             qty = data["dataset1"]["data3"]["what"].attrs["quantity"].decode()
 
+            dbz = dbz.astype(np.float32)
+            dbz[dbz == no_data] = np.nan
+            dbz[dbz == undetect] = np.nan
+            dbz = dbz * gain + offset
+            dataset = xr.Dataset({"dbz": (("y", "x"), dbz)})
+
             dataset.dbz.attrs["scale_factor"] = gain
             dataset.dbz.attrs["add_offset"] = offset
-            dataset.dbz.attrs["missing_value"] = no_data
+            dataset.dbz.attrs["missing"] = no_data
             dataset.dbz.attrs["undetect"] = undetect
             dataset.dbz.attrs["quantity"] = qty
 
@@ -155,11 +160,13 @@ class BaltradData(FilenameRegexpMixin, Product):
             # Quality index
             #
 
-            qi = data["dataset1/data3/quality4"]["data"]
-            dataset["qi"] = (("y", "x"), qi)
-
+            qi = np.array(data["dataset1/data3/quality4"]["data"][:])
             gain = data["dataset1"]["data3"]["quality4"]["what"].attrs["gain"]
             offset = data["dataset1"]["data3"]["quality4"]["what"].attrs["offset"]
+            qi = qi.astype(np.float32)
+            qi = qi * gain + offset
+            dataset["qi"] = (("y", "x"), qi)
+
 
             dataset.qi.attrs["scale_factor"] = gain
             dataset.qi.attrs["add_offset"] = offset
@@ -241,7 +248,8 @@ class Baltrad(ReferenceData):
         if isinstance(domain, dict):
             domain = domain[self.scale]
 
-        while start_time < end_time:
+        while time < end_time:
+            print(time)
             granules = index.find(
                 TimeRange(
                     time - 0.5 * time_step,
@@ -250,12 +258,28 @@ class Baltrad(ReferenceData):
             )
             if len(granules) > 0:
                 data = baltrad_product.open(granules[0].file_record)
-                data = resample_data(data, domain, radius_of_influence=4e3)
+                data_r = resample_data(data, domain, radius_of_influence=4e3)
+                data_r = data_r.drop_vars(["latitude", "longitude"])
 
                 output_filename = get_output_filename(
                     "baltrad", time, minutes=time_step.total_seconds() // 60
                 )
-                data.to_netcdf(output_folder / output_filename)
+
+                encoding = {
+                    "dbz": {
+                        "add_offset": data.dbz.attrs["add_offset"],
+                        "scale_factor": data.dbz.attrs["scale_factor"],
+                        "_FillValue": data.dbz.attrs["missing"],
+                        "zlib": True
+                    },
+                    "qi": {
+                        "add_offset": data.qi.attrs["add_offset"],
+                        "scale_factor": data.qi.attrs["scale_factor"],
+                        "zlib": True
+                    }
+                }
+
+                data_r.to_netcdf(output_folder / output_filename, encoding=encoding)
 
             time = time + time_step
 
