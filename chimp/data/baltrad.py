@@ -146,7 +146,6 @@ class BaltradData(FilenameRegexpMixin, Product):
 
             dbz = dbz.astype(np.float32)
             dbz[dbz == no_data] = np.nan
-            dbz[dbz == undetect] = np.nan
             dbz = dbz * gain + offset
             dataset = xr.Dataset({"dbz": (("y", "x"), dbz)})
 
