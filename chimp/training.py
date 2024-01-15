@@ -90,7 +90,7 @@ def get_optimizer_and_scheduler(training_config, model, previous_optimizer=None)
     else:
         optimizer_cls = getattr(torch.optim, training_config.optimizer)
         optimizer = optimizer_cls(
-            model.parameters(), **training_config.optimizer_kwargs
+            model.parameters(), **training_config.optimizer_args
         )
 
     scheduler = training_config.scheduler
@@ -316,9 +316,9 @@ def train(
 
         # Restore LR if optimizer is reused.
         if training_config.reuse_optimizer:
-            if "lr" in training_config.optimizer_kwargs:
+            if "lr" in training_config.optimizer_args:
                 optim = lightning_module.optimizer[stage_ind]
-                lr = training_config.optimizer_kwargs["lr"]
+                lr = training_config.optimizer_args["lr"]
                 for group in optim.param_groups:
                     group["lr"] = lr
 
@@ -410,11 +410,10 @@ class TrainingConfig(pr.training.TrainingConfigBase):
     window_size: int
     augment: bool
     time_step: int
-
     n_epochs: int
     batch_size: int
     optimizer: str
-    optimizer_kwargs: Optional[dict] = None
+    optimizer_args: Optional[dict] = None
     scheduler: str = None
     scheduler_args: Optional[dict] = None
     gradient_clipping: Optional[float] = None
@@ -507,8 +506,8 @@ class TrainingConfig(pr.training.TrainingConfigBase):
         optimizer = get_config_attr(
             "optimizer", str, config_dict, f"training stage '{name}'", required=True
         )
-        optimizer_kwargs = get_config_attr(
-            "optimizer_kwargs", dict, config_dict, f"training stage '{name}'", {}
+        optimizer_args = get_config_attr(
+            "optimizer_args", dict, config_dict, f"training stage '{name}'", {}
         )
 
         scheduler = get_config_attr(
@@ -561,7 +560,7 @@ class TrainingConfig(pr.training.TrainingConfigBase):
             time_step=time_step,
             n_epochs=n_epochs,
             optimizer=optimizer,
-            optimizer_kwargs=optimizer_kwargs,
+            optimizer_args=optimizer_args,
             scheduler=scheduler,
             scheduler_args=scheduler_args,
             batch_size=batch_size,
