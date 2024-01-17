@@ -12,7 +12,6 @@ import subprocess
 from zipfile import ZipFile
 
 import numpy as np
-import pandas as pd
 from pansat import Product, TimeRange
 from pansat.roi import any_inside
 from pansat.download.providers.eumetsat import EUMETSATProvider
