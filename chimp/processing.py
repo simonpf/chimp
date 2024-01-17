@@ -19,7 +19,7 @@ from chimp.tiling import Tiler
 from chimp.data.input import InputDataset
 
 
-LOGGER = logging.getLogger(__file__)
+LOGGER = logging.getLogger(__name__)
 
 
 
@@ -59,7 +59,6 @@ def retrieval_step(
     Return:
         An ``xarray.Dataset`` containing the retrieval results.
     """
-
     x = model_input
     x = {name: tensor[None].to(dtype=float_type, device=device) for name, tensor in x.items()}
     tiler = Tiler(x, tile_size=tile_size, overlap=32)
@@ -72,7 +71,13 @@ def retrieval_step(
         results = {}
 
         with torch.no_grad():
-            with torch.autocast(device_type=device, dtype=float_type):
+            if device != "cpu":
+                with torch.autocast(device_type=device, dtype=float_type):
+                    y_pred = model(x_t)
+                    for key, y_pred_k in y_pred.items():
+                        y_mean_k = y_pred_k.expected_value()[0, 0]
+                        results[key + "_mean"] = y_mean_k.cpu().numpy()
+            else:
                 y_pred = model(x_t)
                 for key, y_pred_k in y_pred.items():
                     y_mean_k = y_pred_k.expected_value()[0, 0]
@@ -88,22 +93,43 @@ def retrieval_step(
 
 
 @click.argument("model")
-@click.argument("path")
 @click.argument("input_datasets", nargs=-1)
+@click.argument("input_path")
 @click.argument("output_path")
 @click.option("--device", type=str, default="cuda")
+@click.option("--precision", type=str, default="single")
+@click.option("-v", "--verbose", count=True)
 def cli(
         model: Path,
-        path: Path,
         input_datasets: List[str],
+        input_path: Path,
         output_path: Path,
-        device: str = "cuda"
+        device: str = "cuda",
+        precision: str = "single",
+        verbose: int = 0
 ) -> int:
 
-    input_data = InputDataset(path, input_datasets)
+    input_data = InputDataset(input_path, input_datasets)
     model = load_model(model)
     output_path = Path(output_path)
+
+    if verbose > 0:
+        print("VERBOSE")
+        logging.basicConfig(level="INFO", force=True)
+
+    if precision == "single":
+        float_type = torch.float32
+    else:
+        float_type = torch.bfloat16
+
     for time, model_input in input_data:
-        results = retrieval_step(model, model_input, tile_size=128, device=device)
-        results["time"] = time
-        results.to_netcdf(output_path / f"results_{time}.nc")
+        LOGGER.info("Processing input @ %s", time)
+        results = retrieval_step(
+            model,
+            model_input,
+            tile_size=128,
+            device=device,
+            float_type=float_type
+        )
+        results["time"] = time.astype("datetime64[ns]")
+        results.to_netcdf(output_path / f"chimp_{time}.nc")
