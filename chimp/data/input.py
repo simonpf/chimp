@@ -9,12 +9,11 @@ from pathlib import Path
 from typing import Union, List, Optional, Tuple
 
 import numpy as np
-from quantnn.normalizer import Normalizer, MinMaxNormalizer
-from quantnn.masked_tensor import MaskedTensor
 from scipy import ndimage
 import torch
 import xarray as xr
 
+from chimp.utils import get_date
 from chimp.data.utils import scale_slices, generate_input
 from chimp.data.source import DataSource
 
@@ -363,3 +362,106 @@ class Input(InputBase):
         x_s = self.replace_missing(x_s, missing_value_policy, rng)
 
         return x_s
+
+    def load_data(
+        self,
+        input_file: Path,
+    ) -> torch.Tensor:
+        """
+        Load input data sample from file.
+
+        Args:
+            input_file: Path pointing to the input file from which to load the
+                data.
+
+        Return:
+            A torch tensor containing the loaded input data.
+        """
+        with xr.open_dataset(input_file) as data:
+            vars = self.variables
+            if not isinstance(vars, list):
+                vars = [vars]
+            all_data = []
+            for vrbl in vars:
+                x_s = data[vrbl].data
+                if x_s.ndim < 3:
+                    x_s = x_s[None]
+                x_s = np.transpose(x_s, (2, 0, 1))
+                if np.issubdtype(x_s.dtype, np.floating):
+                    x_s = x_s.astype(np.float32)
+                all_data.append(x_s)
+            x_s = torch.tensor(np.concatenate(all_data, axis=0))
+
+        return x_s
+
+
+class InputDataset:
+    def __init__(
+        self,
+        path: Path,
+        input_datasets: List[str],
+        start_time: Optional[np.datetime64] = None,
+        end_time: Optional[np.datetime64] = None,
+        missing_value_policy: str = "none"
+    ):
+        """
+        Args:
+            path: The root directory containing the input data.
+            input_datasets: List of the input datasets or their names from which
+                to load the retrieval input data.
+            start_time: Start time of time interval to which to restrict
+                training data.
+            end_time: End time of a time interval to which to restrict the
+                training data.
+            missing_value_policy: A string indicating how to handle missing input
+                data. Options:
+                    'random': Missing data is replaced with Gaussian noise.
+                    'mean' Missing value is replaced with the mean of the
+                    input data.
+                    'missing': Missing data is replaced with NANs
+                    'sparse': Instead of a tensor 'None' is returned.
+        """
+        self.path = Path(path)
+        self.input_datasets = [
+            get_input(input_dataset) for input_dataset in input_datasets
+        ]
+        n_datasets = len(self.input_datasets)
+        all_files = {}
+        for input_ind, input_dataset in enumerate(self.input_datasets):
+            input_files = input_dataset.find_files(self.path)
+            times = np.array(list(map(get_date, input_files)))
+            for time, input_file in zip(times, input_files):
+                files = all_files.setdefault(time, ([None] * n_datasets))
+                files[input_ind] = input_file
+
+        times = np.array(list(all_files.keys()))
+        input_files = np.array(list(all_files.values()))
+
+        if start_time is not None and end_time is not None:
+            indices = (times >= start_time) * (times < end_time)
+            times = times[indices]
+            input_files = input_files[indices]
+
+        self.times = times
+        self.input_files = input_files
+
+    def __len__(self):
+        """Number of samples in dataset."""
+        return len(self.times)
+
+    def __getitem__(self, index):
+        """Return input data for the step ind."""
+        n_samples = len(self.times)
+        files = self.input_files[index]
+        input_data = {}
+        for input_ind, input_dataset in enumerate(self.input_datasets):
+            input_file = files[input_ind]
+            x_s = input_dataset.load_data(
+                input_file,
+            )
+            input_data[input_dataset.name] = x_s
+        return input_data
+
+    def __iter__(self):
+        for ind in range(len(self)):
+            yield self.times[ind], self[ind]
