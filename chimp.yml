@@ -27,9 +27,13 @@ dependencies:
   - trollsift
   - xarray[version='>=0.10.1']
   - satpy
+  - shapely[version='>2.0']
   - cartopy
   - llvm-openmp[version='14']
   - ipywidgets
   - lightning
   - protobuf
   - geopandas
+  - pip:
+    - "git+https://github.com/see-geo/pansat@refactoring"
+    - "git+https://github.com/simonpf/pytorch_retrieve"
