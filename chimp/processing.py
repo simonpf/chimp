@@ -13,6 +13,7 @@ import numpy as np
 import torch
 from torch import nn
 import xarray as xr
+from pansat.time import to_datetime
 from pytorch_retrieve.architectures import load_model
 
 from chimp.tiling import Tiler
@@ -111,10 +112,12 @@ def cli(
 
     input_data = InputDataset(input_path, input_datasets)
     model = load_model(model)
+
     output_path = Path(output_path)
+    if not output_path.exists():
+        output_path.mkdir(parents=True)
 
     if verbose > 0:
-        print("VERBOSE")
         logging.basicConfig(level="INFO", force=True)
 
     if precision == "single":
@@ -123,7 +126,7 @@ def cli(
         float_type = torch.bfloat16
 
     for time, model_input in input_data:
-        LOGGER.info("Processing input @ %s", time)
+        LOGGER.info("Starting processing input @ %s", time)
         results = retrieval_step(
             model,
             model_input,
@@ -131,5 +134,11 @@ def cli(
             device=device,
             float_type=float_type
         )
+        LOGGER.info("Finished processing input @ %s", time)
+
         results["time"] = time.astype("datetime64[ns]")
-        results.to_netcdf(output_path / f"chimp_{time}.nc")
+        date = to_datetime(time)
+        date_str = date.strftime("%Y%m%d_%H_%M")
+        output_file = output_path / f"chimp_{date_str}.nc"
+        LOGGER.info("Writing results to %s", output_file)
+        results.to_netcdf(output_path / f"chimp_{date_str}.nc")
