@@ -423,6 +423,27 @@ class SingleStepDataset:
 
         return x, y
 
+    def plot_sample_frequency(self, ax=None):
+        """
+        Plot sample frequency of all input datasets.
+        """
+        if ax is None:
+            f, ax = plt.subplots(1, 1, figsize=(6, 4))
+        start_time = self.times[0]
+        end_time = self.times[-1]
+        bins = np.arange(
+            start_time,
+            end_time + 2 * np.timedelta64(1, "D"),
+            np.timedelta64(1, "D")
+        )
+
+        for ind, input_dataset in enumerate(self.input_datasets):
+            weights = (self.input_files[:, ind] != None).astype(np.float32)
+            y = np.histogram(self.times, weights=weights, bins=bins)[0]
+            x = bins[:-1]
+            ax.plot(x, y, label=input_dataset.name)
+        return ax
+
 
 
 class CHIMPPretrainDataset(SingleStepDataset):
@@ -526,6 +547,7 @@ class CHIMPPretrainDataset(SingleStepDataset):
         return x, y
 
 
+
 class SequenceDataset(SingleStepDataset):
     """
     Dataset class for temporal merging of satellite observations.
@@ -607,14 +629,19 @@ class SequenceDataset(SingleStepDataset):
         self.sequence_starts = np.where(
             deltas.astype("timedelta64[s]") <= sequence_length * time_step
         )[0]
+        self.subsampling_rate = int(sequence_length / self.sample_rate)
 
     def __len__(self):
         """Number of samples in an epoch."""
-        return len(self.sequence_starts) * self.sample_rate
+        return len(self.sequence_starts) // self.subsampling_rate
 
     def __getitem__(self, index):
         """Return training sample."""
-        index = index // self.sample_rate
+        index = index * self.subsampling_rate
+        offset = 0
+        if self.augment and not self.validation:
+            offset = self.rng.integers(self.subsampling_rate)
+            index = min(index + offset, len(self.sequence_starts) - 1)
 
         # We load a larger window when input is rotated to avoid
         # missing values.
@@ -681,99 +708,3 @@ class SequenceDataset(SingleStepDataset):
             )
         return x, y
 
-
-def plot_sample(x, y):
-    """
-    Plot input and output from a sample.
-
-    Args:
-        x: The training input.
-        y: The training output.
-    """
-    if not isinstance(x, list):
-        x = [x]
-    if not isinstance(y, list):
-        y = [y]
-
-    n_steps = len(x)
-
-    for i in range(n_steps):
-        f, axs = plt.subplots(1, 2, figsize=(10, 5))
-
-        ax = axs[0]
-        ax.imshow(x[i]["geo"][-1])
-
-        ax = axs[1]
-        ax.imshow(y[i])
-
-
-def plot_date_distribution(path, keys=None, show_sensors=False, ax=None):
-    """
-    Plot the number of training input samples per day.
-
-    Args:
-        path: Path to the directory that contains the training data.
-        keys: A list file prefixes to look for, e.g. ['geo', 'visir'] to
-            only list geostationary and AVHRR inputs.
-        show_sensors: Whether to show different microwave sensors separately.
-        ax: A matplotlib Axes object to use to draw the results.
-    """
-    if keys is None:
-        keys = ["seviri", "mw", "radar", "visir"]
-    if not isinstance(keys, list):
-        keys = list(keys)
-
-    times = {}
-    time_min = None
-    time_max = None
-    for key in keys:
-        files = list(Path(path).glob(f"**/{key}*.nc"))
-        times_k = [
-            datetime.strptime(name.name[len(key) + 1 : -3], "%Y%m%d_%H_%M")
-            for name in files
-        ]
-
-        if key == "mw" and show_sensors:
-            sensors = {}
-            for time_k, filename in zip(times_k, files):
-                with xr.open_dataset(filename) as data:
-                    satellite = data.attrs["satellite"]
-                    sensor = data.attrs["sensor"]
-                    sensor = f"{sensor}"
-                    sensor_times = sensors.setdefault(sensor, [])
-                    sensor_times.append(time_k)
-
-            for sensor in sensors:
-                times_s = sensors[sensor]
-                times_k = xr.DataArray(times_s)
-                times[sensor] = times_k
-                t_min = times_k.min()
-                time_min = min(time_min, t_min) if time_min is not None else t_min
-                t_max = times_k.max()
-                time_max = max(time_max, t_max) if time_max is not None else t_max
-        else:
-            times_k = xr.DataArray(times_k)
-            t_min = times_k.min()
-            time_min = min(time_min, t_min) if time_min is not None else t_min
-            t_max = times_k.max()
-            time_max = max(time_max, t_max) if time_max is not None else t_max
-
-            times[key] = times_k
-
-    if ax is None:
-        figure = plt.figure(figsize=(6, 4))
-        ax = figure.add_subplot(1, 1, 1)
-
-    bins = np.arange(
-        time_min.astype("datetime64[D]").data,
-        (time_max + np.timedelta64(2, "D")).astype("datetime64[D]").data,
-        dtype="datetime64[D]",
-    )
-    x = bins[:-1] + 0.5 * (bins[1:] - bins[:-1])
-
-    for key in times:
-        y, _ = np.histogram(times[key], bins=bins)
-        ax.plot(x, y, label=key)
-
-    ax.legend()
-    return ax
