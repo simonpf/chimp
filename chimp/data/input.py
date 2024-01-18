@@ -127,6 +127,10 @@ def get_input(name: Union[str, InputBase]) -> InputBase:
     """
     from . import seviri
     from . import gpm
+    from . import gridsat
+    from . import ssmi
+    from . import patmosx
+
 
     if isinstance(name, InputBase):
         return name
