@@ -1,0 +1,18 @@
+CHIMP_EUROPE:
+  description: CHIMP region of interest over Europe.
+  projection:
+    proj: laea
+    lat_0: 55.0
+    lon_0: 10.0
+    x_0: 1950000.0
+    y_0: -2100000.0
+    datum: WGS84
+    no_defs: null
+    type: crs
+  shape:
+    height: 1088
+    width: 896
+  area_extent:
+    lower_left_xy: [0, 0]
+    upper_right_xy: [3_600_000, -4_400_000]
+    units: m

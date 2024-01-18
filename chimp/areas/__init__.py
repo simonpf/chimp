@@ -76,6 +76,35 @@ CONUS = {
 MRMS = pyresample.load_area(Path(__file__).parent / "mrms.yml")
 
 ###############################################################################
+# EUROPE
+###############################################################################
+
+EUROPE_4 = pyresample.load_area(Path(__file__).parent / "chimp_conus_4.yml")
+EUROPE_8 = pyresample.load_area(Path(__file__).parent / "chimp_conus_8.yml")
+EUROPE_16 = pyresample.load_area(Path(__file__).parent / "chimp_conus_16.yml")
+ROI_EUROPE = LonLatRect(
+    -129.995,
+    20.005, -60.005,
+    54.995
+)
+_lons, _lats = EUROPE_8.get_lonlats()
+ROI_POLY_EUROPE =  Polygon(np.array([
+    [_lons[0, 0], _lats[0, 0]],
+    [_lons[0, -1], _lats[0, -1]],
+    [_lons[-1, -1], _lats[-1, -1]],
+    [_lons[-1, 0], _lats[-1, 0]],
+]))
+
+EUROPE = {
+    4: EUROPE_4,
+    8: EUROPE_8,
+    16: EUROPE_16,
+    "roi": ROI_EUROPE,
+    "roi_poly": ROI_POLY_EUROPE
+}
+
+MERRA = pyresample.load_area(Path(__file__).parent / "merra.yml")
+###############################################################################
 # MERRA
 ###############################################################################
 
