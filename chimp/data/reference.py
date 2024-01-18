@@ -234,6 +234,7 @@ def get_reference_data(name: Union[str, ReferenceData]) -> ReferenceData:
     """
     from . import baltrad
     from . import mrms
+    from . import daily_precip
 
     if isinstance(name, DataSource):
         return name
