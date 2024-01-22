@@ -10,8 +10,8 @@ CHIMP_EUROPE:
     no_defs: null
     type: crs
   shape:
-    height: 1088
-    width: 896
+    height: 272
+    width: 224
   area_extent:
     lower_left_xy: [0, -4_400_000]
     upper_right_xy: [3_600_000, 0]

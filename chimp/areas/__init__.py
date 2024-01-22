@@ -79,9 +79,9 @@ MRMS = pyresample.load_area(Path(__file__).parent / "mrms.yml")
 # EUROPE
 ###############################################################################
 
-EUROPE_4 = pyresample.load_area(Path(__file__).parent / "chimp_conus_4.yml")
-EUROPE_8 = pyresample.load_area(Path(__file__).parent / "chimp_conus_8.yml")
-EUROPE_16 = pyresample.load_area(Path(__file__).parent / "chimp_conus_16.yml")
+EUROPE_4 = pyresample.load_area(Path(__file__).parent / "chimp_europe_4.yml")
+EUROPE_8 = pyresample.load_area(Path(__file__).parent / "chimp_europe_8.yml")
+EUROPE_16 = pyresample.load_area(Path(__file__).parent / "chimp_europe_16.yml")
 ROI_EUROPE = LonLatRect(
     -129.995,
     20.005, -60.005,
