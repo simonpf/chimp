@@ -16,6 +16,7 @@ from chimp import areas
 
 LOGGER = logging.getLogger(__name__)
 
+
 @click.argument("input", type=str)
 @click.argument("year", type=int)
 @click.argument("month", type=str)
@@ -28,17 +29,17 @@ LOGGER = logging.getLogger(__name__)
 @click.option("--n_processes", default=1)
 @click.option("--include_scan_time", default=False)
 def cli(
-        input,
-        year,
-        month,
-        day,
-        output,
-        time_step,
-        domain,
-        conditional,
-        path,
-        n_processes,
-        include_scan_time
+    input,
+    year,
+    month,
+    day,
+    output,
+    time_step,
+    domain,
+    conditional,
+    path,
+    n_processes,
+    include_scan_time,
 ):
     """
     Extract data.
@@ -56,6 +57,7 @@ def cli(
     import chimp.data.seviri
     import chimp.data.daily_precip
     import chimp.data.baltrad
+    import chimp.data.opera
 
     #
     # Check and load inputs.
@@ -78,14 +80,10 @@ def cli(
     try:
         domain = getattr(areas, domain.upper())
     except AttributeError:
-        LOGGER.error(
-            "Provided domain '%s' is not a known domain.",
-            domain
-        )
+        LOGGER.error("Provided domain '%s' is not a known domain.", domain)
         return 1
 
     time_step = timedelta(minutes=time_step)
-
 
     output = Path(output)
     if not output.exists():
@@ -110,8 +108,7 @@ def cli(
         conditional = Path(conditional)
         if not conditional.exists() or not conditional.is_dir():
             LOGGER.error(
-                "If provided, 'conditional' must point to an existing"
-                " directory."
+                "If provided, 'conditional' must point to an existing" " directory."
             )
             return 1
 
@@ -130,7 +127,7 @@ def cli(
             kwargs = {
                 "path": path,
                 "time_step": time_step,
-                "include_scan_time": include_scan_time
+                "include_scan_time": include_scan_time,
             }
             if conditional is not None:
                 kwargs["conditional"] = conditional
@@ -147,13 +144,13 @@ def cli(
                 "The following error was encountered while processing file '%s': %s %s",
                 f"{year}-{month:02}-{day:02}",
                 type(e),
-                e)
+                e,
+            )
             ret = 1
 
         if ret is not None and ret > 0:
             month, day = date
             failed_days.append((year, month, day))
-
 
     # Write failed days to file
     with open(output / f".{inpt.name}_failed.txt", "w") as failed:
