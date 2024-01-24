@@ -565,12 +565,13 @@ class SequenceDataset(SingleStepDataset):
         include_input_steps: bool = True,
         start_time: np.datetime64 = None,
         end_time: np.datetime64 = None,
-        quality_threshold: float = 0.8,
-        missing_value_policy: str = "masked",
         augment: bool = True,
         shrink_output: Optional[int] = None,
         validation: bool = False,
         time_step: Optional[np.timedelta64] = None,
+        require_input: bool = False,
+        quality_threshold: float = 0.8,
+        missing_value_policy: str = "masked",
     ):
         """
         Args:
@@ -587,17 +588,18 @@ class SequenceDataset(SingleStepDataset):
                 be loaded as well.
             start_time: Optional start time to limit the samples.
             end_time: Optional end time to limit the available samples.
-
             augment: Whether to apply random transformations to the training
                 inputs.
-            forecast: The number of samples in the sequence without input
-                observations.
             shrink_output: If given, the reference data scenes will contain
                 only the center crop the total scene with the size of the
                 crop calculated by dividing the input size by the given factor.
             validation: If 'True' sampling will reproduce identical scenes.
+            time_step: Optional time step to sub-sample the input data.
+            require_input: Whether or not to require all time steps to have
+                input data from at least one input dataset.
             quality_threshold: Thresholds for the quality indices applied to limit
                 reference data pixels.
+            missing_value: How to deal with missing values.
         """
         super().__init__(
             path,
@@ -626,9 +628,17 @@ class SequenceDataset(SingleStepDataset):
         if time_step is None:
             time_step = deltas.min()
         self.time_step = time_step
-        self.sequence_starts = np.where(
-            deltas.astype("timedelta64[s]") <= sequence_length * time_step
-        )[0]
+
+
+        valid = deltas.astype("timedelta64[s]") <= (sequence_length * time_step)
+        if require_input:
+            has_input = (self.input_files != None).any(-1)
+            has_input_seq = np.zeros_like(deltas).astype(bool)
+            for i in range(self.total_length):
+                has_input_seq += has_input[i:-self.total_length + i]
+            valid *= has_input_seq
+
+        self.sequence_starts = np.where(valid)[0]
         self.subsampling_rate = int(sequence_length / self.sample_rate)
 
     def __len__(self):

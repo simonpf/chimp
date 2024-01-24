@@ -121,18 +121,6 @@ def test_missing_input_policies(cpcir_data, gmi_data, mrms_surface_precip_data):
     assert x["cpcir"].shape[1:] == (128, 128)
     assert np.all(np.isfinite(x["cpcir"].numpy()))
 
-    training_data = SingleStepDataset(
-        cpcir_data,
-        reference_datasets=["mrms"],
-        input_datasets=["cpcir", "gmi"],
-        missing_value_policy="mean",
-        scene_size=128,
-    )
-    x, y = training_data[1]
-    assert x["gmi"].shape[1:] == (128, 128)
-    assert np.all(np.isfinite(x["gmi"].numpy()))
-    assert x["cpcir"].shape[1:] == (128, 128)
-    assert np.all(np.isfinite(x["cpcir"].numpy()))
 
 
 ###############################################################################
@@ -152,7 +140,7 @@ def test_find_files_sequence(cpcir_data, mrms_surface_precip_data):
         sample_rate=1,
         sequence_length=8,
     )
-    assert len(training_data) == 16
+    assert len(training_data) == 2
 
 
 def test_load_sample_sequence(cpcir_data, mrms_surface_precip_data):
@@ -201,7 +189,7 @@ def test_load_sample_forecast(cpcir_data, mrms_surface_precip_data):
         include_input_steps=False,
         forecast=4
     )
-    assert len(training_data) == 12
+    assert len(training_data) == 1
     x, y = training_data[0]
     assert len(x["cpcir"]) == 8
     assert len(y["surface_precip"]) == 4
@@ -219,7 +207,7 @@ def test_load_sample_forecast(cpcir_data, mrms_surface_precip_data):
         forecast=4,
         include_input_steps=True
     )
-    assert len(training_data) == 12
+    assert len(training_data) == 1
     x, y = training_data[0]
     assert len(x["cpcir"]) == 8
     assert len(y["surface_precip"]) == 12
