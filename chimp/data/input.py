@@ -13,6 +13,8 @@ from scipy import ndimage
 import torch
 import xarray as xr
 
+from pytorch_retrieve.tensors import MaskedTensor
+
 from chimp.utils import get_date
 from chimp.data.utils import scale_slices, generate_input
 from chimp.data.source import DataSource
@@ -239,16 +241,6 @@ class Input(InputBase):
         if missing_value_policy == "random":
             repl = rng.normal(size=tensor.shape).astype(np.float32)
             tensor = torch.where(mask, torch.tensor(repl), tensor)
-        elif missing_value_policy == "mean":
-            if self.mean is None:
-                raise RuntimeError(
-                    "If missing-value policy is 'mean', an array of mean values"
-                    " must be provided."
-                )
-            means = self.mean[(slice(0, None),) + (None,) * self.n_dim] * np.ones(
-                shape=(self.n_channels,) + (1,) * self.n_dim, dtype="float32"
-            )
-            tensor = torch.where(mask, torch.tensor(means), tensor)
         elif missing_value_policy == "missing":
             tensor = torch.where(mask, -1.5, tensor)
         elif missing_value_policy == "masked":
@@ -362,7 +354,8 @@ class Input(InputBase):
 
         x_s = torch.tensor(x_s.copy(), dtype=torch.float32)
         if missing_value_policy == "masked":
-            x_s = MaskedTensor(x_s)
+            mask = torch.ones_like(x_s).to(dtype=bool)
+            x_s = MaskedTensor(x_s, mask=mask)
         x_s = self.replace_missing(x_s, missing_value_policy, rng)
 
         return x_s
