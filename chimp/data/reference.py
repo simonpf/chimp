@@ -48,6 +48,8 @@ def find_random_scene(
         A tuple ``(i_start, i_end, j_start, j_end)`` defining the position
         of the random crop.
     """
+    if isinstance(scene_size, int):
+        scene_size = (scene_size,) * 2
     with xr.open_dataset(path) as data:
 
         if reference_dataset.quality_index is not None:
@@ -62,10 +64,10 @@ def find_random_scene(
                 return None
             count += 1
             n_rows, n_cols = qi.shape
-            i_start = rng.integers(0, (n_rows - scene_size) // multiple)
-            i_end = i_start + scene_size // multiple
-            j_start = rng.integers(0, (n_cols - scene_size) // multiple)
-            j_end = j_start + scene_size // multiple
+            i_start = rng.integers(0, (n_rows - scene_size[0]) // multiple)
+            i_end = i_start + scene_size[0] // multiple
+            j_start = rng.integers(0, (n_cols - scene_size[1]) // multiple)
+            j_end = j_start + scene_size[1] // multiple
 
             i_start = i_start * multiple
             i_end = i_end * multiple
