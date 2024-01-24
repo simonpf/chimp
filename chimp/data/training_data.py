@@ -77,35 +77,6 @@ def generate_input(
     )
 
 
-@dataclass
-class SampleRecord:
-    """
-    Record holding the paths of the files for a single training
-    sample.
-    """
-
-    radar: Path = None
-    geo: Path = None
-    mw: Path = None
-    visir: Path = None
-
-    def has_input(self, sources):
-        """
-        Determine if sample has input from any of the given sources.
-
-        Args:
-            sources: A list of sources to require.
-
-        Return:
-            Bool if the sample has corresponding input data from any of
-            the given sources.
-        """
-        has_input = False
-        for source in sources:
-            if getattr(self, source) is not None:
-                has_input = True
-        return has_input
-
 
 class SingleStepDataset:
     """
@@ -137,7 +108,8 @@ class SingleStepDataset:
             reference_datasets: List of the reference datasets or their names
                 from which to load the reference data.
             sample_rate: How often each scene should be sampled per epoch.
-            scene_size: Size of the training scenes.
+            scene_size: Size of the training scenes. If 'scene_size' < 0, the full
+            input data will be loaded.
             start_time: Start time of time interval to which to restrict
                 training data.
             end_time: End time of a time interval to which to restrict the
