@@ -142,7 +142,16 @@ class SSMI(Input, MinMaxNormalized):
     """
 
     def __init__(self):
-        super().__init__("ssmi", 1, ["obs_asc", "obs_des"])
+        super().__init__(
+            "ssmi",
+            1,
+            ["obs_lores_asc", "obs_lores_des", "obs_hires_asc", "obs_hires_des"],
+            spatial_dims=("latitude", "longitude")
+        )
+
+    @property
+    def n_channels(self) -> int:
+        return 14
 
     def process_day(
         self,

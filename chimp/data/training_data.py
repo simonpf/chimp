@@ -155,11 +155,10 @@ class SingleStepDataset:
                 files = sample_files.setdefault(time, ([None] * n_datasets))
                 files[ref_ind] = filename
 
-
         if len(sample_files) == 0:
             raise RuntimeError(
                 f"Found no reference data files in path '{self.path}' for "
-                f" reference data '{self.reference_data.name}'."
+                f" reference datasets '{[ds.name for ds in self.reference_datasets]}'."
             )
 
         for input_ind, input_dataset in enumerate(self.input_datasets):
@@ -207,6 +206,17 @@ class SingleStepDataset:
         # Ensure that data is consistent
         assert len(self.times) == len(self.reference_files)
         assert len(self.times) == len(self.input_files)
+
+        self.full = False
+        if scene_size < 0:
+            ref_dataset = np.argmin(
+                [reference_dataset.scale for reference_dataset in self.reference_datasets]
+            )
+            ref_file = np.where(reference_files[:, ref_dataset])[0][0]
+            ref_file = reference_files[ref_file, ref_dataset]
+            with xr.open_dataset(ref_file) as ref_data:
+                scene_size = tuple([dim for dim in ref_data.dims.values()])
+            self.full = True
 
         self.scene_size = scene_size
         self.validation = validation
@@ -366,25 +376,32 @@ class SingleStepDataset:
         # We load a larger window when input is rotated to avoid
         # missing values.
         if self.augment:
-            scene_size = int(1.42 * self.scene_size)
-            rem = scene_size % self.max_scale
-            if rem != 0:
-                scene_size += self.max_scale - rem
-            ang = -180 + 360 * self.rng.random()
+            if not self.full:
+                scene_size = int(1.42 * self.scene_size)
+                rem = scene_size % self.max_scale
+                if rem != 0:
+                    scene_size += self.max_scale - rem
+                ang = -180 + 360 * self.rng.random()
+            else:
+                scene_size = self.scene_size
+                ang = None
             flip = self.rng.random() > 0.5
         else:
             scene_size = self.scene_size
             ang = None
             flip = False
 
-        slices = reference.find_random_scene(
-            self.reference_datasets[0],
-            self.reference_files[sample_index][0],
-            self.rng,
-            multiple=4,
-            scene_size=scene_size,
-            quality_threshold=self.quality_threshold[0]
-        )
+        if not self.full:
+            slices = reference.find_random_scene(
+                self.reference_datasets[0],
+                self.reference_files[sample_index][0],
+                self.rng,
+                multiple=4,
+                scene_size=scene_size,
+                quality_threshold=self.quality_threshold[0]
+            )
+        else:
+            slices = (0, scene_size[0], 0, scene_size[1])
 
         x = self.load_input_sample(
             self.input_files[sample_index], slices, self.scene_size, rotate=ang, flip=flip
@@ -598,11 +615,12 @@ class SequenceDataset(SingleStepDataset):
         times = self.times
         deltas = times[self.total_length:] - times[:-self.total_length]
         if time_step is None:
-            time_step = deltas.min()
+            time_step = np.diff(times).min()
         self.time_step = time_step
+        print(time_step)
 
-
-        valid = deltas.astype("timedelta64[s]") <= (sequence_length * time_step)
+        valid = deltas.astype("timedelta64[s]") <= (total_length * time_step)
+        print(deltas, total_length * (time_step - 1))
         if require_input:
             has_input = (self.input_files != None).any(-1)
             has_input_seq = np.zeros_like(deltas).astype(bool)
@@ -625,30 +643,38 @@ class SequenceDataset(SingleStepDataset):
             offset = self.rng.integers(self.subsampling_rate)
             index = min(index + offset, len(self.sequence_starts) - 1)
 
+
         # We load a larger window when input is rotated to avoid
         # missing values.
         if self.augment:
-            scene_size = int(1.42 * self.scene_size)
-            rem = scene_size % self.max_scale
-            if rem != 0:
-                scene_size += self.max_scale - rem
-            ang = -180 + 360 * self.rng.random()
+            if not self.full:
+                scene_size = int(1.42 * self.scene_size)
+                rem = scene_size % self.max_scale
+                if rem != 0:
+                    scene_size += self.max_scale - rem
+                ang = -180 + 360 * self.rng.random()
+            else:
+                scene_size = self.scene_size
+                ang = None
             flip = self.rng.random() > 0.5
         else:
             scene_size = self.scene_size
             ang = None
             flip = False
 
-        # Find valid input range for last sample in sequence
-        last_index = self.sequence_starts[index] + self.total_length
-        slices = reference.find_random_scene(
-            self.reference_datasets[0],
-            self.reference_files[last_index][0],
-            self.rng,
-            multiple=4,
-            scene_size=scene_size,
-            quality_threshold=self.quality_threshold[0],
-        )
+        if not self.full:
+            # Find valid input range for last sample in sequence
+            last_index = self.sequence_starts[index] + self.total_length
+            slices = reference.find_random_scene(
+                self.reference_datasets[0],
+                self.reference_files[last_index][0],
+                self.rng,
+                multiple=4,
+                scene_size=scene_size,
+                quality_threshold=self.quality_threshold[0],
+            )
+        else:
+            slices = (0, scene_size[0], 0, scene_size[1])
 
         x = {}
         y = {}

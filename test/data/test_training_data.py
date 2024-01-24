@@ -77,8 +77,6 @@ def test_sparse_data(cpcir_data, gmi_data, mrms_surface_precip_data):
     assert x["cpcir"].shape[1:] == (128, 128)
 
 
-
-
 def test_missing_input_policies(cpcir_data, gmi_data, mrms_surface_precip_data):
     """
     Test that missing inputs are handled correctly.
@@ -120,6 +118,21 @@ def test_missing_input_policies(cpcir_data, gmi_data, mrms_surface_precip_data):
     assert np.all(np.isfinite(x["gmi"].numpy()))
     assert x["cpcir"].shape[1:] == (128, 128)
     assert np.all(np.isfinite(x["cpcir"].numpy()))
+
+
+def test_load_full_input(cpcir_data, gmi_data, mrms_surface_precip_data):
+    """
+    Test that missing inputs are handled correctly.
+    """
+    training_data = SingleStepDataset(
+        cpcir_data,
+        input_datasets=["cpcir", "gmi"],
+        reference_datasets=["mrms"],
+        missing_value_policy="sparse",
+        scene_size=-1,
+    )
+    x, y = training_data[1]
+    assert x["cpcir"].shape[1:] == (960, 1920)
 
 
 
@@ -214,3 +227,19 @@ def test_load_sample_forecast(cpcir_data, mrms_surface_precip_data):
     assert y["surface_precip"][0].shape[-1] == x["cpcir"][0].shape[-1] // 2
     assert "lead_times" in x
     assert len(x["lead_times"]) == 4
+
+
+def test_load_full_input_sequence(cpcir_data, gmi_data, mrms_surface_precip_data):
+    """
+    Test that missing inputs are handled correctly.
+    """
+    training_data = SequenceDataset(
+        cpcir_data,
+        input_datasets=["cpcir", "gmi"],
+        reference_datasets=["mrms"],
+        missing_value_policy="sparse",
+        scene_size=-1,
+        sequence_length=8
+    )
+    x, y = training_data[1]
+    assert x["cpcir"][0].shape[1:] == (960, 1920)
