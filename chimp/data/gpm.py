@@ -150,21 +150,25 @@ class GPML1CData(Input, MinMaxNormalized):
         scale: int,
         products: List[pansat.Product],
         n_swaths: int,
+        n_channels: int,
         radius_of_influence,
-        mean: Optional[np.array] = None,
-        n_dim: int = 2,
     ):
         """
         Args:
             name: Name of the sensor.
             scale: The spatial scale to which the output will be mapped.
-            normalizer: A normalizer object
-
+            products: The pansat products reprsenting the L1C products of the
+                sensors.
+            n_swaths: The number of swaths in the L1C files.
+            n_channels: The number of channels in the input data.
+            radius_of_influence: The radius of influence in meters to use for the
+                resampling of the data.
         """
         MinMaxNormalized.__init__(self, name)
-        Input.__init__(self, name, scale, "tbs", mean=mean, n_dim=2)
+        Input.__init__(self, name, scale, "tbs", n_dim=2)
         self.products = products
         self.n_swaths = n_swaths
+        self.n_channels = n_channels
         self.radius_of_influence = radius_of_influence
 
     def process_day(
@@ -229,9 +233,8 @@ class GPML1CData(Input, MinMaxNormalized):
                         )
 
 
-TB_MEANS_GMI = np.array(13 * [250.0])
-GMI = GPML1CData("gmi", 4, [l1c_gpm_gmi], 2, 15e3, mean=TB_MEANS_GMI)
-ATMS = GPML1CData("atms", 16, [l1c_noaa20_atms, l1c_npp_atms], 4, 64e3)
+GMI = GPML1CData("gmi", 4, [l1c_gpm_gmi], 2, 13, 15e3)
+ATMS = GPML1CData("atms", 16, [l1c_noaa20_atms, l1c_npp_atms], 4, 9, 64e3)
 
 MHS_PRODUCTS = [
     l1c_noaa18_mhs,
@@ -239,13 +242,13 @@ MHS_PRODUCTS = [
     l1c_metopb_mhs,
     l1c_metopc_mhs,
 ]
-MHS = GPML1CData("mhs", 8, MHS_PRODUCTS, None, 64e3)
+MHS = GPML1CData("mhs", 8, MHS_PRODUCTS, None, 5, 64e3)
 
 SSMIS_PRODUCTS = [
     l1c_f16_ssmis,
     l1c_f17_ssmis,
     l1c_f17_ssmis,
 ]
-SSMIS = GPML1CData("ssmis", 8, SSMIS_PRODUCTS, 4, 30e3)
+SSMIS = GPML1CData("ssmis", 8, SSMIS_PRODUCTS, 4, 11, 30e3)
 
-AMSR2 = GPML1CData("amsr2", 4, [l1c_gcomw1_amsr2], 6, 30e3)
+AMSR2 = GPML1CData("amsr2", 4, [l1c_gcomw1_amsr2], 6, 12, 30e3)

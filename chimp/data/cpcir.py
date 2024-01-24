@@ -111,10 +111,12 @@ class CPCIRData(Input, MinMaxNormalized):
             scale: int,
     ):
         MinMaxNormalized.__init__(self, name)
-        mean = np.array([250])
-        Input.__init__(self, name, scale, "tbs", n_dim=2, mean=mean)
+        Input.__init__(self, name, scale, "tbs", n_dim=2)
         self.scale = scale
 
+    @property
+    def n_channels(self) -> int:
+        return 1
 
     def process_day(
             self,
