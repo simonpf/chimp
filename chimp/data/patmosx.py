@@ -5,6 +5,7 @@ chimp.data.patmosx
 This module provides the patmosx input data object, that can be used to extract
 daily gridded AVHRR and HIRS observations from the PATMOS-X CDR.
 """
+import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -14,6 +15,9 @@ from pansat.products.satellite.ncei import patmosx_asc, patmosx_des
 import xarray as xr
 
 from chimp.data.input import Input, MinMaxNormalized
+
+
+LOGGER = logging.getLogger()
 
 
 def load_observations(path):
@@ -87,7 +91,16 @@ class PATMOSX(Input, MinMaxNormalized):
     dataset.
     """
     def __init__(self):
-        super().__init__("patmosx", 1, ["obs_imager", "obs_sounder"])
+        super().__init__(
+            "patmosx",
+            1,
+            ["obs_imager_asc", "obs_imager_des", "obs_sounder_asc", "obs_sounder_des"],
+            spatial_dims=("latitude", "longitude")
+        )
+
+    @property
+    def n_channels(self) -> int:
+        return 46
 
     def process_day(
             self,
@@ -144,25 +157,52 @@ class PATMOSX(Input, MinMaxNormalized):
             recs_des = patmosx_des.find_files(time_range)[:1]
             recs_des = [rec.get() for rec in recs_des]
 
-            data_asc = load_observations(recs_asc[0].local_path).rename(
-                obs_sounder="obs_sounder_asc",
-                obs_imager="obs_imager_asc"
-            )
-            data_des = load_observations(recs_des[0].local_path).rename(
-                obs_sounder="obs_sounder_des",
-                obs_imager="obs_imager_des"
-            )
-            data = xr.merge([data_asc, data_des])[{"time": 0}]
-            data = data.interp(latitude=lats, longitude=lons)
+            if len(recs_asc) > 0:
+                data_asc = load_observations(recs_asc[0].local_path).rename(
+                    obs_sounder="obs_sounder_asc",
+                    obs_imager="obs_imager_asc"
+                )
+            else:
+                data_asc = None
 
-            filename = time.strftime("patmosx_%Y%m%d_%H%M.nc")
+            if len(recs_des) > 0:
+                data_des = load_observations(recs_des[0].local_path).rename(
+                    obs_sounder="obs_sounder_des",
+                    obs_imager="obs_imager_des"
+                )
+            else:
+                data_des = None
 
+            if data_asc is None and data_des is None:
+                LOGGER.warning(
+                    "Didn't find any Patmos-X observations for %s.",
+                    time
+                )
+            else:
+                if data_des is None:
+                    data_des = data_asc.copy().rename(
+                        obs_imager_asc="obs_imager_des",
+                        obs_sounder_asc="obs_sounder_des"
+                    )
+                    data_des.obs_imager_des.data[:] = np.nan
+                    data_des.obs_sounder_des.data[:] = np.nan
 
-            encodings = {
-                obs: {"dtype": "float32", "zlib": True}
-                for obs in data.variables
-            }
-            data.to_netcdf(output_folder / filename, encoding=encodings)
+                if data_asc is None:
+                    data_asc = data_des.copy().rename(
+                        obs_imager_des="obs_imager_asc",
+                        obs_sounder_des="obs_sounder_asc"
+                    )
+                    data_asc.obs_imager_asc.data[:] = np.nan
+                    data_asc.obs_sounder_asc.data[:] = np.nan
+
+                data = xr.merge([data_asc, data_des])[{"time": 0}]
+                data = data.interp(latitude=lats, longitude=lons)
+                filename = time.strftime("patmosx_%Y%m%d_%H%M.nc")
+                encodings = {
+                    obs: {"dtype": "float32", "zlib": True}
+                    for obs in data.variables
+                }
+                data.to_netcdf(output_folder / filename, encoding=encodings)
 
             time = time + time_step
 
