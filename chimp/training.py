@@ -171,7 +171,7 @@ def create_data_loaders(
             sample_rate=training_config.sample_rate,
             sequence_length=training_config.sequence_length,
             forecast=training_config.forecast,
-            window_size=training_config.input_size,
+            scene_size=training_config.input_size,
             quality_threshold=training_config.quality_threshold,
             missing_value_policy=training_config.missing_value_policy,
         )
@@ -182,7 +182,7 @@ def create_data_loaders(
             reference_data=reference_data,
             sample_rate=training_config.sample_rate,
             sequence_length=training_config.sequence_length,
-            window_size=training_config.input_size,
+            scene_size=training_config.input_size,
             quality_threshold=training_config.quality_threshold,
             missing_value_policy=training_config.missing_value_policy,
         )
@@ -207,7 +207,7 @@ def create_data_loaders(
             sample_rate=training_config.sample_rate,
             sequence_length=training_config.sequence_length,
             forecast=training_config.forecast,
-            window_size=training_config.input_size,
+            scene_size=training_config.input_size,
             quality_threshold=training_config.quality_threshold,
             missing_value_policy=training_config.missing_value_policy,
             validation=True,
@@ -219,7 +219,7 @@ def create_data_loaders(
             reference_data=reference_data,
             sample_rate=training_config.sample_rate,
             sequence_length=training_config.sequence_length,
-            window_size=training_config.input_size,
+            scene_size=training_config.input_size,
             quality_threshold=training_config.quality_threshold,
             missing_value_policy=training_config.missing_value_policy,
             validation=True,
@@ -407,7 +407,7 @@ class TrainingConfig(pr.training.TrainingConfigBase):
     sequence_length: int
     forecast: int
     shrink_output: Optional[int]
-    window_size: int
+    scene_size: int
     augment: bool
     time_step: int
     n_epochs: int
@@ -421,6 +421,7 @@ class TrainingConfig(pr.training.TrainingConfigBase):
     reuse_optimizer: bool = False
     stepwise_scheduling: bool = False
     metrics: Optional[Dict[str, List["Metric"]]] = None
+    include_input_steps: bool = False
 
     log_every_n_steps: Optional[int] = None
 
@@ -464,8 +465,8 @@ class TrainingConfig(pr.training.TrainingConfigBase):
         shrink_output = get_config_attr(
             "shrink_output", int, config_dict, f"training stage '{name}'", None
         )
-        window_size = get_config_attr(
-            "window_size", int, config_dict, f"training stage '{name}'", 128
+        scene_size = get_config_attr(
+            "scene_size", int, config_dict, f"training stage '{name}'", 128
         )
         augment = get_config_attr(
             "augment", bool, config_dict, f"training stage '{name}'", True
@@ -546,6 +547,10 @@ class TrainingConfig(pr.training.TrainingConfigBase):
             else:
                 log_every_n_steps = 50
 
+        include_input_steps = get_config_attr(
+            "include_input_steps", bool, config_dict, f"training stage '{name}'", False
+        )
+
         return TrainingConfig(
             training_data_path=training_data_path,
             validation_data_path=validation_data_path,
@@ -555,7 +560,7 @@ class TrainingConfig(pr.training.TrainingConfigBase):
             sequence_length=sequence_length,
             forecast=forecast,
             shrink_output=shrink_output,
-            window_size=window_size,
+            scene_size=scene_size,
             augment=augment,
             time_step=time_step,
             n_epochs=n_epochs,
@@ -570,6 +575,7 @@ class TrainingConfig(pr.training.TrainingConfigBase):
             stepwise_scheduling=stepwise_scheduling,
             metrics=metrics,
             log_every_n_steps=log_every_n_steps,
+            include_input_steps=include_input_steps
         )
 
     def get_training_dataset(
@@ -585,7 +591,7 @@ class TrainingConfig(pr.training.TrainingConfigBase):
                 reference_datasets=self.reference_datasets,
                 sample_rate=self.sample_rate,
                 augment=self.augment,
-                scene_size=self.window_size,
+                scene_size=self.scene_size,
                 missing_value_policy="none",
             )
         else:
@@ -594,12 +600,13 @@ class TrainingConfig(pr.training.TrainingConfigBase):
                 input_datasets=self.input_datasets,
                 reference_datasets=self.reference_datasets,
                 sample_rate=self.sample_rate,
-                scene_size=self.window_size,
+                scene_size=self.scene_size,
                 sequence_length=self.sequence_length,
                 forecast=self.forecast,
                 shrink_output=self.shrink_output,
                 missing_value_policy="none",
                 augment=self.augment,
+                include_input_steps=self.include_input_steps
             )
 
     def get_validation_dataset(self):
@@ -615,7 +622,7 @@ class TrainingConfig(pr.training.TrainingConfigBase):
                 reference_datasets=self.reference_datasets,
                 sample_rate=self.sample_rate,
                 augment=False,
-                scene_size=self.window_size,
+                scene_size=self.scene_size,
                 missing_value_policy="none",
                 validation=True,
             )
@@ -625,13 +632,14 @@ class TrainingConfig(pr.training.TrainingConfigBase):
                 input_datasets=self.input_datasets,
                 reference_datasets=self.reference_datasets,
                 sample_rate=self.sample_rate,
-                scene_size=self.window_size,
+                scene_size=self.scene_size,
                 sequence_length=self.sequence_length,
                 forecast=self.forecast,
                 shrink_output=self.shrink_output,
                 missing_value_policy="none",
                 augment=False,
                 validation=True,
+                include_input_steps=self.include_input_steps
             )
 
 
