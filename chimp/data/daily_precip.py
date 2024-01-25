@@ -88,6 +88,14 @@ class DailyPrecip(ReferenceData):
         while time < end_time:
             if time < datetime(2020, 6, 1):
                 recs = persiann.cdr_daily.find_files(TimeRange(time, time))
+                if len(recs) == 0:
+                    LOGGER.warning(
+                        "Didn't find any PERSIANN files for %s.",
+                        time
+                    )
+                    time = time + time_step
+                    continue
+
                 rec = recs[0].get()
                 data = persiann.cdr_daily.open(rec)
             else:
