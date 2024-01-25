@@ -617,10 +617,8 @@ class SequenceDataset(SingleStepDataset):
         if time_step is None:
             time_step = np.diff(times).min()
         self.time_step = time_step
-        print(time_step)
 
         valid = deltas.astype("timedelta64[s]") <= (total_length * time_step)
-        print(deltas, total_length * (time_step - 1))
         if require_input:
             has_input = (self.input_files != None).any(-1)
             has_input_seq = np.zeros_like(deltas).astype(bool)
@@ -708,7 +706,7 @@ class SequenceDataset(SingleStepDataset):
                     y.setdefault(name, []).append(inpt)
 
         if self.forecast > 0:
-            x["lead_times"] = torch.tensor(
+            x["lead_time"] = torch.tensor(
                 [
                     step * self.time_step.astype("int64") // 60
                     for step in range(1, self.forecast + 1)
