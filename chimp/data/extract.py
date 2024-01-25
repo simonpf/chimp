@@ -20,7 +20,7 @@ LOGGER = logging.getLogger(__name__)
 @click.argument("input", type=str)
 @click.argument("year", type=int)
 @click.argument("month", type=str)
-@click.argument("day", type=int, nargs=-1)
+@click.argument("days", type=int, nargs=-1)
 @click.argument("output", type=str)
 @click.option("--time_step", default=15)
 @click.option("--domain", default="conus")
@@ -29,17 +29,17 @@ LOGGER = logging.getLogger(__name__)
 @click.option("--n_processes", default=1)
 @click.option("--include_scan_time", default=False)
 def cli(
-    input,
-    year,
-    month,
-    day,
-    output,
-    time_step,
-    domain,
-    conditional,
-    path,
-    n_processes,
-    include_scan_time,
+        input,
+        year,
+        month,
+        days,
+        output,
+        time_step,
+        domain,
+        conditional,
+        path,
+        n_processes,
+        include_scan_time
 ):
     """
     Extract data.
@@ -112,17 +112,21 @@ def cli(
             )
             return 1
 
+    if isinstance(days, int):
+        days = [days]
+
     n_procs = n_processes
     pool = ProcessPoolExecutor(max_workers=n_procs)
 
     tasks = []
     dates = []
     for month in months:
-        days = day
         if len(days) == 0:
             n_days = monthrange(year, month)[1]
-            days = list(range(1, n_days + 1))
-        for day in days:
+            days_of_month = list(range(1, n_days + 1))
+        else:
+            days_of_month = days
+        for day in days_of_month:
             fargs = [domain, year, month, day, output]
             kwargs = {
                 "path": path,
