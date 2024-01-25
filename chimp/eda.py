@@ -79,6 +79,9 @@ def cli(
     training_config = read_training_config(LOGGER, model_path, training_config)
     if training_config is None:
         return 1
+    for cfg in training_config.values():
+        cfg["sequence_length"] = 1
+        cfg["forecast"] = 0
 
     input_configs = {
         name: InputConfig.parse(name, cfg)
