@@ -20,7 +20,7 @@ setup(
     install_requires=[
         "click",
         "rich",
-        "torch",
+        "pytorch",
         "pytorch-lightning",
         "numpy",
         "scipy",
