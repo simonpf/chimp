@@ -422,6 +422,7 @@ class TrainingConfig(pr.training.TrainingConfigBase):
     stepwise_scheduling: bool = False
     metrics: Optional[Dict[str, List["Metric"]]] = None
     include_input_steps: bool = False
+    require_input: bool = False
 
     log_every_n_steps: Optional[int] = None
 
@@ -550,6 +551,10 @@ class TrainingConfig(pr.training.TrainingConfigBase):
         include_input_steps = get_config_attr(
             "include_input_steps", bool, config_dict, f"training stage '{name}'", False
         )
+        require_input = get_config_attr(
+            "require_input", bool, config_dict, f"training stage '{name}'", False
+        )
+
 
         return TrainingConfig(
             training_data_path=training_data_path,
@@ -575,7 +580,8 @@ class TrainingConfig(pr.training.TrainingConfigBase):
             stepwise_scheduling=stepwise_scheduling,
             metrics=metrics,
             log_every_n_steps=log_every_n_steps,
-            include_input_steps=include_input_steps
+            include_input_steps=include_input_steps,
+            require_input=require_input
         )
 
     def get_training_dataset(
@@ -606,7 +612,8 @@ class TrainingConfig(pr.training.TrainingConfigBase):
                 shrink_output=self.shrink_output,
                 missing_value_policy="none",
                 augment=self.augment,
-                include_input_steps=self.include_input_steps
+                include_input_steps=self.include_input_steps,
+                require_input=self.require_input
             )
 
     def get_validation_dataset(self):
@@ -639,7 +646,8 @@ class TrainingConfig(pr.training.TrainingConfigBase):
                 missing_value_policy="none",
                 augment=False,
                 validation=True,
-                include_input_steps=self.include_input_steps
+                include_input_steps=self.include_input_steps,
+                require_input=self.require_input
             )
 
 
