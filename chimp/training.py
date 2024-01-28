@@ -710,6 +710,7 @@ def cli(
     import chimp.data.goes
     import chimp.data.cpcir
     import chimp.data.baltrad
+    import chimp.data.opera
     import chimp.data.mrms
 
     if model_path is None:

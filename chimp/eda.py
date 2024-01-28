@@ -63,6 +63,7 @@ def cli(
     import chimp.data.goes
     import chimp.data.cpcir
     import chimp.data.baltrad
+    import chimp.data.opera
     import chimp.data.mrms
     import chimp.data.gridsat
     import chimp.data.daily_precip
