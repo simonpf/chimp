@@ -58,6 +58,7 @@ def cli(
     import chimp.data.daily_precip
     import chimp.data.baltrad
     import chimp.data.opera
+    import chimp.data.s2s
 
     #
     # Check and load inputs.
