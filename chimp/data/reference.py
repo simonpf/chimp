@@ -106,10 +106,10 @@ class ReferenceData(DataSource):
     name: str
     scale: int
     targets: List[RetrievalTarget]
-    quality_index: str
+    quality_index: Optional[str] = None
 
     def __init__(
-        self, name: str, scale: int, targets: list[RetrievalTarget], quality_index: str
+        self, name: str, scale: int, targets: list[RetrievalTarget], quality_index: Optional[str] = None
     ):
         super().__init__(name)
         ALL_REFERENCE_DATA[name] = self
