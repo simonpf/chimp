@@ -6,6 +6,7 @@ Interface classes for loading the CHIMP training data.
 """
 from dataclasses import dataclass
 from datetime import datetime
+import logging
 from math import ceil
 import os
 from pathlib import Path
@@ -36,6 +37,9 @@ from chimp.utils import get_date
 from chimp.data import get_reference_data
 from chimp.data import get_input, get_reference_data
 from chimp.data import input, reference
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 def generate_input(
@@ -400,6 +404,15 @@ class SingleStepDataset:
                 scene_size=scene_size,
                 quality_threshold=self.quality_threshold[0]
             )
+            if slices is None:
+                LOGGER.warning(
+                    " Couldn't find a scene in reference file '%s' satisfying "
+                    "the quality requirements. Falling back to another "
+                    "radomly-chosen reference data file.",
+                    self.reference_files[sample_index][0]
+                )
+                new_ind = self.rng.integers(0, len(self))
+                return self[new_ind]
         else:
             slices = (0, scene_size[0], 0, scene_size[1])
 
@@ -671,6 +684,15 @@ class SequenceDataset(SingleStepDataset):
                 scene_size=scene_size,
                 quality_threshold=self.quality_threshold[0],
             )
+            if slices is None:
+                LOGGER.warning(
+                    " Couldn't find a scene in reference file '%s' satisfying "
+                    "the quality requirements. Falling back to another "
+                    "radomly-chosen reference data file.",
+                    self.reference_files[sample_index][0]
+                )
+                new_ind = self.rng.integers(0, len(self))
+                return self[new_ind]
         else:
             slices = (0, scene_size[0], 0, scene_size[1])
 
