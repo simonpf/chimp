@@ -20,8 +20,8 @@ setup(
     install_requires=[
         "click",
         "rich",
-        "pytorch",
-        "pytorch-lightning",
+        "torch",
+        "lightning",
         "numpy",
         "scipy",
         "xarray",
