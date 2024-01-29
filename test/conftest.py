@@ -152,7 +152,8 @@ def gmi_data(tmp_path):
 
     for time in times:
         tbs = np.stack(
-            [random_spectral_field((lats.size, lons.size), 10) for _ in range(13)]
+            [random_spectral_field((lats.size, lons.size), 10) for _ in range(13)],
+            axis=-1
         )
 
         time_py = time.item()
