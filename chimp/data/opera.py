@@ -37,7 +37,7 @@ class Opera(ReferenceData):
 
     def __init__(self):
         super().__init__(
-            "opera", scale=4, targets=[RetrievalTarget("dbz")], quality_index="qi"
+            "opera", scale=4, targets=[RetrievalTarget("dbz")]
         )
 
     def process_day(
