@@ -215,7 +215,7 @@ class ReferenceData(DataSource):
                         y_t = y_t[..., d_l:d_r]
 
                 if flip:
-                    y_t = np.flip(y_t, -1)
+                    y_t = np.flip(y_t, -2)
 
                 mask = torch.tensor(np.isnan(y_t))
                 tensor = torch.tensor(y_t.copy())

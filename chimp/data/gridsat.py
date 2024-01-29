@@ -136,7 +136,7 @@ class GridSat(Input):
                     end = start + width_out
                     x_s = x_s[..., start:end]
             if flip:
-                x_s = np.flip(x_s, -1)
+                x_s = np.flip(x_s, -2)
         else:
             if missing_value_policy == "sparse":
                 return None
