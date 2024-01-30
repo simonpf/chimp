@@ -99,7 +99,7 @@ class DailyPrecip(ReferenceData):
                 rec = recs[0].get()
                 data = persiann.cdr_daily.open(rec)
             else:
-                recs = gpm.l3b_day_3imerg_ms_mrg_v06.find_files(TimeRange(time, time))
+                recs = gpm.l3b_day_3imerg_ms_mrg_v07.find_files(TimeRange(time, time))
                 if len(recs) == 0:
                     LOGGER.warning(
                         "Didn't find any IMERG files for %s.",
