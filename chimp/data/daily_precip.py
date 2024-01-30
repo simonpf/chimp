@@ -86,7 +86,7 @@ class DailyPrecip(ReferenceData):
         time = start_time
         files = []
         while time < end_time:
-            if time < datetime(2020, 6, 1):
+            if time < datetime(2000, 6, 1):
                 recs = persiann.cdr_daily.find_files(TimeRange(time, time))
                 if len(recs) == 0:
                     LOGGER.warning(
@@ -109,7 +109,7 @@ class DailyPrecip(ReferenceData):
                     continue
 
                 rec = recs[0].get()
-                data = gpm.l3b_day_3imerg_ms_mrg_v06.find_files(TimeRange(time, time))
+                data = gpm.l3b_day_3imerg_ms_mrg_v07.open(rec)
                 data = data.rename({
                     "lon": "longitude",
                     "lat": "latitude",
