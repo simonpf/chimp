@@ -109,12 +109,7 @@ class DailyPrecip(ReferenceData):
                     continue
 
                 rec = recs[0].get()
-                data = gpm.l3b_day_3imerg_ms_mrg_v07.open(rec)
-                data = data.rename({
-                    "lon": "longitude",
-                    "lat": "latitude",
-                    "precipitationCal": "precipitation"
-                })["precipitation"]
+                data = gpm.l3b_day_3imerg_ms_mrg_v07.open(rec)["precipitation"]
 
 
             if isinstance(domain, dict):
