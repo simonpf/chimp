@@ -109,8 +109,12 @@ class DailyPrecip(ReferenceData):
                     continue
 
                 rec = recs[0].get()
-                data = gpm.l3b_day_3imerg_ms_mrg_v07.open(rec)["precipitation"]
-
+                data = gpm.l3b_day_3imerg_ms_mrg_v07.open(rec)
+                data["surface_precipitation"].attrs = {}
+                data["latitude"].attrs = {}
+                data["longitude"].attrs = {}
+                data["time"].attrs = {}
+                data = data.rename(surface_precipitation="precipitation")
 
             if isinstance(domain, dict):
                 domain = domain[self.scale]
