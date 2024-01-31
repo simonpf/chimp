@@ -425,6 +425,9 @@ class TrainingConfig(pr.training.TrainingConfigBase):
     require_input: bool = False
 
     log_every_n_steps: Optional[int] = None
+    gradient_clip_val: Optional[float] = None
+    accumulate_grad_batches: Optional[int] = None
+    load_weights: Optional[str] = None
 
     @classmethod
     def parse(cls, name, config_dict: Dict[str, object]):
@@ -541,13 +544,6 @@ class TrainingConfig(pr.training.TrainingConfigBase):
 
         metrics = config_dict.get("metrics", [])
 
-        log_every_n_steps = config_dict.get("log_every_n_steps", -1)
-        if log_every_n_steps < 0:
-            if n_epochs < 100:
-                log_every_n_steps = 1
-            else:
-                log_every_n_steps = 50
-
         include_input_steps = get_config_attr(
             "include_input_steps", bool, config_dict, f"training stage '{name}'", False
         )
@@ -555,6 +551,22 @@ class TrainingConfig(pr.training.TrainingConfigBase):
             "require_input", bool, config_dict, f"training stage '{name}'", False
         )
 
+        log_every_n_steps = config_dict.get("log_every_n_steps", -1)
+        if log_every_n_steps < 0:
+            if n_epochs < 100:
+                log_every_n_steps = 1
+            else:
+                log_every_n_steps = 50
+
+        gradient_clip_val = get_config_attr(
+            "gradient_clip_val", float, config_dict, f"training stage {name}", None
+        )
+        accumulate_grad_batches = get_config_attr(
+            "accumulate_grad_batches", int, config_dict, f"training stage {name}", None
+        )
+        load_weights = get_config_attr(
+            "load_weights", str, config_dict, f"training stage {name}", None
+        )
 
         return TrainingConfig(
             training_data_path=training_data_path,
@@ -579,9 +591,12 @@ class TrainingConfig(pr.training.TrainingConfigBase):
             reuse_optimizer=reuse_optimizer,
             stepwise_scheduling=stepwise_scheduling,
             metrics=metrics,
-            log_every_n_steps=log_every_n_steps,
             include_input_steps=include_input_steps,
-            require_input=require_input
+            require_input=require_input,
+            log_every_n_steps=log_every_n_steps,
+            gradient_clip_val=gradient_clip_val,
+            accumulate_grad_batches=accumulate_grad_batches,
+            load_weights=load_weights,
         )
 
     def get_training_dataset(
@@ -687,6 +702,7 @@ class TrainingConfig(pr.training.TrainingConfigBase):
     "--resume",
     "-r",
     "resume",
+    is_flag=True,
     default=False,
     help=("If set, training will continue from a checkpoint file if available."),
 )
