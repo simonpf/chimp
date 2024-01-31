@@ -5,6 +5,7 @@ chimp.data.input
 This sub-module defines classes for representing different input types.
 """
 from dataclasses import dataclass
+import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -18,6 +19,9 @@ from pytorch_retrieve.tensors import MaskedTensor
 from chimp.utils import get_date
 from chimp.data.utils import scale_slices, generate_input
 from chimp.data.source import DataSource
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 def find_random_scene(
@@ -307,7 +311,20 @@ class Input(InputBase):
         crop_size = tuple((int(size / rel_scale) for size in crop_size))
 
         if input_file is not None:
+            try:
+                data = xr.open_dataset(input_file)
+                data.close()
+            except OSError:
+                LOGGER.warning(
+                    "Reading of the input file '%s' failed. Skipping.",
+                    input_file
+                )
+                input_file = None
+
+
+        if input_file is not None:
             slices = scale_slices(slices, rel_scale)
+
             with xr.open_dataset(input_file) as data:
                 vars = self.variables
                 if not isinstance(vars, list):
