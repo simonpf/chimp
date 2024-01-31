@@ -102,6 +102,14 @@ class GridSat(Input):
         if input_file is not None:
             slices = scale_slices(slices, rel_scale)
             with xr.open_dataset(input_file) as data:
+
+                if data.time.size < 8:
+                    ttype = data.time.data.dtype
+                    start_time = data.time.data[0].astype("datetime64[D]").astype(ttype)
+                    end_time = start_time + np.timedelta64(1, "D")
+                    time = np.arange(start_time, end_time, np.timedelta64(3, "h"))
+                    data = data.interp(time=time, method="nearest")
+
                 vars = self.variables
                 if not isinstance(vars, list):
                     vars = [vars]
