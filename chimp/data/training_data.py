@@ -14,6 +14,7 @@ from typing import Dict, List, Tuple, Optional, Union
 
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
+from matplotlib.cm import ScalarMappable
 from matplotlib.gridspec import GridSpec
 from matplotlib.animation import FuncAnimation
 import numpy as np
@@ -425,27 +426,75 @@ class SingleStepDataset:
 
         return x, y
 
-    def plot_sample_frequency(self, ax=None):
+    def _plot_sample_frequency(
+            self,
+            datasets,
+            files,
+            ax=None,
+            temporal_resolution="M",
+    ):
         """
-        Plot sample frequency of all input datasets.
+        Plot sample frequency of datasets.
+
+        Args:
+            datasets: A list of dataset types defining the input or reference datasets in the training
+                data.
+            files:
         """
         if ax is None:
             f, ax = plt.subplots(1, 1, figsize=(6, 4))
-        start_time = self.times[0]
-        end_time = self.times[-1]
+
+
+        times = self.times
+        start_time = times[0]
+        end_time = times[-1]
+
+        if isinstance(temporal_resolution, str):
+            time_step = np.timedelta64(1, temporal_resolution).astype('timedelta64[s]')
+        else:
+            time_step = temporal_resolution.astype("timedelta64[s]")
         bins = np.arange(
             start_time,
-            end_time + 2 * np.timedelta64(1, "D"),
-            np.timedelta64(1, "D")
+            end_time + 2 * time_step,
+            time_step,
         )
 
-        for ind, input_dataset in enumerate(self.input_datasets):
-            weights = (self.input_files[:, ind] != None).astype(np.float32)
-            y = np.histogram(self.times, weights=weights, bins=bins)[0]
-            x = bins[:-1]
-            ax.plot(x, y, label=input_dataset.name)
+        acc = None
+        x = bins[:-1] + 0.5 * (bins[1:] - bins[:-1])
+
+        n_ds = len(datasets)
+        norm = Normalize(0, n_ds)
+        cmap = ScalarMappable(norm=norm, cmap="plasma")
+
+        for ind, dataset in enumerate(datasets):
+            weights = (files[:, ind] != None).astype(np.float32)
+            cts = np.histogram(times, weights=weights, bins=bins)[0]
+
+            color = cmap.to_rgba(ind)
+
+            if acc is None:
+                ax.fill_between(x, cts, label=dataset.name, facecolor=color, edgecolor="none", alpha=0.7, linewidth=2)
+                acc = cts
+            else:
+                print("acc")
+                ax.fill_between(x, acc, acc + cts, label=dataset.name, facecolor=color, edgecolor="none", alpha=0.7, linewidth=2)
+                acc += cts
+
         return ax
 
+    def plot_input_sample_frequency(
+            self,
+            ax=None,
+            temporal_resolution="M"
+    ):
+        self._plot_sample_frequency(self.input_datasets, self.input_files, ax=ax, temporal_resolution=temporal_resolution)
+
+    def plot_reference_sample_frequency(
+            self,
+            ax=None,
+            temporal_resolution="M"
+    ):
+        self._plot_sample_frequency(self.reference_datasets, self.reference_files, ax=ax, temporal_resolution=temporal_resolution)
 
 
 class CHIMPPretrainDataset(SingleStepDataset):
