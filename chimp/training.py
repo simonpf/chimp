@@ -416,6 +416,7 @@ class TrainingConfig(pr.training.TrainingConfigBase):
     optimizer_args: Optional[dict] = None
     scheduler: str = None
     scheduler_args: Optional[dict] = None
+    milestones: Optional[list] = None
     gradient_clipping: Optional[float] = None
     minimum_lr: Optional[float] = None
     reuse_optimizer: bool = False
@@ -517,12 +518,13 @@ class TrainingConfig(pr.training.TrainingConfigBase):
         )
 
         scheduler = get_config_attr(
-            "scheduler", str, config_dict, f"training stage '{name}'", "none"
+            "scheduler", None, config_dict, f"training stage {name}", None
         )
-        if scheduler == "none":
-            scheduler = None
         scheduler_args = get_config_attr(
-            "scheduler_args", dict, config_dict, f"training stage '{name}'", {}
+            "scheduler_args", None, config_dict, f"training stage {name}", {}
+        )
+        milestones = get_config_attr(
+            "milestones", list, config_dict, f"training stage {name}", None
         )
         gradient_clipping = get_config_attr(
             "gradient_clipping", float, config_dict, f"training stage '{name}'", -1.0
@@ -589,6 +591,7 @@ class TrainingConfig(pr.training.TrainingConfigBase):
             optimizer_args=optimizer_args,
             scheduler=scheduler,
             scheduler_args=scheduler_args,
+            milestones=milestones,
             batch_size=batch_size,
             gradient_clipping=gradient_clipping,
             minimum_lr=minimum_lr,
