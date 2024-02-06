@@ -84,7 +84,7 @@ def get_date(path: Union[Path, str]) -> np.datetime64:
     if isinstance(path, str):
         path = Path(path)
 
-    _, yearmonthday, hour, minute = path.stem.split("_")
+    *_, yearmonthday, hour, minute = path.stem.split("_")
     year = yearmonthday[:4]
     month = yearmonthday[4:6]
     day = yearmonthday[6:]
