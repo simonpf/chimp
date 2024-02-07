@@ -427,6 +427,7 @@ class TrainingConfig(pr.training.TrainingConfigBase):
 
     log_every_n_steps: Optional[int] = None
     gradient_clip_val: Optional[float] = None
+    gradient_clip_algorithm: Optional[str] = None
     accumulate_grad_batches: Optional[int] = None
     n_data_loader_workers: int = 12
     load_weights: Optional[str] = None
@@ -564,6 +565,9 @@ class TrainingConfig(pr.training.TrainingConfigBase):
         gradient_clip_val = get_config_attr(
             "gradient_clip_val", float, config_dict, f"training stage {name}", None
         )
+        gradient_clip_algorithm = get_config_attr(
+            "gradient_clip_algorithm", str, config_dict, f"training stage {name}", None
+        )
         accumulate_grad_batches = get_config_attr(
             "accumulate_grad_batches", int, config_dict, f"training stage {name}", None
         )
@@ -602,6 +606,7 @@ class TrainingConfig(pr.training.TrainingConfigBase):
             require_input=require_input,
             log_every_n_steps=log_every_n_steps,
             gradient_clip_val=gradient_clip_val,
+            gradient_clip_algorithm=gradient_clip_algorithm,
             accumulate_grad_batches=accumulate_grad_batches,
             n_data_loader_workers=n_data_loader_workers,
             load_weights=load_weights,
