@@ -69,6 +69,9 @@ def run_forecast(
             seq = []
             for tensor in tensors:
                 seq.append(tensor.expected_value().cpu().numpy()[0, 0])
-            results[name] = (("time", "y", "x"), np.stack(seq, 0))
+            results[name] = (("step", "y", "x"), np.stack(seq, 0))
 
+    results = xr.Dataset(results)
+    steps = (np.arange(0, forecast_steps) * model.time_step).astype("timedelta64[m]")
+    results["step"] = steps
     return xr.Dataset(results)
