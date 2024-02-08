@@ -12,13 +12,14 @@ from typing import Optional
 
 import numpy as np
 from pansat import TimeRange
-from pansat.products.satellite.ncei import ssmi_csu
+from pansat.products.satellite.ncei import ssmi_csu_gridded, ssmis_csu_gridded
 import pyresample
 from pyresample.geometry import SwathDefinition
 from pyresample import kd_tree
 import xarray as xr
 
-from chimp.data.input import Input, MinMaxNormalized
+from chimp.data.input import Input
+from chimp.data.utils import get_output_filename
 
 
 def load_observations(path: Path) -> xr.Dataset:
@@ -31,42 +32,54 @@ def load_observations(path: Path) -> xr.Dataset:
     Return:
          An xarray.Dataset containing the loaded data.
     """
+    channels = [
+        "fcdr_tb19h",
+        "fcdr_tb19v",
+        "fcdr_tb22v",
+        "fcdr_tb37h",
+        "fcdr_tb37v",
+        "fcdr_tb85v",
+        "fcdr_tb85h",
+    ]
+
     with xr.open_dataset(path) as data:
-        scan_time = data["scan_time_lores"].data
-        latitude_lores = data["lat_lores"].data
-        longitude_lores = data["lon_lores"].data
-        latitude_hires = data["lat_hires"].data
-        longitude_hires = data["lon_hires"].data
 
-        obs_lores = np.stack(
-            [
-                data["fcdr_tb19h"].data,
-                data["fcdr_tb19v"].data,
-                data["fcdr_tb22v"].data,
-                data["fcdr_tb37h"].data,
-                data["fcdr_tb37v"].data,
-            ],
-            axis=-1,
+        if "fcdr_tb85v" not in data:
+            channels = [
+                "fcdr_tb19h",
+                "fcdr_tb19v",
+                "fcdr_tb22v",
+                "fcdr_tb37h",
+                "fcdr_tb37v",
+                "fcdr_tb91v",
+                "fcdr_tb91h",
+            ]
+
+        data = data.assign_coords(lon=(((data.lon + 180) % 360) - 180))
+
+        obs_lores_asc = xr.concat(
+            [data[chan + "_asc"] for chan in channels[:5]], "channels_lores"
         )
-        obs_hires = np.stack(
-            [
-                data["fcdr_tb85h"].data,
-                data["fcdr_tb85v"].data,
-            ],
-            axis=-1,
+        obs_lores_des = xr.concat(
+            [data[chan + "_dsc"] for chan in channels[:5]], "channels_lores"
+        )
+        obs_hires_asc = xr.concat(
+            [data[chan + "_asc"] for chan in channels[5:]], "channels_hires"
+        )
+        obs_hires_des = xr.concat(
+            [data[chan + "_dsc"] for chan in channels[5:]], "channels_hires"
         )
 
-    return xr.Dataset(
-        {
-            "scan_time": (("scans_lores",), scan_time),
-            "latitude_lores": (("scans_lores", "pixels_lores"), latitude_lores),
-            "longitude_lores": (("scans_lores", "pixels_lores"), longitude_lores),
-            "obs_lores": (("scans_lores", "pixels_lores", "channels_lores"), obs_lores),
-            "latitude_hires": (("scans_hires", "pixels_hires"), latitude_hires),
-            "longitude_hires": (("scans_hires", "pixels_hires"), longitude_hires),
-            "obs_hires": (("scans_hires", "pixels_hires", "channels_hires"), obs_hires),
-        }
-    )
+    data = xr.Dataset({
+        "longitude": (("longitude",), data.lon.data),
+        "latitude": (("latitude",), data.lat.data),
+        "obs_lores_asc": (("latitude", "longitude", "channels_lores"), obs_lores_asc.transpose("lat", "lon", "channels_lores").data),
+        "obs_lores_des": (("latitude", "longitude", "channels_lores"), obs_lores_des.transpose("lat", "lon", "channels_lores").data),
+        "obs_hires_asc": (("latitude", "longitude", "channels_hires"), obs_hires_asc.transpose("lat", "lon", "channels_hires").data),
+        "obs_hires_des": (("latitude", "longitude", "channels_hires"), obs_hires_des.transpose("lat", "lon", "channels_hires").data)
+    })
+
+    return data.transpose("latitude", "longitude", "channels_lores", "channels_hires")
 
 
 def resample_data(
@@ -135,7 +148,7 @@ def resample_data(
     return output_data
 
 
-class SSMI(Input, MinMaxNormalized):
+class SSMI(Input):
     """
     Provides an interface to extract and load training data from the PATMOS-X
     dataset.
@@ -189,43 +202,37 @@ class SSMI(Input, MinMaxNormalized):
         if isinstance(domain, dict):
             domain = domain[16]
 
+        lons, lats = domain.get_lonlats()
+        lons = lons[0]
+        lats = lats[:, 0]
+
         while time < end:
             time_range = TimeRange(time, time + time_step - timedelta(seconds=1))
 
-            recs = ssmi_csu.find_files(time_range)
-            recs = [rec.get() for rec in recs]
+            if time > datetime(2015, 1, 1):
+                prod = ssmis_csu_gridded
+            else:
+                prod = ssmi_csu_gridded
+
+            recs = prod.find_files(time_range)
 
             if len(recs) > 0:
-                data_asc = None
-                data_des = None
-                for rec in recs:
-                    # Some files are empty so we want to skip those.
-                    try:
-                        data = load_observations(rec.local_path)
-                        data_asc = resample_data(data, domain, data_asc, "asc")
-                        data_des = resample_data(data, domain, data_des, "des")
-                    except KeyError:
-                        continue
-
-                data_asc = data_asc.rename(
-                    obs_lores="obs_lores_asc",
-                    obs_hires="obs_hires_asc",
+                rec = recs[0].get()
+                data = load_observations(rec.local_path)
+                data = data.interp(
+                    latitude=lats,
+                    longitude=lons
                 )
-                data_des = data_des.rename(
-                    obs_lores="obs_lores_des",
-                    obs_hires="obs_hires_des",
-                )
-
-                data = xr.merge(
-                    [data_asc, data_des],
-                )
-
                 filename = time.strftime("ssmi_%Y%m%d_%H%M.nc")
+
+                output_filename = get_output_filename(
+                    "ssmi", time, minutes=1440
+                )
                 encodings = {
                     obs: {"dtype": "float32", "zlib": True}
                     for obs in data.variables
                 }
-                data.to_netcdf(output_folder / filename, encoding=encodings)
+                data.to_netcdf(output_folder / output_filename, encoding=encodings)
 
             time = time + time_step
 
