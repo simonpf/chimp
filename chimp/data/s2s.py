@@ -11,14 +11,19 @@ from datetime import datetime, timedelta
 
 import numpy as np
 import xarray as xr
+import pansat
 from pansat import TimeRange
 from pansat.download.providers import ecmwf
 from pansat.products.model.ecmwf import (
-    s2s_ecmwf_total_precip
+    s2s_ecmwf_total_precip,
+    s2s_ecmwf_total_precip_10,
+    s2s_ukmo_total_precip,
+    s2s_ukmo_total_precip_3,
 )
 
 from chimp.data.utils import get_output_filename
 from chimp.data.reference import ReferenceData
+
 
 class S2SForecast(ReferenceData):
     """
@@ -26,15 +31,18 @@ class S2SForecast(ReferenceData):
     """
     def __init__(
         self,
-        name,
+        name: str,
+        control_product: pansat.Product,
+        ensemble_product: pansat.Product
     ):
         """
         Args:
             scale: The native scale of the precipitation dataset.
         """
         self.scale = 32
+        self.control_product = control_product
+        self.ensemble_product = ensemble_product
         super().__init__(name, self.scale, None, None)
-
 
     def process_day(
             self,
@@ -78,22 +86,44 @@ class S2SForecast(ReferenceData):
         time = start_time
         while time < end_time:
             time_range = TimeRange(time, time + timedelta(days=1))
-            recs = s2s_ecmwf_total_precip.find_files(time_range)
+            recs = self.control_product.find_files(time_range)
             if len(recs) > 0:
+
                 rec = recs[0].get()
-                data = xr.load_dataset(rec.local_path)
+                data = self.control_product.open(rec)
 
                 time_64 = np.datetime64(time.strftime("%Y-%m-%dT%H:%M:%S"))
                 if time_64 in data.time:
+
                     ind = np.where(data.time == time_64)[0][0]
-                    data_t = data[{"time": ind}].resample(step="1d").sum()
+                    data_t = data[{"time": ind}]
+
+                    if np.timedelta64(0, "h") not in data_t.step:
+                        steps = np.concatenate([[np.timedelta64(0, "h")], data_t.step.data])
+                        data_t = data_t.interp(step=steps, method="nearest", kwargs={"fill_value": "extrapolate"})
+                    precip = np.diff(data_t.tp.data, axis=0)
+
+                    recs_ens = self.ensemble_product.get(time_range)
+                    data_ens = self.ensemble_product.open(recs_ens[0])
+                    data_ens = data_ens[{"time": ind}]
+                    if np.timedelta64(0, "h") not in data_ens.step:
+                        steps = np.concatenate([[np.timedelta64(0, "h")], data_ens.step.data])
+                        data_ens = data_ens.interp(step=steps, method="nearest", kwargs={"fill_value": "extrapolate"})
+                    data_ens = data_ens.mean("number")
+                    precip_ens = np.diff(data_t.tp.data, axis=0)
+
+                    data_t = xr.Dataset({
+                        "latitude": (("latitude",), data_t.latitude.data),
+                        "longitude": (("longitude",), data_t.longitude.data),
+                        "step": (("step",), data_t.step.data[:-1]),
+                        "precipitation": (("step", "latitude", "longitude"), precip),
+                        "precipitation_em": (("step", "latitude", "longitude"), precip_ens)
+                    })
+                    data_t = data_t.resample(step="1D").sum()
                     data_t = data_t.interp(
                         longitude=lons,
                         latitude=lats
                     )
-                    data_t = data_t.rename({
-                        "tp": "precipitation"
-                    })
 
                     output_filename = get_output_filename(
                         self.name, time, time_step.total_seconds() // 60
@@ -106,4 +136,5 @@ class S2SForecast(ReferenceData):
             time = time + time_step
 
 
-s2s_ecwmf = S2SForecast("s2s_ecmwf")
+s2s_ecwmf = S2SForecast("s2s_ecmwf", s2s_ecmwf_total_precip, s2s_ecmwf_total_precip_10)
+s2s_ukmo = S2SForecast("s2s_ukmo", s2s_ukmo_total_precip, s2s_ukmo_total_precip_3)
