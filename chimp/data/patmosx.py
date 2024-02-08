@@ -14,7 +14,8 @@ from pansat import TimeRange
 from pansat.products.satellite.ncei import patmosx_asc, patmosx_des
 import xarray as xr
 
-from chimp.data.input import Input, MinMaxNormalized
+from chimp.data.utils import get_output_filename
+from chimp.data.input import Input
 
 
 LOGGER = logging.getLogger()
@@ -85,7 +86,7 @@ def load_observations(path):
 
 
 
-class PATMOSX(Input, MinMaxNormalized):
+class PATMOSX(Input):
     """
     Provides an interface to extract and load training data from the PATMOS-X
     dataset.
@@ -197,7 +198,10 @@ class PATMOSX(Input, MinMaxNormalized):
 
                 data = xr.merge([data_asc, data_des])[{"time": 0}]
                 data = data.interp(latitude=lats, longitude=lons)
-                filename = time.strftime("patmosx_%Y%m%d_%H%M.nc")
+                output_filename = get_output_filename(
+                    "patmosx", time, time_step.total_seconds() // 60
+                )
+
                 encodings = {
                     obs: {"dtype": "float32", "zlib": True}
                     for obs in data.variables
