@@ -38,8 +38,8 @@ def load_observations(path: Path) -> xr.Dataset:
         "fcdr_tb22v",
         "fcdr_tb37h",
         "fcdr_tb37v",
-        "fcdr_tb85v",
         "fcdr_tb85h",
+        "fcdr_tb85v",
     ]
 
     with xr.open_dataset(path) as data:
@@ -51,8 +51,8 @@ def load_observations(path: Path) -> xr.Dataset:
                 "fcdr_tb22v",
                 "fcdr_tb37h",
                 "fcdr_tb37v",
-                "fcdr_tb91v",
                 "fcdr_tb91h",
+                "fcdr_tb91v",
             ]
 
         data = data.assign_coords(lon=(((data.lon + 180) % 360) - 180))
