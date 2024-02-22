@@ -14,26 +14,27 @@ dependencies:
   - pyyaml
   - pooch
   - zarr
-  - dask[version='>=0.17.1']
+  - dask
   - pyorbital
-  - pyresample[version='>=1.10.3']
-  - trollimage[version='>=1.5.1']
+  - pyresample
+  - trollimage
   - appdirs
   - h5py
   - donfig
   - pillow
-  - numpy[version='>=1.4.1']
+  - numpy
   - pyspectral
   - trollsift
-  - xarray[version='>=0.10.1']
+  - xarray
   - satpy
-  - shapely[version='>2.0']
+  - shapely
   - cartopy
-  - llvm-openmp[version='14']
+  - llvm-openmp
   - ipywidgets
   - lightning
   - protobuf
   - geopandas
+  - jupyter-book
   - pip:
     - "git+https://github.com/see-geo/pansat@refactoring"
     - "git+https://github.com/simonpf/pytorch_retrieve"
