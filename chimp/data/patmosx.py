@@ -75,10 +75,13 @@ def load_observations(path):
     dims_imager = ("time", "latitude", "longitude", "channels_imager")
     dims_sounder = ("time", "latitude", "longitude", "channels_sounder")
 
+    scan_line_time = data["scan_line_time"].dt.seconds.astype("float32").data
+
     return xr.Dataset({
         "time": (("time",), time),
         "latitude": (("latitude",), latitude),
         "longitude": (("longitude",), longitude),
+        "scan_line_time": (("time", "latitude", "longitude"), scan_line_time),
         "obs_imager": (dims_imager, obs_imager),
         "obs_sounder": (dims_sounder, obs_sounder),
     })
@@ -153,60 +156,61 @@ class PATMOSX(Input):
                 time + time_step - timedelta(seconds=1)
             )
 
-            recs_asc = patmosx_asc.find_files(time_range)[:1]
-            recs_asc = [rec.get() for rec in recs_asc]
-            recs_des = patmosx_des.find_files(time_range)[:1]
-            recs_des = [rec.get() for rec in recs_des]
+            recs = patmosx_asc.find_files(time_range)
+            recs += patmosx_des.find_files(time_range)
+            recs = [rec.get() for rec in recs]
 
-            if len(recs_asc) > 0:
-                data_asc = load_observations(recs_asc[0].local_path).rename(
-                    obs_sounder="obs_sounder_asc",
-                    obs_imager="obs_imager_asc"
-                )
-            else:
-                data_asc = None
-
-            if len(recs_des) > 0:
-                data_des = load_observations(recs_des[0].local_path).rename(
-                    obs_sounder="obs_sounder_des",
-                    obs_imager="obs_imager_des"
-                )
-            else:
-                data_des = None
-
-            if data_asc is None and data_des is None:
+            if len(recs) == 0:
                 LOGGER.warning(
                     "Didn't find any Patmos-X observations for %s.",
                     time
                 )
-            else:
-                if data_des is None:
-                    data_des = data_asc.copy().rename(
-                        obs_imager_asc="obs_imager_des",
-                        obs_sounder_asc="obs_sounder_des"
-                    )
-                    data_des.obs_imager_des.data[:] = np.nan
-                    data_des.obs_sounder_des.data[:] = np.nan
+                time = time + time_step
+                continue
 
-                if data_asc is None:
-                    data_asc = data_des.copy().rename(
-                        obs_imager_des="obs_imager_asc",
-                        obs_sounder_des="obs_sounder_asc"
-                    )
-                    data_asc.obs_imager_asc.data[:] = np.nan
-                    data_asc.obs_sounder_asc.data[:] = np.nan
+            obs_sounder = np.nan * np.zeros((lats.size, lons.size, 4, 8), np.float32)
+            obs_imager = np.nan * np.zeros((lats.size, lons.size, 4, 15), np.float32)
+            time_bins = np.arange(0, 25, 6) * 3600
 
-                data = xr.merge([data_asc, data_des])[{"time": 0}]
+
+            for rec in recs:
+                print(rec.local_path)
+                data = load_observations(rec.local_path)[{"time": 0}]
                 data = data.interp(latitude=lats, longitude=lons)
-                output_filename = get_output_filename(
-                    "patmosx", time, time_step.total_seconds() // 60
-                )
+                data = data.transpose("latitude", "longitude", ...)
+                scan_time = data.scan_line_time.data
 
-                encodings = {
-                    obs: {"dtype": "float32", "zlib": True}
-                    for obs in data.variables
-                }
-                data.to_netcdf(output_folder / filename, encoding=encodings)
+                for ind in range(4):
+                    lower = time_bins[ind]
+                    upper = time_bins[ind + 1]
+                    mask = (scan_time >= lower) * (scan_time < upper)
+
+                    data_sounder = data["obs_sounder"].data
+                    valid = mask * np.isfinite(data_sounder).any(-1)
+                    obs_sounder[valid, ind] = data["obs_sounder"].data[valid]
+
+                    data_imager = data["obs_imager"].data
+                    valid = mask * np.isfinite(data_imager).any(-1)
+                    obs_imager[valid, ind] = data["obs_imager"].data[valid]
+
+
+            time_of_day = time_bins[:-1] + 0.5 * (time_bins[1:] - time_bins[:-1])
+
+            results = xr.Dataset({
+                "latitude": (("latitude",), lats),
+                "longitude": (("longitude",), lons),
+                "time_of_day": (("time_of_day"), time_of_day.astype("timedelta64[s]")),
+                "obs_sounder": (("latitude", "longitude", "time_of_day", "channels_sounder"), obs_sounder),
+                "obs_imager": (("latitude", "longitude", "time_of_day", "channels_imager"), obs_imager)
+            })
+            output_filename = get_output_filename(
+                "patmosx", time, time_step.total_seconds() // 60
+            )
+            encodings = {
+                obs: {"dtype": "float32", "zlib": True}
+                for obs in results.variables if obs != "time_of_day"
+            }
+            results.to_netcdf(output_folder / output_filename, encoding=encodings)
 
             time = time + time_step
 
