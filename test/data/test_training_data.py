@@ -209,8 +209,8 @@ def test_load_sample_forecast(cpcir_data, mrms_surface_precip_data):
     x, y = training_data[0]
     assert len(x["cpcir"]) == 8
     assert len(y["surface_precip"]) == 4
-    assert "lead_times" in x
-    assert len(x["lead_times"]) == 4
+    assert "lead_time" in x
+    assert len(x["lead_time"]) == 4
 
     # Test reduced output size.
     training_data = SequenceDataset(

@@ -476,7 +476,6 @@ class SingleStepDataset:
                 ax.fill_between(x, cts, label=dataset.name, facecolor=color, edgecolor="none", alpha=0.7, linewidth=2)
                 acc = cts
             else:
-                print("acc")
                 ax.fill_between(x, acc, acc + cts, label=dataset.name, facecolor=color, edgecolor="none", alpha=0.7, linewidth=2)
                 acc += cts
 
@@ -613,6 +612,7 @@ class SequenceDataset(SingleStepDataset):
         scene_size: int = 256,
         sequence_length: int = 32,
         forecast: int = 0,
+        forecast_range: Optional[int] = None,
         include_input_steps: bool = True,
         start_time: np.datetime64 = None,
         end_time: np.datetime64 = None,
@@ -668,7 +668,10 @@ class SequenceDataset(SingleStepDataset):
 
         self.sequence_length = sequence_length
         self.forecast = forecast
-        total_length =  sequence_length + forecast
+        if forecast_range is None:
+            forecast_range = forecast
+        self.forecast_range = forecast_range
+        total_length =  sequence_length + forecast_range
         self.total_length = total_length
         self.include_input_steps = include_input_steps
         self.shrink_output = shrink_output
@@ -749,7 +752,7 @@ class SequenceDataset(SingleStepDataset):
         y = {}
 
         start_index = self.sequence_starts[index]
-        for step in range(self.total_length):
+        for step in range(self.sequence_length):
             step_index = start_index + step
             if step < self.sequence_length:
                 x_i = self.load_input_sample(
@@ -769,19 +772,23 @@ class SequenceDataset(SingleStepDataset):
                         }
                     for name, inpt in y_i.items():
                         y.setdefault(name, []).append(inpt)
-            else:
-                y_i = self.load_reference_sample(
-                    self.reference_files[step_index], slices, self.scene_size, rotate=ang, flip=flip
-                )
-                for name, inpt in y_i.items():
-                    y.setdefault(name, []).append(inpt)
 
-        if self.forecast > 0:
-            x["lead_time"] = torch.tensor(
-                [
-                    step * self.time_step.astype("int64") // 60
-                    for step in range(1, self.forecast + 1)
-                ]
+        forecast_steps = np.arange(0, self.forecast_range)
+        if self.forecast_range > self.forecast:
+            forecast_steps = self.rng.permutation(forecast_steps)
+
+        for step in forecast_steps[:self.forecast]:
+            step_index = start_index + self.sequence_length + step
+            y_i = self.load_reference_sample(
+                self.reference_files[step_index], slices, self.scene_size, rotate=ang, flip=flip
             )
-        return x, y
+            for name, inpt in y_i.items():
+                y.setdefault(name, []).append(inpt)
 
+            lead_time = self.time_step * (1 + step_index - start_index - self.sequence_length)
+            minutes = lead_time.astype("int64") // 60
+            x.setdefault("lead_time", []).append(minutes)
+
+        x["lead_time"] = torch.tensor(x["lead_time"])
+
+        return x, y
