@@ -406,6 +406,7 @@ class TrainingConfig(pr.training.TrainingConfigBase):
     sample_rate: int
     sequence_length: int
     forecast: int
+    forecast_range: Optional[int]
     shrink_output: Optional[int]
     scene_size: int
     augment: bool
@@ -468,6 +469,9 @@ class TrainingConfig(pr.training.TrainingConfigBase):
         )
         forecast = get_config_attr(
             "forecast", int, config_dict, f"training stage '{name}'", 0
+        )
+        forecast_range = get_config_attr(
+            "forecast_range", int, config_dict, f"training stage '{name}'", None
         )
         shrink_output = get_config_attr(
             "shrink_output", int, config_dict, f"training stage '{name}'", None
@@ -586,6 +590,7 @@ class TrainingConfig(pr.training.TrainingConfigBase):
             sample_rate=sample_rate,
             sequence_length=sequence_length,
             forecast=forecast,
+            forecast_range=forecast_range,
             shrink_output=shrink_output,
             scene_size=scene_size,
             augment=augment,
@@ -637,6 +642,7 @@ class TrainingConfig(pr.training.TrainingConfigBase):
                 scene_size=self.scene_size,
                 sequence_length=self.sequence_length,
                 forecast=self.forecast,
+                forecast_range=self.forecast_range,
                 shrink_output=self.shrink_output,
                 missing_value_policy="none",
                 augment=self.augment,
@@ -670,6 +676,7 @@ class TrainingConfig(pr.training.TrainingConfigBase):
                 scene_size=self.scene_size,
                 sequence_length=self.sequence_length,
                 forecast=self.forecast,
+                forecast_range=self.forecast_range,
                 shrink_output=self.shrink_output,
                 missing_value_policy="none",
                 augment=False,
@@ -758,7 +765,11 @@ def cli(
         name: TrainingConfig.parse(name, cfg) for name, cfg in training_config.items()
     }
 
-    module = LightningRetrieval(retrieval_model, "retrieval_module", training_schedule)
+    module = LightningRetrieval(
+        retrieval_model,
+        name="retrieval_module",
+        training_schedule=training_schedule
+    )
 
     compute_config = read_compute_config(LOGGER, model_path, compute_config)
     if compute_config is not None:

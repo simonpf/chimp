@@ -174,7 +174,6 @@ class PATMOSX(Input):
 
 
             for rec in recs:
-                print(rec.local_path)
                 data = load_observations(rec.local_path)[{"time": 0}]
                 data = data.interp(latitude=lats, longitude=lons)
                 data = data.transpose("latitude", "longitude", ...)
