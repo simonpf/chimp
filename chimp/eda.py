@@ -55,11 +55,20 @@ from chimp.training import TrainingConfig
         " directory."
     ),
 )
+@click.option(
+    "--compute_config",
+    default=None,
+    help=(
+        "Path to the compute config file defining the compute environment for "
+        " the training."
+    ),
+)
 def cli(
     model_path: Optional[Path],
     stats_path: Path,
     model_config: Optional[Path],
     training_config: Optional[Path],
+    compute_config: Optional[Path],
 ) -> int:
     """
     Train retrieval model.
@@ -111,9 +120,14 @@ def cli(
         name: TrainingConfig.parse(name, cfg) for name, cfg in training_config.items()
     }
 
+    compute_config = read_compute_config(LOGGER, model_path, compute_config)
+    if isinstance(compute_config, dict):
+        compute_config = ComputeConfig.parse(compute_config)
+
     run_eda(
         stats_path,
         input_configs,
         output_configs,
-        training_schedule
+        training_schedule,
+        compute_config
     )
