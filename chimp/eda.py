@@ -13,7 +13,7 @@ import click
 from pytorch_retrieve.lightning import LightningRetrieval
 from pytorch_retrieve.eda import run_eda
 from pytorch_retrieve.architectures import compile_architecture
-from pytorch_retrieve.config import ComputeConfig, InputConfig
+from pytorch_retrieve.config import ComputeConfig, InputConfig, OutputConfig
 from pytorch_retrieve.utils import (
     read_model_config,
     read_training_config,
@@ -27,6 +27,15 @@ from chimp.training import TrainingConfig
     "--model_path",
     default=None,
     help="The model directory. Defaults to the current working directory",
+)
+@click.option(
+    "--stats_path",
+    default=None,
+    help=(
+        "Directory to which to write the resulting statistics files. If not "
+        "set, they will be written to directory named 'stats' in the model "
+        "path. "
+    )
 )
 @click.option(
     "--model_config",
@@ -48,6 +57,7 @@ from chimp.training import TrainingConfig
 )
 def cli(
     model_path: Optional[Path],
+    stats_path: Path,
     model_config: Optional[Path],
     training_config: Optional[Path],
 ) -> int:
@@ -70,6 +80,11 @@ def cli(
 
     if model_path is None:
         model_path = Path(".")
+    else:
+        model_path = Path(model_path)
+
+    if stats_path is None:
+        stats_path = model_path / "stats"
 
     LOGGER = logging.getLogger(__name__)
     model_config = read_model_config(LOGGER, model_path, model_config)
@@ -88,8 +103,17 @@ def cli(
         name: InputConfig.parse(name, cfg)
         for name, cfg in model_config["input"].items()
     }
+    output_configs = {
+        name: OutputConfig.parse(name, cfg)
+        for name, cfg in model_config["output"].items()
+    }
     training_schedule = {
         name: TrainingConfig.parse(name, cfg) for name, cfg in training_config.items()
     }
 
-    run_eda(model_path, input_configs, training_schedule)
+    run_eda(
+        stats_path,
+        input_configs,
+        output_configs,
+        training_schedule
+    )
