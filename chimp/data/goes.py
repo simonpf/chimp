@@ -162,6 +162,7 @@ def save_file(dataset, output_folder):
 class GOESInputData(Input, MinMaxNormalized):
     def __init__(self):
         super().__init__("goes", 4, ["refls", "tbs"])
+        self.n_channels = 11
 
     def process_day(
             self,
