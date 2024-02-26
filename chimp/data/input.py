@@ -226,37 +226,6 @@ class Input(InputBase):
         self.n_dim = n_dim
         self.spatial_dims = spatial_dims[: self.n_dim]
 
-    def replace_missing(self, tensor, missing_value_policy, rng):
-        """
-        Replace missing values in tensor.
-
-        Args:
-            tensor: A torch.tensor containing the input data for a
-                single sample.
-            missing_value_policy: Policy describing how to replace missing
-                values.
-            rng: A numpy random generator object.
-
-        Return:
-            A new tensor with NAN's replaced according to the missing value
-            policy.
-        """
-        mask = torch.isnan(tensor)
-        if missing_value_policy == "random":
-            repl = rng.normal(size=tensor.shape).astype(np.float32)
-            tensor = torch.where(mask, torch.tensor(repl), tensor)
-        elif missing_value_policy == "missing":
-            tensor = torch.where(mask, -1.5, tensor)
-        elif missing_value_policy == "masked":
-            tensor = MaskedTensor(tensor.to(dtype=torch.float32), mask=mask)
-        elif missing_value_policy == "none":
-            pass
-        else:
-            raise ValueError(
-                f"Missing input policy '{missing_value_policy}' is not known. Choose between 'sparse'"
-                " 'random', 'mean' and 'missing'. "
-            )
-        return tensor
 
     def find_files(self, base_path: Path) -> List[Path]:
         """
@@ -279,7 +248,6 @@ class Input(InputBase):
         base_scale: int,
         slices: Tuple[slice, slice],
         rng: np.random.Generator,
-        missing_value_policy: str,
         rotate: Optional[float] = None,
         flip: Optional[bool] = False,
     ) -> torch.Tensor:
@@ -294,8 +262,6 @@ class Input(InputBase):
             sclices: Tuple of slices defining the part of the data to load.
             rng: A numpy random generator object to use to generate random
                 data.
-            missing_value_policy: A string describing how to handle missing
-                values.
             rotate: If given, the should specify the number of degree by
                 which the input should be rotated.
             flip: Bool indicated whether or not to flip the input along the
@@ -361,19 +327,10 @@ class Input(InputBase):
             if flip:
                 x_s = np.flip(x_s, -2)
         else:
-            if missing_value_policy == "sparse":
-                return None
             x_s = np.nan * np.ones(((self.n_channels,) + crop_size), dtype=np.float32)
 
-        # If we are here we're not returning None.
-        if missing_value_policy == "sparse":
-            missing_value_policy = "missing"
 
         x_s = torch.tensor(x_s.copy(), dtype=torch.float32)
-        if missing_value_policy == "masked":
-            mask = torch.ones_like(x_s).to(dtype=bool)
-            x_s = MaskedTensor(x_s, mask=mask)
-        x_s = self.replace_missing(x_s, missing_value_policy, rng)
 
         return x_s
 

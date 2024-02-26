@@ -462,7 +462,7 @@ class TrainingConfig(pr.training.TrainingConfigBase):
             "reference_datasets", list, config_dict, f"training stage '{name}'"
         )
         sample_rate = get_config_attr(
-            "sample_rate", int, config_dict, f"training stage '{name}'", 1
+            "sample_rate", float, config_dict, f"training stage '{name}'", 1.0
         )
         sequence_length = get_config_attr(
             "sequence_length", int, config_dict, f"training stage '{name}'", 1
@@ -573,7 +573,7 @@ class TrainingConfig(pr.training.TrainingConfigBase):
             "gradient_clip_algorithm", str, config_dict, f"training stage {name}", None
         )
         accumulate_grad_batches = get_config_attr(
-            "accumulate_grad_batches", int, config_dict, f"training stage {name}", None
+            "accumulate_grad_batches", int, config_dict, f"training stage {name}", 1
         )
         n_data_loader_workers = get_config_attr(
             "n_data_loader_workers", int, config_dict, f"training stage {name}", 12
@@ -631,7 +631,6 @@ class TrainingConfig(pr.training.TrainingConfigBase):
                 sample_rate=self.sample_rate,
                 augment=self.augment,
                 scene_size=self.scene_size,
-                missing_value_policy="none",
             )
         else:
             return SequenceDataset(
@@ -644,7 +643,6 @@ class TrainingConfig(pr.training.TrainingConfigBase):
                 forecast=self.forecast,
                 forecast_range=self.forecast_range,
                 shrink_output=self.shrink_output,
-                missing_value_policy="none",
                 augment=self.augment,
                 include_input_steps=self.include_input_steps,
                 require_input=self.require_input
@@ -664,7 +662,6 @@ class TrainingConfig(pr.training.TrainingConfigBase):
                 sample_rate=self.sample_rate,
                 augment=False,
                 scene_size=self.scene_size,
-                missing_value_policy="none",
                 validation=True,
             )
         else:
@@ -678,7 +675,6 @@ class TrainingConfig(pr.training.TrainingConfigBase):
                 forecast=self.forecast,
                 forecast_range=self.forecast_range,
                 shrink_output=self.shrink_output,
-                missing_value_policy="none",
                 augment=False,
                 validation=True,
                 include_input_steps=self.include_input_steps,
