@@ -114,7 +114,7 @@ def cli(
         name: TrainingConfig.parse(name, cfg) for name, cfg in training_config.items()
     }
 
-    module = LightningRetrieval(retrieval_model, "retrieval_module", training_schedule)
+    module = LightningRetrieval(retrieval_model, training_schedule=training_schedule)
 
     compute_config = read_compute_config(LOGGER, model_path, compute_config)
     if isinstance(compute_config, dict):

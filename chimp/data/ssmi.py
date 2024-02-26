@@ -44,7 +44,7 @@ def load_observations(path: Path) -> xr.Dataset:
 
     with xr.open_dataset(path) as data:
 
-        if "fcdr_tb85v" not in data:
+        if "fcdr_tb85v_asc" not in data:
             channels = [
                 "fcdr_tb19h",
                 "fcdr_tb19v",

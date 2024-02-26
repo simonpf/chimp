@@ -100,7 +100,7 @@ class S2SForecast(ReferenceData):
 
                     if np.timedelta64(0, "h") not in data_t.step:
                         steps = np.concatenate([[np.timedelta64(0, "h")], data_t.step.data])
-                        data_t = data_t.interp(step=steps, method="nearest", kwargs={"fill_value": "extrapolate"})
+                        data_t = data_t.interp(step=steps, method="nearest", kwargs={"fill_value": 0.0})
                     precip = np.diff(data_t.tp.data, axis=0)
 
                     recs_ens = self.ensemble_product.get(time_range)
