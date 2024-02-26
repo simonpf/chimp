@@ -2,12 +2,13 @@
 chimp.data.training_data
 =======================
 
-Interface classes for loading the CHIMP training data.
+This module defines the CHIMP training data classes for loading single time-step
+input data and sequence data.
 """
 from dataclasses import dataclass
 from datetime import datetime
 import logging
-from math import ceil
+from math import floor
 import os
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Union
@@ -22,7 +23,7 @@ from scipy import fft
 from scipy import ndimage
 import torch
 from torch import nn
-from torch.utils.data import IterableDataset
+from torch.utils.data import Dataset
 import torch.distributed as dist
 import torchvision
 from torchvision.transforms.functional import center_crop
@@ -43,51 +44,9 @@ from chimp.data import input, reference
 LOGGER = logging.getLogger(__name__)
 
 
-def generate_input(
-    inpt: data.Input,
-    size: Tuple[int],
-    policy: str,
-    rng: np.random.Generator,
-):
+class SingleStepDataset(Dataset):
     """
-    Generate input values for missing inputs.
-
-    Args:
-        inpt: The input object for which to generate the input.
-        size: Side-length of the quadratic input array.
-        value: The value to fill the array with.
-        policy: The policy to use for the data generation.
-        rng: The random generator object to use to create random
-            arrays.
-
-    Return:
-        An numpy.ndarray containing replacement data.
-    """
-    if policy == "sparse":
-        return None
-    elif policy == "random":
-        return rng.normal(size=(inpt.n_channels,) + size)
-    elif policy == "mean":
-        return inpt.normalizer(
-            inpt.mean * np.ones(shape=(inpt.n_channels, size, size), dtype="float32")
-        )
-    elif policy == "missing":
-        return inpt.normalizer(
-            np.nan * np.ones(shpare=(inpt.n_channels, size, size), dtype="float32")
-        )
-
-    raise ValueError(
-        f"Missing input policy '{policy}' is not known. Choose between 'random'"
-        " 'mean' and 'constant'. "
-    )
-
-
-
-class SingleStepDataset:
-    """
-    Dataset class for the CHIMP training data.
-
-    Implements the PyTorch Dataset interface.
+    Pytorch Dataset class
     """
 
     def __init__(
@@ -95,12 +54,11 @@ class SingleStepDataset:
         path: Path,
         input_datasets: List[str],
         reference_datasets: List[str],
-        sample_rate: int = 1,
+        sample_rate: float = 1.0,
         scene_size: int = 128,
         start_time: Optional[np.datetime64] = None,
         end_time: Optional[np.datetime64] = None,
         augment: bool = True,
-        missing_value_policy: str = "sparse",
         time_step: Optional[np.timedelta64] = None,
         validation: bool = False,
         quality_threshold: Union[float, List[float]] = 0.8
@@ -115,19 +73,9 @@ class SingleStepDataset:
             sample_rate: How often each scene should be sampled per epoch.
             scene_size: Size of the training scenes. If 'scene_size' < 0, the full
             input data will be loaded.
-            start_time: Start time of time interval to which to restrict
-                training data.
-            end_time: End time of a time interval to which to restrict the
-                training data.
-            augment: Whether to apply random transformations to the training
-                inputs.
-            missing_value_policy: A string indicating how to handle missing input
-                data. Options:
-                    'random': Missing data is replaced with Gaussian noise.
-                    'mean' Missing value is replaced with the mean of the
-                    input data.
-                    'missing': Missing data is replaced with NANs
-                    'sparse': Instead of a tensor 'None' is returned.
+            start_time: Start time of time interval to which to restrict training data.
+            end_time: End time of a time interval to which to restrict the training data.
+            augment: Whether to apply random transformations to the training inputs.
             time_step: Minimum time step between consecutive reference samples.
                 Can be used to sub-sample the reference data.
             validation: If 'True', repeated sampling will reproduce identical scenes.
@@ -146,7 +94,6 @@ class SingleStepDataset:
 
         self.sample_rate = sample_rate
         self.augment = augment
-        self.missing_value_policy = missing_value_policy
 
         n_input_datasets = len(self.input_datasets)
         n_reference_datasets = len(self.reference_datasets)
@@ -362,7 +309,6 @@ class SingleStepDataset:
                 self.base_scale,
                 slices,
                 self.rng,
-                self.missing_value_policy,
                 rotate=rotate,
                 flip=flip,
             )
@@ -371,12 +317,16 @@ class SingleStepDataset:
 
     def __len__(self):
         """Number of samples in dataset."""
-        return len(self.times) * self.sample_rate
+        return floor(len(self.times) * self.sample_rate)
 
     def __getitem__(self, index):
         """Return ith training sample."""
         n_samples = len(self.times)
-        sample_index = index % n_samples
+        sample_index = int(index / self.sample_rate)
+        if self.augment:
+            limit = min(int((index + 1) / self.sample_rate), n_samples)
+            sample_index = self.rng.integers(sample_index, limit)
+
 
         # We load a larger window when input is rotated to avoid
         # missing values.
@@ -513,7 +463,6 @@ class CHIMPPretrainDataset(SingleStepDataset):
         start_time=None,
         end_time=None,
         augment=True,
-        missing_value_policy="sparse",
         time_step=None,
         quality_threshold=0.8,
     ):
@@ -525,7 +474,6 @@ class CHIMPPretrainDataset(SingleStepDataset):
             start_time=start_time,
             end_time=end_time,
             augment=augment,
-            missing_value_policy=missing_value_policy,
             time_step=time_step,
             quality_threshold=quality_threshold,
         )
@@ -622,7 +570,6 @@ class SequenceDataset(SingleStepDataset):
         time_step: Optional[np.timedelta64] = None,
         require_input: bool = False,
         quality_threshold: float = 0.8,
-        missing_value_policy: str = "masked",
     ):
         """
         Args:
@@ -650,7 +597,6 @@ class SequenceDataset(SingleStepDataset):
                 input data from at least one input dataset.
             quality_threshold: Thresholds for the quality indices applied to limit
                 reference data pixels.
-            missing_value: How to deal with missing values.
         """
         super().__init__(
             path,
@@ -660,7 +606,6 @@ class SequenceDataset(SingleStepDataset):
             scene_size=scene_size,
             start_time=start_time,
             end_time=end_time,
-            missing_value_policy=missing_value_policy,
             quality_threshold=quality_threshold,
             augment=augment,
             validation=validation,
@@ -772,6 +717,9 @@ class SequenceDataset(SingleStepDataset):
                         }
                     for name, inpt in y_i.items():
                         y.setdefault(name, []).append(inpt)
+
+        if self.forecast == 0:
+            return x, y
 
         forecast_steps = np.arange(0, self.forecast_range)
         if self.forecast_range > self.forecast:
