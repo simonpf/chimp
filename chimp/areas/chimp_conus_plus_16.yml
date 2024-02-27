@@ -1,0 +1,16 @@
+CHIMP_CONUS_PLUS:
+  description: Extended CHIMP region of interest over CONUS.
+  projection:
+    proj: laea
+    lat_0: 40.0
+    lon_0: -95.0
+    datum: WGS84
+    no_defs: null
+    type: crs
+  shape:
+    height: 375
+    width: 500
+  area_extent:
+    lower_left_xy: [-4_000_000, -3_000_000]
+    upper_right_xy: [4_000_000, 3_000_000]
+    units: m
