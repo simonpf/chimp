@@ -2,7 +2,7 @@
 chimp.data.opera
 ================
 
-Defines the OPERA input data class for loading precipitation and
+Defines the OPERA input data classes for loading precipitation and
  reflectivity estimates from OPERA composites.
 """
 from datetime import datetime, timedelta
@@ -17,11 +17,8 @@ from pyproj import Transformer
 from pyresample.geometry import AreaDefinition
 import xarray as xr
 
-from pansat import FileRecord, TimeRange, Geometry
-from pansat.geometry import LonLatRect
-from pansat.catalog import Index
-from pansat.products import Product, FilenameRegexpMixin
-from pansat.products.ground_based.opera import reflectivity
+from pansat import TimeRange, Product
+from pansat.products.ground_based.opera import reflectivity, surface_precip
 
 from chimp.data import ReferenceData
 from chimp.data.reference import RetrievalTarget
@@ -35,9 +32,18 @@ class Opera(ReferenceData):
     Represents reference data derived from OPERA radar composites.
     """
 
-    def __init__(self):
+    def __init__(
+            self,
+            target_name: str,
+            pansat_product: Product
+    ):
+        self.target_name = target_name
+        self.pansat_product = pansat_product
         super().__init__(
-            "opera", scale=4, targets=[RetrievalTarget("dbz")]
+            "opera_" + self.target_name,
+            scale=4,
+            targets=[RetrievalTarget(target_name)],
+            quality_index="quality_indicator"
         )
 
     def process_day(
@@ -79,7 +85,7 @@ class Opera(ReferenceData):
         if isinstance(domain, dict):
             domain = domain[self.scale]
 
-        file_recs = reflectivity.get(time_range)
+        file_recs = self.pansat_product.get(time_range)
         if len(file_recs) == 0:
             raise RuntimeError(f"Didn't find any OPERA files for {year}-{month}-{day}.")
         if len(file_recs) > 1:
@@ -87,24 +93,27 @@ class Opera(ReferenceData):
                 f"Found more that one OPERA file for {year}-{month}-{day}."
             )
 
-        opera_data = reflectivity.open(file_recs[0])
+        opera_data = self.pansat_product.open(file_recs[0])
 
         while time < end_time:
+
             opera_data_interp = opera_data.interp(time=time)
-            invalid = opera_data_interp.reflectivity.data < -9e6
-            opera_data_interp.reflectivity.data[invalid] = np.nan
-            noise = opera_data_interp.reflectivity.data < -30
-            opera_data_interp.reflectivity.data[noise] = -30
+
+            if "reflectivity" in opera_data_interp:
+                invalid = opera_data_interp.reflectivity.data < -9e6
+                opera_data_interp.reflectivity.data[invalid] = np.nan
+                noise = opera_data_interp.reflectivity.data < -30
+                opera_data_interp.reflectivity.data[noise] = -30
 
             data_r = resample_data(opera_data_interp, domain, radius_of_influence=4e3)
             data_r = data_r.drop_vars(["latitude", "longitude"])
-            data_r = data_r.rename({"reflectivity": "dbz", "quality_indicator": "qi"})
+            data_r = data_r.rename({"quality_indicator": "qi"})
 
             output_filename = get_output_filename(
-                "opera", time, minutes=time_step.total_seconds() // 60
+                self.target_name, time, minutes=time_step.total_seconds() // 60
             )
             encoding = {
-                "dbz": {
+                "reflectivity": {
                     "dtype": "uint8",
                     "add_offset": -30,
                     "scale_factor": 0.3,
@@ -123,4 +132,5 @@ class Opera(ReferenceData):
             time = time + time_step
 
 
-opera = Opera()
+opera = Opera("reflectivity", reflectivity)
+opera = Opera("surface_precip", surface_precip)
