@@ -20,13 +20,15 @@ from pyresample.geometry import AreaDefinition
 from scipy.stats import binned_statistic_2d
 from pansat.download.providers import IowaStateProvider
 from pansat.products.ground_based import mrms
+from pansat.utils import resample_data
 from pansat.time import TimeRange
 
 from pansat.time import to_datetime64
 import xarray as xr
 
 from chimp.utils import round_time
-from chimp.data.reference import ReferenceData, RetrievalTarget
+from chimp.data.utils import get_output_filename
+from chimp.data.reference import ReferenceDataset, RetrievalTarget
 from chimp import areas
 
 
@@ -41,19 +43,24 @@ PRECIP_TYPES = {
 }
 
 
-def resample_mrms_data(dataset: xr.Dataset) -> xr.Dataset:
+def resample_mrms_data(
+        dataset: xr.Dataset,
+        domain: areas.Area
+) -> xr.Dataset:
     """
     Resample MRMS data to CHIMP grid.
 
     Args:
         dataset: 'xarray.Dataset' containing the MRMS surface precip and
             radar quality index.
+        area: An Area object defining the domain to which to resample the MRMS
+            data.
 
     Return:
         A new dataset containing the surface precip and RQI data
         resampled to the CONUS 4-km domain.
     """
-    lons_out, lats_out = areas.CONUS_4.get_lonlats()
+    lons_out, lats_out = domain[4].get_lonlats()
 
     lons_out = lons_out[0]
     lon_bins = np.zeros(lons_out.size + 1)
@@ -67,7 +74,13 @@ def resample_mrms_data(dataset: xr.Dataset) -> xr.Dataset:
     lat_bins[0] = lat_bins[1] - (lat_bins[2] - lat_bins[1])
     lat_bins[-1] = lat_bins[-2] + lat_bins[-2] - lat_bins[-3]
 
-    lons, lats = areas.MRMS.get_lonlats()
+    flipped = False
+    print(np.diff(lat_bins))
+    if np.diff(lat_bins)[0] < 0:
+        flipped = True
+        lat_bins = lat_bins[::-1]
+
+    lons, lats = areas.MRMS[4].get_lonlats()
     sfp = dataset.surface_precip.data
     valid = sfp >= 0.0
     surface_precip = binned_statistic_2d(
@@ -105,6 +118,12 @@ def resample_mrms_data(dataset: xr.Dataset) -> xr.Dataset:
     precip_type_cts = np.argmax(np.stack(precip_type_cts), axis=0)
     precip_type_cts = np.nan_to_num(precip_type_cts, nan=-1).astype("int8")
 
+    if flipped:
+        surface_precip = surface_precip[::-1]
+        rqi = rqi[::-1]
+        precip_type_cts = precip_type_cts[::-1]
+
+
     dataset_r = xr.Dataset({
         "latitude": (("latitude"), lats_out),
         "longitude": (("longitude"), lons_out),
@@ -116,28 +135,7 @@ def resample_mrms_data(dataset: xr.Dataset) -> xr.Dataset:
     return dataset_r
 
 
-def get_output_filename(time):
-    """
-    Get filename of training data file for given time.
-
-    Args:
-        time: The time of the reference data
-
-    Return:
-        A string containing the filename of the output file.
-
-    """
-    time_15 = round_time(time, minutes=15)
-    year = time_15.year
-    month = time_15.month
-    day = time_15.day
-    hour = time_15.hour
-    minute = time_15.minute
-    filename = f"radar_{year}{month:02}{day:02}_{hour:02}_{minute:02}.nc"
-    return filename
-
-
-def save_file(dataset, output_folder):
+def save_file(dataset, output_folder, filename):
     """
     Save file to training data.
 
@@ -146,7 +144,6 @@ def save_file(dataset, output_folder):
         output_folder: The folder to which to write the training data.
 
     """
-    filename = get_output_filename(dataset.time.data.item())
     output_filename = Path(output_folder) / filename
 
     comp = {"zlib": True}
@@ -177,14 +174,24 @@ def save_file(dataset, output_folder):
     dataset.to_netcdf(output_filename, encoding=encoding)
 
 
-class MRMSData(ReferenceData):
+class MRMSData(ReferenceDataset):
+    """
+    Represents reference data derived from MRMS ground-based radar measurements.
+    """
     def __init__(
             self,
             name: str,
             scale: int,
             targets: List[RetrievalTarget],
-            quality_index: float
+            quality_index: str
     ):
+        """
+        Args:
+            name: The name of the reference dataset.
+            scale: The spatial scale of the data.
+            targets: A list of the retrieval targets provided by the dataset.
+            quality_index: Name of the field hodling the quality index.
+        """
         super().__init__(name, scale, targets, quality_index)
 
 
@@ -221,46 +228,33 @@ class MRMSData(ReferenceData):
         end_time = datetime(year, month, day) + timedelta(hours=24)
         time = start_time
         files = []
+
         while time < end_time:
-            output_filename = get_output_filename(to_datetime64(time))
+
             time_range = TimeRange(time, time)
-            if not (output_folder / output_filename).exists():
-                files += zip(
-                    mrms.precip_rate.find_files(time_range)[-1:],
-                    mrms.radar_quality_index.find_files(time_range)[-1:],
-                    mrms.precip_flag.find_files(time_range)
-                )
+
+            precip_rate_rec = mrms.precip_rate.get(time_range)[0]
+            rqi_rec = mrms.radar_quality_index.get(time_range)[0]
+            precip_flag_rec = mrms.precip_flag.get(time_range)[0]
+
+            precip_rate_data = mrms.precip_rate.open(precip_rate_rec)
+            rqi_data = mrms.radar_quality_index.open(rqi_rec)
+            precip_flag_data = mrms.precip_flag.open(precip_flag_rec)
+
+            dataset = xr.merge(
+                [precip_rate_data, rqi_data, precip_flag_data],
+                compat="override"
+            )
+            dataset = dataset.rename({
+                "precip_rate": "surface_precip",
+                "radar_quality_index": "rqi",
+                "precip_flag": "precip_type"
+            })
+            dataset = resample_data(dataset, domain[4], radius_of_influence=4e3, new_dims=("y", "x"))
+            filename = get_output_filename("mrms", time, time_step)
+            save_file(dataset, output_folder, filename)
+
             time = time + time_step
-
-        for precip_rate_file, rqi_file, precip_flag_file in files:
-            with TemporaryDirectory() as tmp:
-                try:
-                    precip_rate_file = precip_rate_file.download(destination=tmp)
-                    rqi_file = rqi_file.download(destination=tmp)
-                    precip_flag_file = precip_flag_file.download(destination=tmp)
-
-                    precip_rate_data = mrms.precip_rate.open(precip_rate_file)
-                    rqi_data = mrms.radar_quality_index.open(rqi_file)
-                    precip_flag_data = mrms.precip_flag.open(precip_flag_file)
-
-                    dataset = xr.merge(
-                        [precip_rate_data, rqi_data, precip_flag_data],
-                        compat="override"
-                    )
-                    dataset = dataset.rename({
-                        "precip_rate": "surface_precip",
-                        "radar_quality_index": "rqi",
-                        "precip_flag": "precip_type"
-                    })
-                    dataset = resample_mrms_data(dataset)
-                    save_file(dataset, output_folder)
-                except Exception:
-                    LOGGER.exception(
-                        "The following error was encountered while processing "
-                        " MRMS files (%s, %s)",
-                        precip_rate_file,
-                        rqi_file
-                    )
 
 
     def find_files(self, path: Path) -> List[Path]:

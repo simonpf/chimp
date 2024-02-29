@@ -20,14 +20,14 @@ import xarray as xr
 from pansat import TimeRange, Product
 from pansat.products.ground_based.opera import reflectivity, surface_precip
 
-from chimp.data import ReferenceData
+from chimp.data import ReferenceDataset
 from chimp.data.reference import RetrievalTarget
 from chimp.utils import round_time
 from chimp.data.resample import resample_data
 from chimp.data.utils import get_output_filename
 
 
-class Opera(ReferenceData):
+class Opera(ReferenceDataset):
     """
     Represents reference data derived from OPERA radar composites.
     """

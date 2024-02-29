@@ -16,7 +16,7 @@ from chimp.data.utils import scale_slices, generate_input
 import torch
 import xarray as xr
 
-from chimp.data.input import Input
+from chimp.data.input import InputDataset
 
 
 def load_gridsat_data(path):
@@ -52,13 +52,13 @@ def load_gridsat_data(path):
 
 
 
-class GridSat(Input):
+class GridSat(InputDataset):
     """
     Provides an interface to extract and load training data from the GridSat
     B1 dataset.
     """
     def __init__(self):
-        super().__init__("gridsat", 1, "obs", spatial_dims=("latitude", "longitude"))
+        super().__init__("gridsat", "gridsat", 1, "obs", spatial_dims=("latitude", "longitude"))
         self.n_channels = 24
 
     def load_sample(

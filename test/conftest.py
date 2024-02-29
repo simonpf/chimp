@@ -518,3 +518,4 @@ def cpcir_gmi_seq_mrnn():
     )
     mrnn = compile_mrnn(model_config)
     return mrnn
+

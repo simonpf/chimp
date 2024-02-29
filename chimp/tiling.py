@@ -98,7 +98,7 @@ class Tiler:
         m, n = parse_shape(x)
         if m == 0 and n == 0:
             raise RuntimeError(
-                "Input data is empty."
+                "InputDataset data is empty."
             )
         self.m = m
         self.n = n
@@ -158,7 +158,7 @@ class Tiler:
 
         if self.n % x.shape[-1] != 0:
             raise ValueError(
-                f"Input with shape '{x.shape[-2:]}' is incompatible with base "
+                f"InputDataset with shape '{x.shape[-2:]}' is incompatible with base "
                 f" input size of ({self.m}, {self.n})."
             )
         scl = self.n // x.shape[-1]

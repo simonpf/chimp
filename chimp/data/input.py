@@ -98,11 +98,13 @@ class InputBase(DataSource):
     Base class for all inputs that keeps track of all instances.
     """
 
-    ALL_INPUTS = {}
+    ALL_INPUT_DATASETS = {}
 
-    def __init__(self, name):
-        super().__init__(name)
-        self.ALL_INPUTS[name] = self
+    def __init__(self, dataset_name, input_name):
+        super().__init__(dataset_name)
+        self.dataset_name = dataset_name
+        self.input_name = input_name
+        self.ALL_INPUT_DATASETS[dataset_name] = self
 
     @classmethod
     def get_input(cls, name: str) -> "InputBase":
@@ -116,12 +118,12 @@ class InputBase(DataSource):
             ValueError if there is no input with the given name
         """
         name = name.lower()
-        if not name in cls.ALL_INPUTS:
+        if not name in cls.ALL_INPUT_DATASETS:
             raise ValueError(
-                f"Input '{name}' is not a known input. Currently known inputs "
-                f" are: {list(cls.ALL_INPUTS.keys())}"
+                f"Input '{name}' is not a known input datasets. Currently known input "
+                f"datasets are: {list(cls.ALL_INPUT_DATASETS.keys())}"
             )
-        return cls.ALL_INPUTS[name]
+        return cls.ALL_INPUT_DATASETS[name]
 
 
 def get_input(name: Union[str, InputBase]) -> InputBase:
@@ -162,41 +164,8 @@ def get_inputs(input_list: List[Union[str, InputBase]]) -> List[InputBase]:
     return [get_input(inpt) for inpt in input_list]
 
 
-class MinMaxNormalized:
-    """
-    Mixin' class provides a quantnn.normalizer.MinMaxNormalizer with
-    statistics read from a file.
-    """
-
-    def __init__(self, stats_file):
-        self._stats_file = stats_file
-        self._normalizer = None
-
-    @property
-    def normalizer(self):
-        """
-        Cached access to normalizer.
-
-        On first access this will trigger a read of the corresponding
-        stats file.
-        """
-        if self._normalizer is None:
-            path = Path(__file__).parent / "stats"
-            stats_file = path / f"{self._stats_file}.txt"
-            if not stats_file.exists():
-                raise RuntimeError(f"Could not find the stats file {stats_file}.")
-            stats = np.loadtxt(stats_file, skiprows=1).reshape(-1, 2)
-            norm = MinMaxNormalizer(
-                np.ones((stats.shape[0], 1, 1)), feature_axis=0, replace_nan=False
-            )
-            for chan_ind in range(stats.shape[0]):
-                norm.stats[chan_ind] = tuple(stats[chan_ind])
-            self._normalizer = norm
-        return self._normalizer
-
-
 @dataclass
-class Input(InputBase):
+class InputDataset(InputBase):
     """
     Record holding the paths of the files for a single training
     sample.
@@ -210,21 +179,30 @@ class Input(InputBase):
 
     def __init__(
         self,
-        name: str,
+        dataset_name: str,
+        input_name: str,
         scale: int,
         variables: Union[str, List[str]],
-        mean: Optional[np.array] = None,
         n_dim: int = 2,
         spatial_dims: Tuple[str, str] = ("y", "x"),
     ):
-        InputBase.__init__(self, name)
-
-        self.name = name
+        """
+        Args:
+            dataset_name: The name of the dataset that uniquely identifies this
+                specific dataset.
+            input_name: The (not necessarily uniqye) name of the input data provided
+                by the input datasets.
+            scale: The scale of the input.
+            variables: List of the variables to load from each input file.
+            n_dim: The number of dimensions in the input.
+            spatial_dims: The name of the spatial dimensions of the data.
+        """
+        InputBase.__init__(self, dataset_name, input_name)
+        self.dataset_name = dataset_name
         self.scale = scale
         self.variables = variables
-        self.mean = mean
         self.n_dim = n_dim
-        self.spatial_dims = spatial_dims[: self.n_dim]
+        self.spatial_dims = spatial_dims[:self.n_dim]
 
 
     def find_files(self, base_path: Path) -> List[Path]:
@@ -232,14 +210,14 @@ class Input(InputBase):
         Find input files.
 
         Args:
-            base_path: Base path of the data containing the input data in a
-                sub-folder.
+            base_path: Path of the base folder containing all CHIMP training data.
 
         Return:
             List of available input files.
         """
         pattern = "*????????_??_??.nc"
-        return sorted(list((base_path / self.name).glob(pattern)))
+        return sorted(list((base_path / self.dataset_name).glob(pattern)))
+
 
     def load_sample(
         self,
@@ -366,78 +344,6 @@ class Input(InputBase):
         return x_s
 
 
-class InputDataset:
-    def __init__(
-        self,
-        path: Path,
-        input_datasets: List[str],
-        start_time: Optional[np.datetime64] = None,
-        end_time: Optional[np.datetime64] = None,
-        missing_value_policy: str = "none"
-    ):
-        """
-        Args:
-            path: The root directory containing the input data.
-            input_datasets: List of the input datasets or their names from which
-                to load the retrieval input data.
-            start_time: Start time of time interval to which to restrict
-                training data.
-            end_time: End time of a time interval to which to restrict the
-                training data.
-            missing_value_policy: A string indicating how to handle missing input
-                data. Options:
-                    'random': Missing data is replaced with Gaussian noise.
-                    'mean' Missing value is replaced with the mean of the
-                    input data.
-                    'missing': Missing data is replaced with NANs
-                    'sparse': Instead of a tensor 'None' is returned.
-        """
-        self.path = Path(path)
-        self.input_datasets = [
-            get_input(input_dataset) for input_dataset in input_datasets
-        ]
-        n_datasets = len(self.input_datasets)
-        all_files = {}
-        for input_ind, input_dataset in enumerate(self.input_datasets):
-            input_files = input_dataset.find_files(self.path)
-            times = np.array(list(map(get_date, input_files)))
-            for time, input_file in zip(times, input_files):
-                files = all_files.setdefault(time, ([None] * n_datasets))
-                files[input_ind] = input_file
-
-        times = np.array(list(all_files.keys()))
-        input_files = np.array(list(all_files.values()))
-
-        if start_time is not None and end_time is not None:
-            indices = (times >= start_time) * (times < end_time)
-            times = times[indices]
-            input_files = input_files[indices]
-
-        self.times = times
-        self.input_files = input_files
-
-    def __len__(self):
-        """Number of samples in dataset."""
-        return len(self.times)
-
-    def __getitem__(self, index):
-        """Return input data for the step ind."""
-        n_samples = len(self.times)
-        files = self.input_files[index]
-        input_data = {}
-        for input_ind, input_dataset in enumerate(self.input_datasets):
-            input_file = files[input_ind]
-            x_s = input_dataset.load_data(
-                input_file,
-            )
-            input_data[input_dataset.name] = x_s
-        return input_data
-
-    def __iter__(self):
-        for ind in range(len(self)):
-            yield self.times[ind], self[ind]
-
-
 class InputLoader():
     """
     The InputLoader class loads CHIMP input data for the operational
@@ -545,7 +451,7 @@ class InputLoader():
                 files[ind], self.scene_sizes[ind], input_dataset.scale, None,
                 self.rng, self.missing_value_policy
             )
-            inputs[input_dataset.name] = x
+            inputs[input_dataset.input_name] = x
 
         return inputs
 
@@ -616,7 +522,7 @@ class SequenceInputLoader(InputLoader):
                     files[ind], self.scene_sizes[ind], input_dataset.scale, None,
                     self.rng, self.missing_value_policy
                 )
-                inputs.setdefault(input_dataset.name, []).append(x[None])
+                inputs.setdefault(input_dataset.input_name, []).append(x[None])
 
         return inputs
 

@@ -15,7 +15,7 @@ import torch
 from torch import nn
 
 import chimp
-from chimp.data import Input, get_input, ReferenceData, get_reference_data
+from chimp.data import InputDataset, get_input, ReferenceDataset, get_reference_data
 
 
 def _parse_list(values, constr=int):
@@ -43,7 +43,7 @@ class InputConfig:
     Specification of the input handling of a CHIMP model.
     """
 
-    input_data: Input
+    input_data: InputDataset
     stem_type: str = "basic"
     stem_depth: int = 1
     stem_kernel_size: int = 3
@@ -97,7 +97,7 @@ class OutputConfig:
     Specification of the outputs of  handling of a CHIMP model.
     """
 
-    reference_data: ReferenceData
+    reference_dataset: ReferenceDataset
     variable: str
     loss: str
     shape: Tuple[int] = tuple()
@@ -108,7 +108,7 @@ class OutputConfig:
 
     @property
     def scale(self):
-        return self.reference_data.scale
+        return self.reference_dataset.scale
 
 
 def parse_output_config(section: SectionProxy) -> OutputConfig:
@@ -122,10 +122,10 @@ def parse_output_config(section: SectionProxy) -> OutputConfig:
     Return:
         An 'OutputConfig' object containing the parsed output properties.
     """
-    reference_data = section.get("reference_data", None)
-    if reference_data is None:
-        raise ValueError("Each input section must have a 'reference_data' entry.")
-    reference_data = get_reference_data(reference_data)
+    reference_dataset = section.get("reference_dataset", None)
+    if reference_dataset is None:
+        raise ValueError("Each output section must have a 'reference_dataset' entry.")
+    reference_dataset = get_reference_data(reference_dataset)
 
     variable = section.get("variable", None)
     if variable is None:
@@ -143,7 +143,7 @@ def parse_output_config(section: SectionProxy) -> OutputConfig:
     n_classes = section.getint("n_classes", None)
 
     return OutputConfig(
-        reference_data=reference_data,
+        reference_dataset=reference_dataset,
         variable=variable,
         loss=loss,
         shape=shape,

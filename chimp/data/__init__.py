@@ -9,5 +9,5 @@ import chimp.data.gpm
 import chimp.data.cpcir
 import chimp.data.mrms
 import chimp.data.goes
-from chimp.data.input import Input, MinMaxNormalized, get_input
-from chimp.data.reference import ReferenceData, get_reference_data
+from chimp.data.input import InputDataset, get_input
+from chimp.data.reference import ReferenceDataset, get_reference_data

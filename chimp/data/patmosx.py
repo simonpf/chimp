@@ -15,7 +15,7 @@ from pansat.products.satellite.ncei import patmosx_asc, patmosx_des
 import xarray as xr
 
 from chimp.data.utils import get_output_filename
-from chimp.data.input import Input
+from chimp.data.input import InputDataset
 
 
 LOGGER = logging.getLogger()
@@ -89,13 +89,14 @@ def load_observations(path):
 
 
 
-class PATMOSX(Input):
+class PATMOSX(InputDataset):
     """
     Provides an interface to extract and load training data from the PATMOS-X
     dataset.
     """
     def __init__(self):
         super().__init__(
+            "patmosx",
             "patmosx",
             1,
             ["obs_imager_asc", "obs_imager_des", "obs_sounder_asc", "obs_sounder_des"],
@@ -144,9 +145,7 @@ class PATMOSX(Input):
         time = datetime(year=year, month=month, day=day)
         end = time + timedelta(days=1)
 
-        if isinstance(domain, dict):
-            domain = domain[8]
-        lons, lats = domain.get_lonlats()
+        lons, lats = domain[8].get_lonlats()
         lons = lons[0]
         lats = lats[..., 0]
 

@@ -79,8 +79,8 @@ def cli(
             return 1
 
     try:
-        domain = getattr(areas, domain.upper())
-    except AttributeError:
+        domain = areas.get_area(domain)
+    except RuntimeError:
         LOGGER.error("Provided domain '%s' is not a known domain.", domain)
         return 1
 

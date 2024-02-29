@@ -15,8 +15,9 @@ from quantnn.normalizer import Normalizer
 import pansat
 from pansat.catalog import Index
 from pansat.granule import merge_granules
-from pansat.time import TimeRange
+from pansat.time import TimeRange, to_datetime64, to_timedelta64
 from pansat.roi import find_overpasses
+from pansat.utils import resample_data
 from pansat.products.satellite.gpm import (
     l1c_gpm_gmi,
     l1c_metopb_mhs,
@@ -29,11 +30,14 @@ from pansat.products.satellite.gpm import (
     l1c_f17_ssmis,
     l1c_f18_ssmis,
     l1c_gcomw1_amsr2,
+    l2b_gpm_cmb
 )
 from pyresample import AreaDefinition
 
-from chimp.data.input import Input, MinMaxNormalized
+from chimp.data.input import InputDataset
+from chimp.data.reference import ReferenceDataset, RetrievalTarget
 from chimp.data.resample import resample_tbs
+from chimp.data.utils import get_output_filename
 from chimp.utils import round_time
 
 import xarray as xr
@@ -139,7 +143,7 @@ def process_overpass(
     save_gpm_scene(name, time, tbs_r, output_folder, time_step)
 
 
-class GPML1CData(Input, MinMaxNormalized):
+class GPML1CData(InputDataset):
     """
     Represents all input data derived from GPM L1C products.
     """
@@ -164,8 +168,7 @@ class GPML1CData(Input, MinMaxNormalized):
             radius_of_influence: The radius of influence in meters to use for the
                 resampling of the data.
         """
-        MinMaxNormalized.__init__(self, name)
-        Input.__init__(self, name, scale, "tbs", n_dim=2)
+        InputDataset.__init__(self, name, name, scale, "tbs", n_dim=2)
         self.products = products
         self.n_swaths = n_swaths
         self.n_channels = n_channels
@@ -209,28 +212,25 @@ class GPML1CData(Input, MinMaxNormalized):
         for product in self.products:
             product_files = product.find_files(time_range, roi=domain["roi_poly"])
 
-            with TemporaryDirectory() as tmp:
-                tmp = Path(tmp)
-                for rec in product_files:
-                    print(rec.filename)
-                    rec = rec.download(tmp)
-                    index = Index.index(product, [rec.local_path])
-                    granules = index.find(roi=domain["roi_poly"])
-                    granules = merge_granules(granules)
+            for rec in product_files:
+                print(rec.filename)
+                index = Index.index(product, [rec.local_path])
+                granules = index.find(roi=domain["roi_poly"])
+                granules = merge_granules(granules)
 
-                    for granule in granules:
-                        scene = granule.open()
-                        process_overpass(
-                            self.name,
-                            domain[self.scale],
-                            scene,
-                            self.n_swaths,
-                            self.radius_of_influence,
-                            output_folder,
-                            time_step,
-                            include_scan_time,
-                            min_valid=1_000 / np.sqrt(self.scale),
-                        )
+                for granule in granules:
+                    scene = granule.open()
+                    process_overpass(
+                        self.name,
+                        domain[self.scale],
+                        scene,
+                        self.n_swaths,
+                        self.radius_of_influence,
+                        output_folder,
+                        time_step,
+                        include_scan_time,
+                        min_valid=1_000 / np.sqrt(self.scale),
+                    )
 
 
 GMI = GPML1CData("gmi", 4, [l1c_gpm_gmi], 2, 13, 15e3)
@@ -252,3 +252,106 @@ SSMIS_PRODUCTS = [
 SSMIS = GPML1CData("ssmis", 8, SSMIS_PRODUCTS, 4, 11, 30e3)
 
 AMSR2 = GPML1CData("amsr2", 4, [l1c_gcomw1_amsr2], 6, 12, 30e3)
+
+
+#
+# GPM CMB
+#
+
+
+class GPMCMB(ReferenceDataset):
+    """
+    Represents retrieval reference data derived from GPM combined radar-radiometer retrievals.
+    """
+    def __init__(self):
+        self.name = "cmb"
+        super().__init__(
+            self.name,
+            4,
+            RetrievalTarget("surface_precip"),
+            quality_index=None
+        )
+
+    def process_day(
+        self,
+        domain: dict,
+        year: int,
+        month: int,
+        day: int,
+        output_folder: Path,
+        path: Path = Optional[None],
+        time_step: timedelta = timedelta(minutes=15),
+        include_scan_time=False,
+    ):
+        """
+        Extract GMI input observations for the CHIMP retrieval.
+
+        Args:
+            domain: A domain dict specifying the area for which to
+                extract GMI input data.
+            year: The year.
+            month: The month.
+            day: The day.
+            output_folder: The root of the directory tree to which to write
+                the training data.
+            path: Not used, included for compatibility.
+            time_step: The time step between consecutive retrieval steps.
+            include_scan_time: If set to 'True', the resampled scan time will
+                be included in the extracted training input.
+        """
+        output_folder = Path(output_folder) / self.name
+        if not output_folder.exists():
+            output_folder.mkdir(parents=True, exist_ok=True)
+
+        start_time = datetime(year, month, day)
+        end_time = datetime(year, month, day) + timedelta(hours=23, minutes=59)
+
+        time = start_time
+        while time < end_time:
+            min_time = to_datetime64(time) - 0.5 * to_timedelta64(time_step)
+            max_time = to_datetime64(time) + 0.5 * to_timedelta64(time_step)
+            time_range = TimeRange(min_time, max_time)
+            recs = l2b_gpm_cmb.find_files(time_range)
+            recs = [rec.get() for rec in recs]
+            index = Index.index(l2b_gpm_cmb, [rec.local_path for rec in recs])
+            granules = index.find(roi=domain.roi)
+            granules = merge_granules(granules)
+
+            datasets = []
+            for granule in granules:
+                scene = granule.open()[["estim_surf_precip_tot_rate", "scan_time"]].rename(
+                    estim_surf_precip_tot_rate="surface_precip"
+                )
+                invalid = scene["surface_precip"].data < 0
+                scene["surface_precip"].data[invalid] = np.nan
+
+                scans = (min_time < scene.scan_time.data) * (scene.scan_time.data < max_time)
+                scene = scene[{"matched_scans": scans}]
+
+                print(time, granule.file_record.filename, granule.time_range, scans.sum())
+
+                if scene.matched_scans.size > 0:
+                    datasets.append(scene)
+
+            if len(datasets) == 0:
+                time = time + time_step
+                continue
+
+            scene = xr.concat(datasets, "matched_scans")
+            scene_r = resample_data(
+                scene,
+                domain[4],
+                radius_of_influence=5e3,
+                new_dims=("y", "x")
+            )
+
+            if (scene_r.surface_precip.data >= 0.0).sum() > 0:
+                output_filename = get_output_filename("cmb", time, time_step)
+                encoding = {
+                    "surface_precip": {"dtype": "float32", "zlib": True}
+                }
+                scene_r.to_netcdf(output_folder / output_filename, encoding=encoding)
+            time = time + time_step
+
+
+gpm_cmb = GPMCMB()

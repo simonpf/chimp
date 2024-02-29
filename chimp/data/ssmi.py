@@ -18,7 +18,7 @@ from pyresample.geometry import SwathDefinition
 from pyresample import kd_tree
 import xarray as xr
 
-from chimp.data.input import Input
+from chimp.data.input import InputDataset
 from chimp.data.utils import get_output_filename
 
 
@@ -148,7 +148,7 @@ def resample_data(
     return output_data
 
 
-class SSMI(Input):
+class SSMI(InputDataset):
     """
     Provides an interface to extract and load training data from the PATMOS-X
     dataset.
@@ -156,6 +156,7 @@ class SSMI(Input):
 
     def __init__(self):
         super().__init__(
+            "ssmi",
             "ssmi",
             1,
             ["obs_lores_asc", "obs_lores_des", "obs_hires_asc", "obs_hires_des"],

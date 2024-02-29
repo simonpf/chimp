@@ -21,7 +21,7 @@ from pyresample import geometry, kd_tree
 from satpy import Scene
 import xarray as xr
 
-from chimp.data import Input
+from chimp.data import InputDataset
 from chimp.data.utils import get_output_filename
 
 
@@ -116,7 +116,7 @@ def download_and_resample_data(
         return data
 
 
-class SEVIRIInputData(Input):
+class SEVIRI(InputDataset):
     """
     Input class implementing an interface to extract and load SEVIRI input
     data.
@@ -130,7 +130,7 @@ class SEVIRIInputData(Input):
                 from which to extract the observations.
             channel_configuration: A 'str' specifying the channel configuration.
         """
-        super().__init__(name, 4, ["obs"])
+        super().__init__(name, name, 4, ["obs"])
         self.pansat_product = pansat_product
         self.channel_configuration = channel_configuration
 
@@ -189,5 +189,5 @@ class SEVIRIInputData(Input):
             time = time + time_step
 
 
-seviri_rs = SEVIRIInputData("seviri_rs", l1b_rs_msg_seviri, "all")
-seviri = SEVIRIInputData("seviri", l1b_msg_seviri, "all")
+seviri_rs = SEVIRI("seviri_rs", l1b_rs_msg_seviri, "all")
+seviri = SEVIRI("seviri", l1b_msg_seviri, "all")

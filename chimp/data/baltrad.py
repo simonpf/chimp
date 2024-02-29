@@ -22,7 +22,7 @@ from pansat.geometry import LonLatRect
 from pansat.catalog import Index
 from pansat.products import Product, FilenameRegexpMixin
 
-from chimp.data import ReferenceData
+from chimp.data import ReferenceDataset
 from chimp.data.reference import RetrievalTarget
 from chimp.utils import round_time
 from chimp.data.resample import resample_data
@@ -193,7 +193,7 @@ class BaltradData(FilenameRegexpMixin, Product):
 baltrad_product = BaltradData()
 
 
-class Baltrad(ReferenceData):
+class Baltrad(ReferenceDataset):
     """
     The Baltrad input data class that extracts radar reflectivity and
     estimates from BALTRAD files.

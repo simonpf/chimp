@@ -98,7 +98,7 @@ ALL_REFERENCE_DATA = {}
 
 
 @dataclass
-class ReferenceData(DataSource):
+class ReferenceDataset(DataSource):
     """
     This dataclass holds properties of reference datasets.
     """
@@ -223,7 +223,7 @@ class ReferenceData(DataSource):
         return y
 
 
-def get_reference_data(name: Union[str, ReferenceData]) -> ReferenceData:
+def get_reference_data(name: Union[str, ReferenceDataset]) -> ReferenceDataset:
     """
     Retrieve reference dataset by name.
 
@@ -231,7 +231,7 @@ def get_reference_data(name: Union[str, ReferenceData]) -> ReferenceData:
         name: The name of a dataset.
 
     Return:
-        A ReferenceData object that can be used to load reference data
+        A ReferenceDataset object that can be used to load reference data
         from the requested dataset.
     """
     from . import baltrad

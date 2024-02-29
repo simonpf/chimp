@@ -23,7 +23,7 @@ from pansat.time import to_datetime64
 import xarray as xr
 
 from chimp.utils import round_time
-from chimp.data.reference import ReferenceData, RetrievalTarget
+from chimp.data.reference import ReferenceDataset, RetrievalTarget
 from chimp.data.utils import get_output_filename
 from chimp import areas
 
@@ -34,7 +34,7 @@ LOGGER = logging.getLogger(__name__)
 precip = RetrievalTarget("precipitation", None)
 
 
-class DailyPrecip(ReferenceData):
+class DailyPrecip(ReferenceDataset):
     """
     The DailyPrecip dataset consists a climatology of daily, quasi-global
     precipitation accumulations. The accumulations are derived from the

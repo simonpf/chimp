@@ -16,7 +16,7 @@ from pyresample import geometry, kd_tree, create_area_def
 import xarray as xr
 
 from chimp.utils import get_available_times, round_time
-from chimp.data.input import Input, MinMaxNormalized
+from chimp.data.input import InputDataset
 
 
 CPCIR_GRID = create_area_def(
@@ -101,7 +101,7 @@ def save_cpcir_data(data, output_folder, time_step):
     data.to_netcdf(output_folder / filename)
 
 
-class CPCIRData(Input, MinMaxNormalized):
+class CPCIRData(InputDataset):
     """
     Represents input data derived from merged IR data.
     """
@@ -110,8 +110,7 @@ class CPCIRData(Input, MinMaxNormalized):
             name: str,
             scale: int,
     ):
-        MinMaxNormalized.__init__(self, name)
-        Input.__init__(self, name, scale, "tbs", n_dim=2)
+        InputDataset.__init__(self, name, name, scale, "tbs", n_dim=2)
         self.scale = scale
 
     @property

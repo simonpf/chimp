@@ -475,7 +475,6 @@ class CHIMPPretrainDataset(SingleStepDataset):
             end_time=end_time,
             augment=augment,
             time_step=time_step,
-            quality_threshold=quality_threshold,
         )
         samples_by_input = [[] for _ in self.input_datasets]
         for scene_index in range(len(self.times)):

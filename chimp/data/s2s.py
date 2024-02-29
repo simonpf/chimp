@@ -22,10 +22,10 @@ from pansat.products.model.ecmwf import (
 )
 
 from chimp.data.utils import get_output_filename
-from chimp.data.reference import ReferenceData
+from chimp.data.reference import ReferenceDataset
 
 
-class S2SForecast(ReferenceData):
+class S2SForecast(ReferenceDataset):
     """
     Interface class to extract baseline forecasts from the ECMWF S2S database.
     """
