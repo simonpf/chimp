@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 import pyresample
 
-from pansat.geometry import Geometry, Polygon, LonLatRect
+from pansat.geometry import Geometry, Polygon, LonLatRect, lonlats_to_polygon
 
 
 ALL_AREAS = {}
@@ -43,12 +43,9 @@ class Area:
         self.areas = areas
         ALL_AREAS[name.lower()] = self
         lons, lats = self[8].get_lonlats()
-        self.roi =  Polygon(np.array([
-            [lons[0, 0], lats[0, 0]],
-            [lons[0, -1], lats[0, -1]],
-            [lons[-1, -1], lats[-1, -1]],
-            [lons[-1, 0], lats[-1, 0]],
-        ]))
+        self.roi = lonlats_to_polygon(
+            lons, lats, 6
+        )
 
     def __getitem__(self, scale: int) -> pyresample.AreaDefinition:
         """

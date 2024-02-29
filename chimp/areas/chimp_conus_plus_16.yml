@@ -2,7 +2,7 @@ CHIMP_CONUS_PLUS:
   description: Extended CHIMP region of interest over CONUS.
   projection:
     proj: laea
-    lat_0: 40.0
+    lat_0: 45.0
     lon_0: -95.0
     datum: WGS84
     no_defs: null
