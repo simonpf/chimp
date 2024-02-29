@@ -91,7 +91,7 @@ def download_and_resample_goes_data(
         goes_files.append(recs[file_inds[0]])
 
     scene = Scene([str(rec.local_path) for rec in goes_files], reader="abi_l1b")
-    scene.load(channel_names)
+    scene.load(channel_names, generate=False)
     scene = scene.resample(domain)
     data = scene.to_xarray_dataset().compute()
 
