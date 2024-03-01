@@ -312,7 +312,7 @@ class SingleStepDataset(Dataset):
                 rotate=rotate,
                 flip=flip,
             )
-            x[input_dataset.name] = x_s
+            x[input_dataset.input_name] = x_s
         return x
 
     def __len__(self):
