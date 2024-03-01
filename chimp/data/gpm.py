@@ -210,12 +210,12 @@ class GPML1CData(InputDataset):
         time_range = TimeRange(start_time, end_time)
 
         for product in self.products:
-            product_files = product.find_files(time_range, roi=domain["roi_poly"])
+            product_files = product.find_files(time_range, roi=domain.roi)
 
             for rec in product_files:
-                print(rec.filename)
+                rec = rec.get()
                 index = Index.index(product, [rec.local_path])
-                granules = index.find(roi=domain["roi_poly"])
+                granules = index.find(roi=domain.roi)
                 granules = merge_granules(granules)
 
                 for granule in granules:
