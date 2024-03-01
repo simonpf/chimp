@@ -110,3 +110,10 @@ chimp eda
 After a successful EDA run, the working directory will contain a new ``stats`` directory, which contains the the calculated statistics as NetCDF4 files.
 
 ## Running the training
+
+Finally, to run the training, all that is require is to call the CHIMP ``train`` command:
+
+```
+chimp train
+```
+ wl

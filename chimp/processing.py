@@ -109,7 +109,9 @@ def cli(
         precision: str = "single",
         verbose: int = 0
 ) -> int:
-
+    """
+    Process input files.
+    """
     input_data = InputDataset(input_path, input_datasets)
     model = load_model(model)
 

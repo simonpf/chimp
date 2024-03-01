@@ -80,7 +80,7 @@ def cli(
     stage: Optional[str]
 ) -> int:
     """
-    Train retrieval model.
+    Perform exploratory data analysis (EDA).
 
     This command runs the training of the retrieval model specified by the
     model and training configuration files.

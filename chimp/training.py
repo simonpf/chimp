@@ -729,11 +729,10 @@ def cli(
     resume: bool = False,
 ) -> int:
     """
-    Train retrieval model.
+    Train a retrieval model.
 
     This command runs the training of the retrieval model specified by the
     model and training configuration files.
-
     """
     import chimp.data.seviri
     import chimp.data.gpm

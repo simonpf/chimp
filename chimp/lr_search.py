@@ -85,11 +85,7 @@ def cli(
     plot: bool,
 ) -> int:
     """
-    Train retrieval model.
-
-    This command runs the training of the retrieval model specified by the
-    model and training configuration files.
-
+    Perform learning-rate (LR) search .
     """
     import chimp.data.seviri
     import chimp.data.gpm

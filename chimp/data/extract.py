@@ -42,7 +42,7 @@ def cli(
         include_scan_time
 ):
     """
-    Extract data.
+    Extract training, validation, and test data.
 
     Args:
         args: The namespace object provided by the top-level parser.
