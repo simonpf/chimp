@@ -134,8 +134,10 @@ def cli(
         if stage not in training_schedule:
             LOGGER.error(
                 "The given stage '%s' is not a stage in the provided training "
-                "schedule."
+                "schedule.",
+                stage
             )
+            return 1
         training_config = training_schedule[stage]
 
     compute_config = read_compute_config(LOGGER, model_path, compute_config)
@@ -146,6 +148,6 @@ def cli(
         stats_path,
         input_configs,
         output_configs,
-        training_schedule,
+        training_config,
         compute_config
     )
