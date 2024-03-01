@@ -611,9 +611,13 @@ class TrainingConfig(pr.training.TrainingConfigBase):
             require_input=require_input,
             log_every_n_steps=log_every_n_steps,
             gradient_clip_val=gradient_clip_val,
+<<<<<<< Updated upstream
             gradient_clip_algorithm=gradient_clip_algorithm,
             accumulate_grad_batches=accumulate_grad_batches,
             n_data_loader_workers=n_data_loader_workers,
+=======
+            accumulate_grad_batches=accumulate_grad_batches,
+>>>>>>> Stashed changes
             load_weights=load_weights,
         )
 
