@@ -63,12 +63,21 @@ from chimp.training import TrainingConfig
         " the training."
     ),
 )
+@click.option(
+    "--stage",
+    default=None,
+    help=(
+        "If provided, training settings for the EDA will be loaded from this "
+        "stage of the training schedule."
+    )
+)
 def cli(
     model_path: Optional[Path],
     stats_path: Path,
     model_config: Optional[Path],
     training_config: Optional[Path],
     compute_config: Optional[Path],
+    stage: Optional[str]
 ) -> int:
     """
     Train retrieval model.
@@ -119,6 +128,15 @@ def cli(
     training_schedule = {
         name: TrainingConfig.parse(name, cfg) for name, cfg in training_config.items()
     }
+    if stage is None:
+        training_config = next(iter(training_schedule.values()))
+    else:
+        if stage not in training_schedule:
+            LOGGER.error(
+                "The given stage '%s' is not a stage in the provided training "
+                "schedule."
+            )
+        training_config = training_schedule[stage]
 
     compute_config = read_compute_config(LOGGER, model_path, compute_config)
     if isinstance(compute_config, dict):
