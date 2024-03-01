@@ -1,6 +1,6 @@
 # Book settings
 # Learn more at https://jupyterbook.org/customize/config.html
-title: The CSU/Chalmers integrated multi-satellite precipitation retrieval framework
+title: CHIMP
 author: Simon Pfreundschuh
 
 # Force re-execution of notebooks on each build.
