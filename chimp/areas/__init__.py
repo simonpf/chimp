@@ -166,3 +166,29 @@ MERRA = Area(
     "merra",
     areas=pyresample.load_area(Path(__file__).parent / "merra.yml")
 )
+
+###############################################################################
+# GOES
+###############################################################################
+
+GOES_EAST_4 = pyresample.load_area(Path(__file__).parent / "chimp_goes_east_4.yml")
+GOES_EAST_8 = pyresample.load_area(Path(__file__).parent / "chimp_goes_east_8.yml")
+GOES_EAST_16 = pyresample.load_area(Path(__file__).parent / "chimp_goes_east_16.yml")
+
+GOES_EAST = Area(
+    name="goes_east",
+    areas={
+        4: GOES_EAST_4,
+        8: GOES_EAST_8,
+        16: GOES_EAST_16,
+    }
+)
+
+GOES_EAST_CONUS = Area(
+    name="goes_east_conus",
+    areas={
+        4: GOES_EAST_4[:2000, 500:3500],
+        8: GOES_EAST_8[:1000, 250:1750],
+        16: GOES_EAST_16[:500, 125:875],
+    }
+)

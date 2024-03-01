@@ -1,0 +1,19 @@
+goes_west_area:
+  description: GOES EAST ABI ~ 4 km resolution
+  projection:
+    proj: geos
+    sweep: x
+    lon_0: -75
+    h: 35786023
+    x_0: 0
+    y_0: 0
+    ellps: GRS80
+    no_defs: null
+    type: crs
+  shape:
+    height: 2712
+    width: 2712
+  area_extent:
+    lower_left_xy: [-5434894.885056, -5434894.88505]
+    upper_right_xy: [5434894.885056, 5434894.885056]
+    units: m
