@@ -169,7 +169,7 @@ class GOES(InputDataset):
             dataset_name = "goes_" + series.lower() + "_" + config.lower()
             input_name = "goes_" + config.lower()
         super().__init__(dataset_name, input_name, 4, ["refls", "tbs"])
-        self.n_channels = 11
+        self.n_channels = len(CHANNEL_CONFIGURATIONS[config])
 
     def process_day(
             self,
