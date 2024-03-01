@@ -36,6 +36,7 @@ dependencies:
   - protobuf
   - geopandas
   - jupyter-book
+  - pip
   - pip:
     - "git+https://github.com/see-geo/pansat@refactoring"
     - "git+https://github.com/simonpf/pytorch_retrieve"
