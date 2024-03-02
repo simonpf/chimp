@@ -116,4 +116,3 @@ Finally, to run the training, all that is require is to call the CHIMP ``train``
 ```
 chimp train
 ```
- wl
