@@ -41,7 +41,7 @@ n_features = 16
 normalize = "minmax"
 
 [input.gmi]
-n_features = 12
+n_features = 13
 normalize = "minmax"
 
 [input.atms]
