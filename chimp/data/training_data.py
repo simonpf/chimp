@@ -685,7 +685,7 @@ class SequenceDataset(SingleStepDataset):
                     " Couldn't find a scene in reference file '%s' satisfying "
                     "the quality requirements. Falling back to another "
                     "radomly-chosen reference data file.",
-                    self.reference_files[sample_index][0]
+                    self.reference_files[last_index][0]
                 )
                 new_ind = self.rng.integers(0, len(self))
                 return self[new_ind]
