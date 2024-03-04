@@ -99,6 +99,7 @@ def retrieval_step(
 @click.argument("output_path")
 @click.option("--device", type=str, default="cuda")
 @click.option("--precision", type=str, default="single")
+@click.option("--tile_size", type=int, default=128)
 @click.option("-v", "--verbose", count=True)
 def cli(
         model: Path,
@@ -107,6 +108,7 @@ def cli(
         output_path: Path,
         device: str = "cuda",
         precision: str = "single",
+        tile_size: int = 128,
         verbose: int = 0
 ) -> int:
     """
@@ -132,7 +134,7 @@ def cli(
         results = retrieval_step(
             model,
             model_input,
-            tile_size=128,
+            tile_size=tile_size,
             device=device,
             float_type=float_type
         )
