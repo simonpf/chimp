@@ -553,7 +553,7 @@ class TrainingConfig(pr.training.TrainingConfigBase):
         metrics = config_dict.get("metrics", [])
 
         include_input_steps = get_config_attr(
-            "include_input_steps", bool, config_dict, f"training stage '{name}'", False
+            "include_input_steps", bool, config_dict, f"training stage '{name}'", forecast == 0
         )
         require_input = get_config_attr(
             "require_input", bool, config_dict, f"training stage '{name}'", False
