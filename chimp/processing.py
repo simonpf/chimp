@@ -17,7 +17,7 @@ from pansat.time import to_datetime
 from pytorch_retrieve.architectures import load_model
 
 from chimp.tiling import Tiler
-from chimp.data.input import InputDataset
+from chimp.data.input import InputLoader
 
 
 LOGGER = logging.getLogger(__name__)
@@ -112,7 +112,7 @@ def cli(
     """
     Process input files.
     """
-    input_data = InputDataset(input_path, input_datasets)
+    input_data = InputLoader(input_path, input_datasets)
     model = load_model(model)
 
     output_path = Path(output_path)
