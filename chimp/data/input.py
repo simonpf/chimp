@@ -237,7 +237,7 @@ class InputDataset(InputBase):
                 data.
             crop_size: Size of the final crop.
             base_scale: The scale of the reference data.
-            sclices: Tuple of slices defining the part of the data to load.
+            slices: Tuple of slices defining the part of the data to load.
             rng: A numpy random generator object to use to generate random
                 data.
             rotate: If given, the should specify the number of degree by
@@ -344,6 +344,7 @@ class InputDataset(InputBase):
         return x_s
 
 
+
 class InputLoader():
     """
     The InputLoader class loads CHIMP input data for the operational
@@ -409,189 +410,21 @@ class InputLoader():
         self.sample_files = sample_files_filtered
         self.scene_sizes = scene_sizes
 
+        self.times = times
         if time_step is None:
             times = np.array(list(sample_files.keys()))
-            time_step = np.diff(times).min()
+            if len(times) <= 1:
+                time_step = None
+            else:
+                time_step = np.diff(times).min()
         self.time_step = time_step
 
         self.rng = np.random.default_rng()
         self.dtype = times[0].dtype
-
-
-    def __len__(self):
-        """
-        The number of input samples.
-        """
-        return len(self.sample_files)
-
-
-    def get_input(self, time: np.datetime64) -> Dict[str, torch.Tensor]:
-        """
-        Get input for a given time.
-
-        Args:
-            time: Time stamp defining the time for which to retrieve  inputs.
-
-        Return:
-            A dictionary containing the input tensors from all input datasets.
-        """
-        time = time.astype(self.dtype)
-
-        if not time in self.sample_files:
-            raise RuntimeError(
-                "No input for time '%s' available.",
-                time
-            )
-
-        files = self.sample_files[time]
-
-        inputs = {}
-        for ind, input_dataset in enumerate(self.input_datasets):
-            x = input_dataset.load_sample(
-                files[ind], self.scene_sizes[ind], input_dataset.scale, None,
-                self.rng, self.missing_value_policy
-            )
-            inputs[input_dataset.input_name] = x
-
-        return inputs
-
-
-class SequenceInputLoader(InputLoader):
-    """
-    An input loader for sequences of input observations.
-    """
-    def __init__(
-            self,
-            path: Path,
-            input_datasets: List[str],
-            sequence_length: int,
-            start_time: Optional[np.datetime64] = None,
-            end_time: Optional[np.datetime64] = None,
-            missing_value_policy: str = "sparse",
-            time_step: Optional[np.timedelta64] = None,
-    ):
-        """
-        Args:
-            path: The path pointing to the directory containing the inputs.
-            input_datasets: A list of names of input datasets.
-            sequence_length: The length of the input sequences.
-            start_time: An optional start time to limit the input samples loaded
-                by the loader.
-            end_time: An optional end time to limit the input samples loaded
-                by the loader.
-            missing_value_policy: The name of the policy defining how to handle
-               missin values.
-            time_step: The time step between consecutive inputs.
-        """
-        super().__init__(
-            path=path,
-            input_datasets=input_datasets,
-            start_time=start_time,
-            end_time=end_time,
-            missing_value_policy=missing_value_policy,
-            time_step=time_step
-        )
-        self.sequence_length = sequence_length
-
-    def get_input(self, time: np.datetime64) -> Dict[str, torch.Tensor]:
-        """
-        Get input for a given time.
-
-        Args:
-            time: Time stamp defining the time for which to retrieve  inputs.
-
-        Return:
-            A dictionary containing the input tensors from all input datasets.
-        """
-        sequence_times = time + np.arange(self.sequence_length) * self.time_step
-        sequence_times = sequence_times.astype(self.dtype)
-
-        any_input = any([time in self.sample_files for time in sequence_times])
-        if not any_input:
-            raise RuntimeError(
-                "No sequence input available in the range '%s' - '%s'.",
-                sequence_times[0],
-                sequence_times[-1]
-            )
 
     def __iter__(self):
-        for ind in range(len(self)):
-            yield self.times[ind], self[ind]
-
-
-class InputLoader():
-    """
-    The InputLoader class loads CHIMP input data for the operational
-    application of CHIMP retrievals.
-    """
-    def __init__(
-            self,
-            path: Path,
-            input_datasets: List[str],
-            start_time: Optional[np.datetime64] = None,
-            end_time: Optional[np.datetime64] = None,
-            missing_value_policy: str = "sparse",
-            time_step: Optional[np.timedelta64] = None,
-    ):
-        """
-        Args:
-            path: The path pointing to the directory containing the inputs.
-            input_datasets: A list of names of input datasets.
-            start_time: An optional start time to limit the input samples loaded
-                by the loader.
-            end_time: An optional end time to limit the input samples loaded
-                by the loader.
-            missing_value_policy: The name of the policy defining how to handle
-               missin values.
-            time_step: The time step between consecutive inputs.
-        """
-        self.path = Path(path)
-        self.input_datasets = [
-            get_input(input_dataset) for input_dataset in input_datasets
-        ]
-
-        self.missing_value_policy = missing_value_policy
-
-        n_input_datasets = len(self.input_datasets)
-        sample_files = {}
-        scene_sizes = [None] * n_input_datasets
-
-        for input_ind, input_dataset in enumerate(self.input_datasets):
-            input_files = input_dataset.find_files(self.path)
-            times = np.array(list(map(get_date, input_files)))
-
-            # Determine input size for all inputs.
-            if len(input_files) > 0:
-                with xr.open_dataset(input_files[0]) as scene:
-                    scene_sizes[input_ind] = [
-                        scene[dim].size for dim in input_dataset.spatial_dims
-                    ]
-
-            for time, input_file in zip(times, input_files):
-                files = sample_files.setdefault(time, ([None] * n_input_datasets))
-                files[input_ind] = input_file
-
-        sample_files_filtered = {}
-        for time, files in sample_files.items():
-            if start_time is not None:
-                if time < start_time:
-                    continue
-            if end_time is not None:
-                if time > end_time:
-                    continue
-            sample_files_filtered[time] = files
-
-        self.sample_files = sample_files_filtered
-        self.scene_sizes = scene_sizes
-
-        if time_step is None:
-            times = np.array(list(sample_files.keys()))
-            time_step = np.diff(times).min()
-        self.time_step = time_step
-
-        self.rng = np.random.default_rng()
-        self.dtype = times[0].dtype
-
+        for time in self.times:
+            yield time, self.get_input(time)
 
     def __len__(self):
         """
@@ -624,7 +457,7 @@ class InputLoader():
         for ind, input_dataset in enumerate(self.input_datasets):
             x = input_dataset.load_sample(
                 files[ind], self.scene_sizes[ind], input_dataset.scale, None,
-                self.rng, self.missing_value_policy
+                self.rng,
             )
             inputs[input_dataset.name] = x
 
