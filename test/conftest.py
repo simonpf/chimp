@@ -18,6 +18,7 @@ from chimp.config import (
 )
 from chimp.data import get_input, get_reference_data
 from chimp.data.training_data import SingleStepDataset, SequenceDataset
+from chimp.data.utils import get_output_filename
 
 
 HAS_PANSAT_PASSWORD = "PANSAT_PASSWORD" in os.environ
@@ -81,7 +82,7 @@ def mrms_surface_precip_data(tmp_path):
 
         sp = random_spectral_field((lats.size, lons.size), 10).astype("float32")
 
-        filename = mrms.get_output_filename(time)
+        filename = get_output_filename("mrms", time)
         dataset = xr.Dataset(
             {
                 "latitude": (("latitude"), lats),
@@ -119,7 +120,7 @@ def cpcir_data(tmp_path):
         tbs = random_spectral_field((lats.size, lons.size), 10)[..., None].astype(
             "float32"
         )
-        filename = cpcir.get_output_filename(time.item(), 30)
+        filename = get_output_filename("cpcir", time.item(), 30)
         dataset = xr.Dataset(
             {
                 "time": ((), time),

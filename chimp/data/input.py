@@ -17,7 +17,7 @@ import xarray as xr
 from pytorch_retrieve.tensors import MaskedTensor
 
 from chimp.utils import get_date
-from chimp.data.utils import scale_slices, generate_input
+from chimp.data.utils import scale_slices
 from chimp.data.source import DataSource
 
 

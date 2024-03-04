@@ -12,7 +12,7 @@ from typing import List, Optional, Tuple, Union
 import numpy as np
 from pansat import TimeRange
 from pansat.products.satellite.ncei import gridsat_b1
-from chimp.data.utils import scale_slices, generate_input
+from chimp.data.utils import scale_slices
 import torch
 import xarray as xr
 

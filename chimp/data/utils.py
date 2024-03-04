@@ -17,66 +17,6 @@ from chimp.definitions import N_CHANS
 from chimp.utils import round_time
 
 
-def generate_input(
-        n_channels,
-        size: Tuple[int],
-        policy: str,
-        rng: np.random.Generator,
-        normalizer: Optional[Normalizer] = None,
-        mean: Optional[np.array] = None,
-) -> torch.Tensor:
-    """
-    Generate input values for missing inputs.
-
-    Args:
-        n_channels: The number of channels in the input.
-        size: Tuple defining the spatial dimensions of the input to
-            generate.
-        policy: The policy to use for the data generation.
-        rng: The random generator object to use to create random
-            arrays.
-        normalizer: If provided, will be used to normalize inputs that
-            should be normalized.
-        mean: An array containing 'n_channels' defining the mean of
-            each channel.
-
-    Return:
-        A torch.Tesnro containing the generated input.
-    """
-    if policy == "sparse":
-        return None
-
-    elif policy == "random":
-        tensor = rng.normal(size=(n_channels,) + size).astype(np.float32)
-        return torch.tensor(tensor)
-    elif policy == "mean":
-        if mean is None:
-            raise RuntimeError(
-                "If missing-input policy is 'mean', an array of mean values"
-                " must be provided."
-            )
-        tensor = mean[(slice(0, None),) + (None,) * len(size)] * np.ones(
-            shape=(n_channels,) + size,
-            dtype="float32"
-        )
-        if normalizer is not None:
-            tensor = normalizer(tensor)
-        return torch.tensor(tensor)
-    elif policy == "missing":
-        tensor = np.nan * np.ones(
-            shape=(n_channels,) + size,
-            dtype="float32"
-        )
-        if normalizer is not None:
-            tensor = normalizer(tensor)
-        return tensor
-
-    raise ValueError(
-        f"Missing input policy '{policy}' is not known. Choose between 'sparse'"
-        " 'random', 'mean' and 'missing'. "
-    )
-
-
 def scale_slices(
         slices: Union[Tuple[slice, slice], Tuple[int, int, int, int], None],
         rel_scale: float
