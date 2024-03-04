@@ -46,15 +46,18 @@ and the newly added data directory should be listed in the output.
 
 > **NOTE:** The pansat settings are stored in a configuration file in the user directory. If the data in the user directory does not persist between session, the command adding the data directory must be repeated at the beginning of every session.
 
-### Adding credentials for NASA GES DISC data
+### Adding credentials for NASA GES DISC servers
 
-To be able to download data from NASA GES DISC servers for you, a valid username and password needs to be added to ``pansat``. This can be done using:
+
+``pansat`` needs a valid user name and password for accessing the NASA GES DISC servers.
+``pansat`` has built in functionality to manage credential for different data providers.
+A username and password for the GES DISC server can be added using
 
 ```shell
 pansat account add "GES DISC" <user name>
 
 ```
-If this is your first time adding credentials to ``pansat``, ``pansat`` will ask you to setup a password. ``pansat`` will query for this password whenever it needs access to the GES DISC or any other credentials. 
+If this is your first time adding credentials to ``pansat``, ``pansat`` will ask you to setup a pansat password. ``pansat`` will query for this password whenever it needs access to the GES DISC or any other credentials. 
 
 > **NOTE**: ``pansat`` stores the password in an encrypted identity file in the pansat configuration directory (``$HOME/.config/pansat`` by default). Although the file is encrypted, it is recommended to use a throw-away password to store in ``pansat``.
 

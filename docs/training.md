@@ -30,7 +30,7 @@ Retrieval outputs are defined in a similar fashion using ``[output.<output_name>
 The output should defines the type of the output, here 32 quantiles (``Quantiles``) of the posterior distribution using quantile regression.
 
 ```
-name = goes_gpm
+name = "goes_gpm"
 
 [architecture]
 name = "EncoderDecoder"
@@ -72,7 +72,7 @@ The file below defines two training epochs. A ``warmup`` epoch which uses only a
 ```toml
 [warmup]
 training_data_path = "/path/to/training_data"
-input_datasets = ["goes", "atms", "gmi"]
+input_datasets = ["goes_16", "atms", "gmi"]
 reference_datasets = ["mrms"]
 n_epochs = 20
 optimizer = "AdamW"
@@ -85,7 +85,7 @@ metrics = ["Bias", "MSE", "CorrelationCoef", "PlotSamples"]
 [stage_1]
 training_data_path = "/path/to/training_data"
 validation_data_path = "/path/to/validation_data"
-input_datasets = ["goes", "atms", "gmi"]
+input_datasets = ["goes_16", "atms", "gmi"]
 reference_datasets = ["mrms"]
 n_epochs = 20
 optimizer = "AdamW"
