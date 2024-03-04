@@ -347,8 +347,7 @@ class SingleStepDataset(Dataset):
             flip = False
 
         if not self.full:
-            slices = reference.find_random_scene(
-                self.reference_datasets[0],
+            slices = self.reference_datasets[0].find_random_scene(
                 self.reference_files[sample_index][0],
                 self.rng,
                 multiple=4,
@@ -672,8 +671,7 @@ class SequenceDataset(SingleStepDataset):
         if not self.full:
             # Find valid input range for last sample in sequence
             last_index = self.sequence_starts[index] + self.total_length
-            slices = reference.find_random_scene(
-                self.reference_datasets[0],
+            slices = self.reference_datasets[0].find_random_scene(
                 self.reference_files[last_index][0],
                 self.rng,
                 multiple=4,

@@ -11,7 +11,6 @@ from tempfile import TemporaryDirectory
 from typing import Union, List, Optional
 
 import numpy as np
-from quantnn.normalizer import Normalizer
 import pansat
 from pansat.catalog import Index
 from pansat.granule import merge_granules

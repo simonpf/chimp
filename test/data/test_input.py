@@ -1,6 +1,6 @@
 """
 Tests for the chimp.data.input module
-====================================
+=====================================
 """
 import numpy as np
 import torch
@@ -26,7 +26,6 @@ def test_load_sample(gmi_data):
         base_scale=2,
         slices=(10, 266, 20, 276),
         rng=rng,
-        missing_value_policy="none",
         rotate=90.0,
         flip=True
     )
@@ -67,4 +66,4 @@ def test_sequence_input_loader(cpcir_data, gmi_data):
     x = input_loader.get_input(np.datetime64("2020-01-01"))
     assert "cpcir" in x
     assert len(x["cpcir"]) == 8
-    assert len(x["gmi"]) ==8
+    assert len(x["gmi"]) == 8

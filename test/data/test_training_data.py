@@ -105,8 +105,9 @@ def test_load_sample_sequence(cpcir_data, mrms_surface_precip_data):
     """
     Instantiate a sequence dataset and ensure that:
         - The expected number of training samples is found.
-        - Inputs are lists of the sequence length
-        - shrink_output:
+        - Inputs are lists of length equal to sequence length
+        - shrink_output returns outputs that are smaller by the required
+          factor.
     """
     training_data = SequenceDataset(
         cpcir_data,

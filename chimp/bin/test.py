@@ -18,8 +18,6 @@ import pandas as pd
 from torch import nn
 import xarray as xr
 
-from quantnn import QRNN
-from quantnn.packed_tensor import PackedTensor
 from chimp.processing import empty_input, retrieval_step
 from chimp.metrics import (
     Bias,

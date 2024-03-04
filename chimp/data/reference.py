@@ -17,70 +17,6 @@ from chimp.data.source import DataSource
 from chimp.data.utils import scale_slices
 
 
-def find_random_scene(
-    reference_dataset,
-    path: Path,
-    rng: np.random.Generator,
-    multiple: int = 4,
-    scene_size: int = 256,
-    quality_threshold: float = 0.8,
-    valid_fraction: float = 0.2,
-) -> Tuple[int, int, int, int]:
-    """
-    Finds a random scene in the reference data that has given minimum
-    fraction of values of values exceeding a given RQI threshold.
-
-    Args:
-        reference_dataset: Reference dataset object reprsenting the reference
-            data to load.
-        path: The path of the reference data file from which to sample a random
-            scene.
-        rng: A numpy random generator instance to randomize the scene search.
-        multiple: Limits the scene position to coordinates that a multiples
-            of the given value.
-        quality_threshold: If the reference dataset has a quality index,
-            all reference data pixels below the given threshold will considered
-            invalid outputs.
-        valid_fraction: The minimum amount of valid samples in the extracted
-            region.
-
-    Return:
-        A tuple ``(i_start, i_end, j_start, j_end)`` defining the position
-        of the random crop.
-    """
-    if isinstance(scene_size, (int, float)):
-        scene_size = (int(scene_size),) * 2
-    with xr.open_dataset(path) as data:
-
-        if reference_dataset.quality_index is not None:
-            qi = data[reference_dataset.quality_index].data
-        else:
-            qi = np.isfinite(data[reference_dataset.targets[0].name].data)
-
-        found = False
-        count = 0
-        while not found:
-            if count > 20:
-                return None
-            count += 1
-            n_rows, n_cols = qi.shape
-            i_start = rng.integers(0, (n_rows - scene_size[0]) // multiple)
-            i_end = i_start + scene_size[0] // multiple
-            j_start = rng.integers(0, (n_cols - scene_size[1]) // multiple)
-            j_end = j_start + scene_size[1] // multiple
-
-            i_start = i_start * multiple
-            i_end = i_end * multiple
-            j_start = j_start * multiple
-            j_end = j_end * multiple
-
-            row_slice = slice(i_start, i_end)
-            col_slice = slice(j_start, j_end)
-
-            if (qi[row_slice, col_slice] > quality_threshold).mean() > valid_fraction:
-                found = True
-
-    return (i_start, i_end, j_start, j_end)
 
 
 @dataclass
@@ -134,6 +70,68 @@ class ReferenceDataset(DataSource):
         )
         return reference_files
 
+    def find_random_scene(
+        self,
+        path: Path,
+        rng: np.random.Generator,
+        multiple: int = 4,
+        scene_size: int = 256,
+        quality_threshold: float = 0.8,
+        valid_fraction: float = 0.2,
+    ) -> Tuple[int, int, int, int]:
+        """
+        Finds a random scene in the reference data that has given minimum
+        fraction of values of values exceeding a given RQI threshold.
+
+        Args:
+            path: The path of the reference data file from which to sample a random
+                scene.
+            rng: A numpy random generator instance to randomize the scene search.
+            multiple: Limits the scene position to coordinates that a multiples
+                of the given value.
+            quality_threshold: If the reference dataset has a quality index,
+                all reference data pixels below the given threshold will considered
+                invalid outputs.
+            valid_fraction: The minimum amount of valid samples in the extracted
+                region.
+
+        Return:
+            A tuple ``(i_start, i_end, j_start, j_end)`` defining the position
+            of the random crop.
+        """
+        if isinstance(scene_size, (int, float)):
+            scene_size = (int(scene_size),) * 2
+        with xr.open_dataset(path) as data:
+
+            if self.quality_index is not None:
+                qi = data[self.quality_index].data
+            else:
+                qi = np.isfinite(data[self.targets[0].name].data)
+
+            found = False
+            count = 0
+            while not found:
+                if count > 20:
+                    return None
+                count += 1
+                n_rows, n_cols = qi.shape
+                i_start = rng.integers(0, (n_rows - scene_size[0]) // multiple)
+                i_end = i_start + scene_size[0] // multiple
+                j_start = rng.integers(0, (n_cols - scene_size[1]) // multiple)
+                j_end = j_start + scene_size[1] // multiple
+
+                i_start = i_start * multiple
+                i_end = i_end * multiple
+                j_start = j_start * multiple
+                j_end = j_end * multiple
+
+                row_slice = slice(i_start, i_end)
+                col_slice = slice(j_start, j_end)
+
+                if (qi[row_slice, col_slice] > quality_threshold).mean() > valid_fraction:
+                    found = True
+
+        return (i_start, i_end, j_start, j_end)
 
     def load_sample(
             self,

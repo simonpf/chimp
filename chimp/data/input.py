@@ -475,7 +475,6 @@ class SequenceInputLoader(InputLoader):
             sequence_length: int,
             start_time: Optional[np.datetime64] = None,
             end_time: Optional[np.datetime64] = None,
-            missing_value_policy: str = "sparse",
             time_step: Optional[np.timedelta64] = None,
     ):
         """
@@ -487,8 +486,6 @@ class SequenceInputLoader(InputLoader):
                 by the loader.
             end_time: An optional end time to limit the input samples loaded
                 by the loader.
-            missing_value_policy: The name of the policy defining how to handle
-               missin values.
             time_step: The time step between consecutive inputs.
         """
         super().__init__(
@@ -496,7 +493,6 @@ class SequenceInputLoader(InputLoader):
             input_datasets=input_datasets,
             start_time=start_time,
             end_time=end_time,
-            missing_value_policy=missing_value_policy,
             time_step=time_step
         )
         self.sequence_length = sequence_length
@@ -527,8 +523,11 @@ class SequenceInputLoader(InputLoader):
             files = self.sample_files.get(time, [None] * len(self.input_datasets))
             for ind, input_dataset in enumerate(self.input_datasets):
                 x = input_dataset.load_sample(
-                    files[ind], self.scene_sizes[ind], input_dataset.scale, None,
-                    self.rng, self.missing_value_policy
+                    input_file=files[ind],
+                    crop_size=self.scene_sizes[ind],
+                    base_scale=input_dataset.scale,
+                    slices=None,
+                    rng=self.rng
                 )
                 inputs.setdefault(input_dataset.name, []).append(x)
 
