@@ -322,10 +322,11 @@ class SingleStepDataset(Dataset):
     def __getitem__(self, index):
         """Return ith training sample."""
         n_samples = len(self.times)
-        sample_index = int(index / self.sample_rate)
+        sample_index = min(floor(index / self.sample_rate), n_samples)
         if self.augment:
-            limit = min(int((index + 1) / self.sample_rate), n_samples)
-            sample_index = self.rng.integers(sample_index, limit)
+            limit = min(floor((index + 1) / self.sample_rate), n_samples)
+            if limit > sample_index:
+                sample_index = self.rng.integers(sample_index, limit)
 
 
         # We load a larger window when input is rotated to avoid
