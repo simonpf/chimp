@@ -14,12 +14,12 @@ from h5py import File
 import numpy as np
 import pandas as pd
 from pyproj import Transformer
-from pyresample.geometry import AreaDefinition
 import xarray as xr
 
 from pansat import TimeRange, Product
 from pansat.products.ground_based.opera import reflectivity, surface_precip
 
+from chimp.areas import Area
 from chimp.data import ReferenceDataset
 from chimp.data.reference import RetrievalTarget
 from chimp.utils import round_time
@@ -82,7 +82,7 @@ class Opera(ReferenceDataset):
 
         time = start_time
 
-        if isinstance(domain, dict):
+        if isinstance(domain, Area):
             domain = domain[self.scale]
 
         file_recs = self.pansat_product.get(time_range)
