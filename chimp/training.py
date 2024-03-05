@@ -34,6 +34,43 @@ from torch.utils.data import DataLoader
 from chimp.data.training_data import SingleStepDataset, SequenceDataset
 
 
+def find_most_recent_checkpoint(path: Path, model_name: str) -> Path:
+    """
+    Find most recente Pytorch lightning checkpoint files.
+
+    Args:
+        path: A pathlib.Path object pointing to the folder containing the
+            checkpoints.
+        model_name: The model name as defined by the user.
+
+    Return:
+        If a checkpoint was found, returns a object pointing to the
+        checkpoint file with the highest version number. Otherwise
+        returns 'None'.
+    """
+    path = Path(path)
+
+    checkpoint_files = list(path.glob(f"chimp_{model_name}*.ckpt"))
+    if len(checkpoint_files) == 0:
+        return None
+    if len(checkpoint_files) == 1:
+        return checkpoint_files[0]
+
+    checkpoint_regexp = re.compile(rf"chimp_{model_name}(-v\d*)?.ckpt")
+    versions = []
+    for checkpoint_file in checkpoint_files:
+        match = checkpoint_regexp.match(checkpoint_file.name)
+        if match is None:
+            return None
+        if match.group(1) is None:
+            versions.append(-1)
+        else:
+            versions.append(int(match.group(1)[2:]))
+    ind = np.argmax(versions)
+    return checkpoint_files[ind]
+
+
+
 @dataclass
 class TrainingConfig(pr.training.TrainingConfigBase):
     """
