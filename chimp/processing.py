@@ -15,6 +15,7 @@ from torch import nn
 import xarray as xr
 from pansat.time import to_datetime
 from pytorch_retrieve.architectures import load_model
+from pytorch_retrieve.modules.output import Quantiles
 
 from chimp.tiling import Tiler
 from chimp.data.input import InputLoader
@@ -68,9 +69,13 @@ def retrieval_step(
 
     model = model.to(device=device, dtype=float_type).eval()
 
+    quantile_outputs = {
+        mod.name: mod.tau.cpu().numpy() for mod in model.modules()
+        if isinstance(mod, Quantiles)
+    }
+
     def predict_fun(x_t):
         results = {}
-
         with torch.no_grad():
             if device != "cpu":
                 with torch.autocast(device_type=device, dtype=float_type):
@@ -78,18 +83,28 @@ def retrieval_step(
                     for key, y_pred_k in y_pred.items():
                         y_mean_k = y_pred_k.expected_value()[0, 0]
                         results[key + "_mean"] = y_mean_k.cpu().numpy()
+
+                        if key in quantile_outputs:
+                            results[key + "_cdf"] = y_pred_k.cpu().numpy()[0, :, 0]
             else:
                 y_pred = model(x_t)
                 for key, y_pred_k in y_pred.items():
                     y_mean_k = y_pred_k.expected_value()[0, 0]
                     results[key + "_mean"] = y_mean_k.cpu().numpy()
+
+                    if key in quantile_outputs:
+                        results[key + "_cdf"] = y_pred_k.cpu().numpy()[0, :, 0]
         return results
 
-    dims = ("classes", "y", "x")
+    dims = ("tau", "y", "x")
     results = tiler.predict(predict_fun)
     results = xr.Dataset(
         {key: (dims[-value.ndim :], value) for key, value in results.items()}
     )
+
+    tau = next(iter(quantile_outputs.values()))
+    results["tau"] = ("tau", tau)
+
     return results
 
 

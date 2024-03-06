@@ -15,7 +15,7 @@ from conftest import (
 
 from chimp import models
 from chimp.config import TrainingConfig
-from chimp.data import get_input, get_reference_data
+from chimp.data import get_input, get_reference_dataset
 from chimp.models import compile_mrnn
 from chimp.training import (
     train,
@@ -58,7 +58,7 @@ def test_training(
     ]
     model_config.output_configs = [
         models.OutputConfig(
-            get_reference_data("mrms"),
+            get_reference_dataset("mrms"),
             "surface_precip",
             "mse",
             quantiles=np.linspace(0, 1, 34)[1:-1]
@@ -177,7 +177,7 @@ def test_training_multi_input(
     ]
     model_config.output_configs = [
         models.OutputConfig(
-            get_reference_data("mrms"),
+            get_reference_dataset("mrms"),
             "surface_precip",
             "mse",
             quantiles=np.linspace(0, 1, 34)[1:-1]
@@ -304,7 +304,7 @@ def test_training_masked_input(
     ]
     model_config.output_configs = [
         models.OutputConfig(
-            get_reference_data("mrms"),
+            get_reference_dataset("mrms"),
             "surface_precip",
             "quantile_loss",
             quantiles=np.linspace(0, 1, 34)[1:-1]
@@ -449,7 +449,7 @@ def test_sequence_training(
     ]
     model_config.output_configs = [
         models.OutputConfig(
-            get_reference_data("mrms"),
+            get_reference_dataset("mrms"),
             "surface_precip",
             "mse",
             temporal_merging=True

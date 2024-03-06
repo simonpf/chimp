@@ -16,7 +16,7 @@ from chimp.config import (
     DecoderConfig,
     ModelConfig,
 )
-from chimp.data import get_input, get_reference_data
+from chimp.data import get_input_dataset, get_reference_dataset
 from chimp.data.training_data import SingleStepDataset, SequenceDataset
 from chimp.data.utils import get_output_filename
 
@@ -400,7 +400,7 @@ def cpcir_gmi_mrnn():
     ]
     output_configs = [
         OutputConfig(
-            get_reference_data("mrms"),
+            get_reference_dataset("mrms"),
             "surface_precip",
             "quantile_loss",
             quantiles=np.linspace(0, 1, 34)[1:-1],
@@ -487,7 +487,7 @@ def cpcir_gmi_seq_mrnn():
     ]
     output_configs = [
         OutputConfig(
-            get_reference_data("mrms"),
+            get_reference_dataset("mrms"),
             "surface_precip",
             "quantile_loss",
             quantiles=np.linspace(0, 1, 34)[1:-1],

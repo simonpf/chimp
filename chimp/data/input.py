@@ -16,6 +16,7 @@ import xarray as xr
 
 from pytorch_retrieve.tensors import MaskedTensor
 
+from chimp import extensions
 from chimp.utils import get_date
 from chimp.data.utils import scale_slices
 from chimp.data.source import DataSource
@@ -107,7 +108,7 @@ class InputBase(DataSource):
         self.ALL_INPUT_DATASETS[dataset_name] = self
 
     @classmethod
-    def get_input(cls, name: str) -> "InputBase":
+    def get_input_dataset(cls, name: str) -> "InputBase":
         """
         Get an input object by its name.
 
@@ -126,7 +127,7 @@ class InputBase(DataSource):
         return cls.ALL_INPUT_DATASETS[name]
 
 
-def get_input(name: Union[str, InputBase]) -> InputBase:
+def get_input_dataset(name: Union[str, InputBase]) -> InputBase:
     """
     Get an input object by its name.
 
@@ -138,14 +139,14 @@ def get_input(name: Union[str, InputBase]) -> InputBase:
     from . import gridsat
     from . import ssmi
     from . import patmosx
-
+    extensions.load()
 
     if isinstance(name, InputBase):
         return name
-    return InputBase.get_input(name)
+    return InputBase.get_input_dataset(name)
 
 
-def get_inputs(input_list: List[Union[str, InputBase]]) -> List[InputBase]:
+def get_input_datasets(input_list: List[Union[str, InputBase]]) -> List[InputBase]:
     """
     Parse input object.
 
@@ -161,7 +162,7 @@ def get_inputs(input_list: List[Union[str, InputBase]]) -> List[InputBase]:
     Return:
         A new list containing only 'chimp.data.inputs.Input' objects.
     """
-    return [get_input(inpt) for inpt in input_list]
+    return [get_input_dataset(inpt) for inpt in input_list]
 
 
 @dataclass
@@ -373,7 +374,7 @@ class InputLoader():
         """
         self.path = Path(path)
         self.input_datasets = [
-            get_input(input_dataset) for input_dataset in input_datasets
+            get_input_dataset(input_dataset) for input_dataset in input_datasets
         ]
 
         self.missing_value_policy = missing_value_policy

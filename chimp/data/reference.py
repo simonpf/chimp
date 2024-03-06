@@ -13,6 +13,7 @@ from scipy import ndimage
 import torch
 import xarray as xr
 
+from chimp import extensions
 from chimp.data.source import DataSource
 from chimp.data.utils import scale_slices
 
@@ -221,7 +222,7 @@ class ReferenceDataset(DataSource):
         return y
 
 
-def get_reference_data(name: Union[str, ReferenceDataset]) -> ReferenceDataset:
+def get_reference_dataset(name: Union[str, ReferenceDataset]) -> ReferenceDataset:
     """
     Retrieve reference dataset by name.
 
@@ -235,6 +236,7 @@ def get_reference_data(name: Union[str, ReferenceDataset]) -> ReferenceDataset:
     from . import baltrad
     from . import mrms
     from . import daily_precip
+    extensions.load()
 
     if isinstance(name, DataSource):
         return name

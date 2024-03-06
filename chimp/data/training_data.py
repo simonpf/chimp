@@ -36,8 +36,7 @@ from pytorch_retrieve.tensors.masked_tensor import MaskedTensor
 from chimp import data
 from chimp.definitions import MASK
 from chimp.utils import get_date
-from chimp.data import get_reference_data
-from chimp.data import get_input, get_reference_data
+from chimp.data import get_input_dataset, get_reference_dataset
 from chimp.data import input, reference
 
 
@@ -85,10 +84,10 @@ class SingleStepDataset(Dataset):
         self.path = Path(path)
 
         self.input_datasets = [
-            get_input(input_dataset) for input_dataset in input_datasets
+            get_input_dataset(input_dataset) for input_dataset in input_datasets
         ]
         self.reference_datasets = [
-            get_reference_data(reference_dataset)
+            get_reference_dataset(reference_dataset)
             for reference_dataset in reference_datasets
         ]
 

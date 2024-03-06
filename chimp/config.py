@@ -15,7 +15,12 @@ import torch
 from torch import nn
 
 import chimp
-from chimp.data import InputDataset, get_input, ReferenceDataset, get_reference_data
+from chimp.data import (
+    InputDataset,
+    get_input_dataset,
+    ReferenceDataset,
+    get_reference_dataset
+)
 
 
 def _parse_list(values, constr=int):
@@ -75,7 +80,7 @@ def parse_input_config(section: SectionProxy) -> InputConfig:
     name = section.get("name", None)
     if name is None:
         raise ValueError("Each input section must have a 'name' entry.")
-    inpt = get_input(name)
+    inpt = get_input_dataset(name)
     stem_type = section.get("stem_type", "basic")
     stem_depth = section.getint("stem_depth", 1)
     stem_kernel_size = section.getint("stem_kernel_size", 3)
@@ -125,7 +130,7 @@ def parse_output_config(section: SectionProxy) -> OutputConfig:
     reference_dataset = section.get("reference_dataset", None)
     if reference_dataset is None:
         raise ValueError("Each output section must have a 'reference_dataset' entry.")
-    reference_dataset = get_reference_data(reference_dataset)
+    reference_dataset = get_reference_dataset(reference_dataset)
 
     variable = section.get("variable", None)
     if variable is None:
