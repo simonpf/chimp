@@ -15,6 +15,7 @@ import numpy as np
 import pytorch_lightning as pl
 import torch
 from torch import nn
+from lightning.pytorch import callbacks
 
 from pytorch_lightning.callbacks import Callback
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
@@ -31,6 +32,7 @@ from pytorch_retrieve.lightning import LightningRetrieval
 from pytorch_retrieve.training import run_training
 from torch.utils.data import DataLoader
 
+from chimp import extensions
 from chimp.data.training_data import SingleStepDataset, SequenceDataset
 
 
@@ -358,6 +360,31 @@ class TrainingConfig(pr.training.TrainingConfigBase):
                 include_input_steps=self.include_input_steps,
                 require_input=self.require_input
             )
+
+    def get_callbacks(self, module: LightningRetrieval) -> List[callbacks.Callback]:
+        """
+        Get callbacks for training stage.
+
+        Args:
+            module: The retrieval module that is being trained.
+
+        Return:
+            A list of callbacks for the current stage of the training.
+
+        """
+        extensions.load()
+
+        checkpoint_cb = callbacks.ModelCheckpoint(
+            dirpath=module.model_dir / "checkpoints",
+            filename=module.name,
+            save_top_k=0,
+            save_last=True,
+        )
+        checkpoint_cb.CHECKPOINT_NAME_LAST = module.name
+        cbs = extensions.TRAINING_CALLBACKS + [checkpoint_cb]
+        if self.minimum_lr is not None:
+            cbs.append(callbacks.EarlyStopping(monitor="Learning rate", strict=True))
+        return cbs
 
 
 @click.option(
