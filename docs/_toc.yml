@@ -4,8 +4,8 @@
 format: jb-book
 root: intro
 chapters:
+- file: extending
 - file: tutorial
   sections:
   - file: training_data
-  - file: eda
   - file: training
