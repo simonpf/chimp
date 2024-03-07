@@ -93,7 +93,7 @@ def retrieval_step(
                     results[key + "_mean"] = y_mean_k.cpu().numpy()
 
                     if key in quantile_outputs:
-                        results[key + "_cdf"] = y_pred_k.cpu().numpy()[0, :, 0]
+                        results[key + "_cdf"] = y_pred_k.cpu().numpy()[0, ::-1, 0]
         return results
 
     dims = ("tau", "y", "x")
