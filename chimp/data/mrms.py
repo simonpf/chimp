@@ -194,6 +194,11 @@ class MRMSData(ReferenceDataset):
         """
         super().__init__(name, scale, targets, quality_index)
 
+    def find_files():
+        pass
+
+    def process_file():
+        pass
 
     def process_day(
             self,
@@ -257,9 +262,9 @@ class MRMSData(ReferenceDataset):
             time = time + time_step
 
 
-    def find_files(self, path: Path) -> List[Path]:
+    def find_training_files(self, path: Path) -> List[Path]:
         """
-        Find reference data files.
+        Find MRMS training data files.
 
         Args:
             path: Path to the folder containing the training data.

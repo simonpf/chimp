@@ -117,6 +117,12 @@ class CPCIRData(InputDataset):
     def n_channels(self) -> int:
         return 1
 
+    def find_files():
+        pass
+
+    def process_file():
+        pass
+
     def process_day(
             self,
             domain: dict,

@@ -61,6 +61,12 @@ class GridSat(InputDataset):
         super().__init__("gridsat", "gridsat", 1, "obs", spatial_dims=("latitude", "longitude"))
         self.n_channels = 24
 
+    def find_files():
+        pass
+
+    def process_file():
+        pass
+
     def load_sample(
         self,
         input_file: Path,
