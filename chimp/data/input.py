@@ -206,20 +206,6 @@ class InputDataset(InputBase):
         self.spatial_dims = spatial_dims[:self.n_dim]
 
 
-    def find_files(self, base_path: Path) -> List[Path]:
-        """
-        Find input files.
-
-        Args:
-            base_path: Path of the base folder containing all CHIMP training data.
-
-        Return:
-            List of available input files.
-        """
-        pattern = "*????????_??_??.nc"
-        return sorted(list((base_path / self.dataset_name).glob(pattern)))
-
-
     def load_sample(
         self,
         input_file: Path,

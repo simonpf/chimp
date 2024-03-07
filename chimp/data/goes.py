@@ -171,6 +171,12 @@ class GOES(InputDataset):
         super().__init__(dataset_name, input_name, 4, ["refls", "tbs"])
         self.n_channels = len(CHANNEL_CONFIGURATIONS[config])
 
+    def find_files():
+        pass
+
+    def process_file():
+        pass
+
     def process_day(
             self,
             domain,

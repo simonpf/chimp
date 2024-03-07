@@ -138,6 +138,12 @@ class SEVIRI(InputDataset):
     def n_channels(self) -> int:
         return 12
 
+    #def find_files():
+    #    pass
+
+    #def process_file():
+    #    pass
+
     def process_day(
         self,
         domain,

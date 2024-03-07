@@ -100,7 +100,7 @@ class SingleStepDataset(Dataset):
 
         sample_files = {}
         for ref_ind, reference_dataset in enumerate(self.reference_datasets):
-            files = reference_dataset.find_files(self.path)
+            files = reference_dataset.find_training_files(self.path)
             times = np.array(list(map(get_date, files)))
             for time, filename in zip(times, files):
                 files = sample_files.setdefault(time, ([None] * n_datasets))
@@ -113,7 +113,7 @@ class SingleStepDataset(Dataset):
             )
 
         for input_ind, input_dataset in enumerate(self.input_datasets):
-            input_files = input_dataset.find_files(self.path)
+            input_files = input_dataset.find_training_files(self.path)
             times = np.array(list(map(get_date, input_files)))
             for time, input_file in zip(times, input_files):
                 if time in sample_files:
