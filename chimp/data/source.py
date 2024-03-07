@@ -2,21 +2,97 @@
 chimp.data.source
 =================
 
-Define the base class for data sources. A data source is any
+Defines the base class for data sources. A data source is any
 data product that can be downloaded and used to generate training
 or validation data.
 """
-from typing import Union
+from abc import ABC, abstractmethod
+from pathlib import Path
+from typing import List, Optional, Union
+
+
+import numpy as np
+from pyresample import AreaDefinition
+import xarray as xr
+
+
+from pansat.geometry import Geometry
+from pansat.utils import resample_data
+
+from chimp.areas import Area
+from chimp.data.utils import round_time
+
 
 ALL_SOURCES = {}
 
-class DataSource:
+class DataSource(ABC):
     """
     The data source base class keep track of all initiated source classes.
     """
     def __init__(self, name):
         self.name = name
         ALL_SOURCES[name] = self
+
+    #def find_files(
+    #        self,
+    #        start_time: np.datetime64,
+    #        end_time: np.datetime64,
+    #        time_step: np.timedelta64,
+    #        roi: Optional[Geometry] = None,
+    #        path: Optional[Path] = None
+    #) -> List[Path]:
+    #    """
+    #    Find input data files from which to extract training data in a
+    #    given time range.
+
+    #    Args:
+    #        start_time: Start time of the time range.
+    #        end_time: End time of the time range.
+    #        time_step: The time step of the retrieval.
+    #        roi: An optional geometry object describing the region of interest
+    #            that can be used to restriced the file selection a priori.
+    #        path: If provided, files should be restricted to those available from
+    #            the given path.
+
+    #    Return:
+    #        A list of locally available files from to extract CHIMP training
+    #        data.
+    #    """
+
+    #def process_file(
+    #        self,
+    #        path: Path,
+    #        domain: Area,
+    #        output_folder: Path,
+    #        time_step: np.timedelta64
+    #) -> None:
+    #    """
+    #    Extract training samples from a given source file.
+
+    #    Args:
+    #        path: A Path object pointing to the file to process.
+    #        domain: An area object defining the training domain.
+    #        output_folder: A path pointing to the folder to which to write
+    #            the extracted training data.
+    #        time_step: A timedelta object defining the retrieval time step.
+    #    """
+
+    def find_training_files(self, path: Path) -> List[Path]:
+        """
+        Find training data files.
+
+        Args:
+            path: Path to the folder the training data for all input
+                and reference datasets.
+
+        Return:
+            A list of found reference data files.
+        """
+        pattern = "*????????_??_??.nc"
+        reference_files = sorted(
+            list((path / self.name).glob(pattern))
+        )
+        return reference_files
 
 
 def get_source(name: Union[str, DataSource]) -> DataSource:

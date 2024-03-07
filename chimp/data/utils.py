@@ -13,6 +13,9 @@ import xarray as xr
 
 import torch
 
+from pansat.time import to_datetime
+
+
 from chimp.definitions import N_CHANS
 from chimp.utils import round_time
 
@@ -70,8 +73,8 @@ def scale_slices(
 
 def get_output_filename(
         prefix: str,
-        time: datetime,
-        minutes: int = 15
+        time: np.datetime64,
+        time_step: np.timedelta64
 ):
     """
     Get filename for training sample.
@@ -84,12 +87,29 @@ def get_output_filename(
     Return:
         A string specifying the filename of the training sample.
     """
-    time_r = round_time(time, minutes=minutes)
+    time_r = to_datetime(round_time(time, time_step))
     year = time_r.year
     month = time_r.month
     day = time_r.day
     hour = time_r.hour
     minute = time_r.minute
-
     filename = f"{prefix}_{year}{month:02}{day:02}_{hour:02}_{minute:02}.nc"
     return filename
+
+
+def round_time(time: np.datetime64, step: np.timedelta64) -> np.datetime64:
+    """
+    Round time to given time step.
+
+    Args:
+        time: A numpy.datetime64 object representing the time to round.
+        step: A numpy.timedelta64 object representing the time step to
+            which to round the results.
+    """
+    time = time.astype("datetime64[s]")
+    step = step.astype("timedelta64[s]")
+    rounded = (
+        np.datetime64(0, "s")
+        + (time + 0.5 * step).astype(np.int64) // step.astype(np.int64) * step
+    )
+    return rounded
