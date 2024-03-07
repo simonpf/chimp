@@ -6,17 +6,16 @@ This module implements functions the handling of data from the
 GPM constellation.
 """
 from datetime import datetime, timedelta
+import logging
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Union, List, Optional
 
 import numpy as np
 import pansat
-from pansat.catalog import Index
+from pansat import Geometry
 from pansat.granule import merge_granules
 from pansat.time import TimeRange, to_datetime64, to_timedelta64
-from pansat.roi import find_overpasses
-from pansat.utils import resample_data
 from pansat.products.satellite.gpm import (
     l1c_gpm_gmi,
     l1c_metopb_mhs,
@@ -32,114 +31,17 @@ from pansat.products.satellite.gpm import (
     l2b_gpm_cmb
 )
 from pyresample import AreaDefinition
+import xarray as xr
 
+from chimp.areas import Area
 from chimp.data.input import InputDataset
+from chimp.data.resample import resample_and_split
 from chimp.data.reference import ReferenceDataset, RetrievalTarget
-from chimp.data.resample import resample_tbs
 from chimp.data.utils import get_output_filename
 from chimp.utils import round_time
 
-import xarray as xr
 
-
-def save_gpm_scene(
-    name: str,
-    time: np.datetime64,
-    scene: xr.Dataset,
-    output_folder: Path,
-    time_step: np.timedelta64,
-):
-    """
-    Save training data scene.
-
-    Args:
-        name: The name of the GPM sensor.
-        time: The (mean) time of the overpass.
-        scene: xarray.Dataset containing the overpass scene over the
-            domain. This data is only used  to extract the meta data of the
-            training scene.
-        scene: A xarray.Dataset containing the resampled observations.
-        output_folder: The folder to which to write the training data.
-        time_step: A time difference defining the time step to which times
-            are rounded.
-    """
-    minutes = time_step.seconds // 60
-    time_15 = round_time(time, minutes=minutes)
-    year = time_15.year
-    month = time_15.month
-    day = time_15.day
-    hour = time_15.hour
-    minute = time_15.minute
-
-    filename = f"{name}_{year}{month:02}{day:02}_{hour:02}_{minute:02}.nc"
-    output_filename = Path(output_folder) / filename
-
-    scene = scene.transpose("y", "x", "channels", "swath_centers")
-
-    comp = {
-        "dtype": "uint16",
-        "scale_factor": 0.01,
-        "zlib": True,
-        "_FillValue": 2**16 - 1,
-    }
-    encoding = {
-        "tbs": comp,
-        "swath_center_col_inds": {"dtype": "int16"},
-        "swath_center_row_inds": {"dtype": "int16"},
-    }
-
-    if output_filename.exists():
-        data = xr.load_dataset(output_filename)
-        mask = np.any(np.isfinite(scene.tbs.data), -1)
-        data.tbs.data[mask] = scene.tbs.data[mask]
-        data = data.transpose("y", "x", "channels", "swath_centers")
-        data.to_netcdf(output_filename, encoding=encoding)
-    else:
-        scene.to_netcdf(output_filename, encoding=encoding)
-    return None
-
-
-def process_overpass(
-    name: str,
-    domain: AreaDefinition,
-    scene: xr.Dataset,
-    n_swaths: int,
-    radius_of_influence: float,
-    output_folder: Path,
-    time_step: timedelta,
-    include_scan_time: bool = False,
-    min_valid: int = 100,
-) -> None:
-    """
-    Resample TBs in overpass to domain and save data.
-
-    Args:
-        name: The name of the sensor.
-        domain: A domain dict describing the area for which to extract
-            the training data.
-        scene: An 'xarray.Dataset' containing a single overpass over
-            the domain.
-        output_folder: Path to the root of the directory tree to which
-            to write the training data.
-        time_step: The time step used for the discretization of the input
-            data.
-        include_scan_time: Boolean flag indicating whether or not to include
-            the resampled scan time in the extracted retrieval input.
-    """
-    tbs_r = resample_tbs(
-        domain,
-        scene,
-        radius_of_influence=radius_of_influence,
-        include_scan_time=include_scan_time,
-        n_swaths=n_swaths,
-    )
-    time = scene.scan_time.mean().data.item()
-    tbs_r.attrs = scene.attrs
-
-    n_valid = np.any(np.isfinite(tbs_r.tbs.data), -1).sum()
-    if n_valid < min_valid:
-        return None
-    save_gpm_scene(name, time, tbs_r, output_folder, time_step)
+LOGGER = logging.getLogger(__name__)
 
 
 class GPML1CData(InputDataset):
@@ -172,6 +74,132 @@ class GPML1CData(InputDataset):
         self.n_swaths = n_swaths
         self.n_channels = n_channels
         self.radius_of_influence = radius_of_influence
+
+
+    def find_files(
+            self,
+            start_time: np.datetime64,
+            end_time: np.datetime64,
+            time_step: np.timedelta64,
+            roi: Optional[Geometry] = None,
+            path: Optional[Path] = None
+    ) -> List[Path]:
+        """
+        Find input data files within a given file range from which to extract
+        training data.
+
+        Args:
+            start_time: Start time of the time range.
+            end_time: End time of the time range.
+            time_step: The time step of the retrieval.
+            roi: An optional geometry object describing the region of interest
+                that can be used to restriced the file selection a priori.
+            path: If provided, files should be restricted to those available from
+                the given path.
+
+        Return:
+            A list of locally available files from to extract CHIMP training
+            data.
+        """
+        if path is not None:
+            path = Path(path)
+            all_files = sorted(list(path.glob("**/*.HDF5")))
+            matching = []
+            for prod in self.products:
+                matching += [prod.matches(path.filename) for path in all_files]
+            return matching
+
+        recs = []
+        for prod in self.products:
+            recs += prod.get(start_time, end_time)
+        return [rec.local_path for rec in recs]
+
+
+    def process_file(
+            self,
+            path: Path,
+            domain: Area,
+            output_folder: Path,
+            time_step: np.timedelta64
+    ):
+        """
+        Extract training samples from a given input data file.
+
+        Args:
+            path: A Path object pointing to the file to process.
+            domain: An area object defining the training domain.
+            output_folder: A path pointing to the folder to which to write
+                the extracted training data.
+            time_step: A timedelta object defining the retrieval time step.
+        """
+        output_folder = Path(output_folder) / self.name
+        output_folder.mkdir(exist_ok=True)
+
+        input_data = self.products[0].open(path)
+        swath_data =  []
+
+        for swath in range(1, self.n_swaths + 1):
+            new_names = {
+                f"latitude_s{swath}": "latitude",
+                f"longitude_s{swath}": "longitude",
+                f"tbs_s{swath}": "tbs",
+                f"scan_time": "time",
+                f"channels_s{swath}": "channels",
+            }
+            data = input_data.rename(new_names)[
+                ["latitude", "longitude", "tbs", "time"]
+            ]
+            if f"pixels_s{swath}" in data:
+                data = data.rename({f"pixels_s{swath}": "pixels"})
+
+            # Need to expand scan time to full dimensions.
+            time, _ = xr.broadcast(data.time, data.longitude)
+            data["time"] = time
+
+            swath_data.append(
+                resample_and_split(
+                    data,
+                    domain[self.scale],
+                    time_step,
+                    self.radius_of_influence,
+                    include_swath_center_coords=True
+                )
+            )
+
+        data = xr.concat(swath_data, "channels")
+        for time_ind  in range(data.time.size):
+
+            data_t = data[{"time": time_ind}]
+
+            tbs = data_t.tbs.data
+            if np.isfinite(tbs).any(-1).sum() < 100:
+                LOGGER.info(
+                    "Less than 100 valid pixel in training sample @ %s.",
+                    time
+                )
+                continue
+
+            comp = {
+                "dtype": "uint16",
+                "scale_factor": 0.01,
+                "zlib": True,
+                "_FillValue": 2**16 - 1,
+            }
+            encoding = {
+                "tbs": comp,
+                "col_inds_swath_center": {"dtype": "int16"},
+                "row_inds_swath_center": {"dtype": "int16"},
+            }
+            filename = get_output_filename(
+                self.name, data.time[time_ind].data, time_step
+            )
+
+            LOGGER.info(
+                "Writing training samples to %s.",
+                output_folder / filename
+            )
+            data_t.to_netcdf(output_folder / filename, encoding=encoding)
+
 
     def process_day(
         self,
@@ -270,6 +298,12 @@ class GPMCMB(ReferenceDataset):
             RetrievalTarget("surface_precip"),
             quality_index=None
         )
+
+    def find_files():
+        pass
+
+    def process_file():
+        pass
 
     def process_day(
         self,

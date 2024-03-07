@@ -1,58 +1,15 @@
 import numpy as np
 
 from chimp.data.utils import (
-    generate_input,
-    scale_slices
+    scale_slices,
+    round_time
 )
 
-
-def test_generate_input():
-
-    #
-    # 1D input
-    #
-
-    n_channels = 9
-    size = (128,)
-    rng = np.random.default_rng()
-
-    x = generate_input(n_channels, size, "sparse", rng, None)
-    assert x is None
-
-    x = generate_input(n_channels, size, "random", rng, None)
-    assert x is not None
-    assert np.isclose(np.mean(x.numpy()), 0, atol=1e-1)
-
-    mean = np.arange(9)
-    x = generate_input(n_channels, size, "mean", rng, mean=mean)
-    assert x is not None
-    assert np.all(np.isclose(np.mean(x.numpy(), -1), mean))
-
-    #
-    # 2D input
-    #
-
-    n_channels = 9
-    size = (128, 128)
-    rng = np.random.default_rng()
-
-    x = generate_input(n_channels, size, "sparse", rng, None)
-    assert x is None
-
-    x = generate_input(n_channels, size, "random", rng, None)
-    assert x is not None
-    assert np.isclose(np.mean(x.numpy()), 0, atol=1e-1)
-
-    mean = np.arange(9)
-    x = generate_input(n_channels, size, "mean", rng, mean=mean)
-    assert x is not None
-    assert np.all(np.isclose(np.mean(x.numpy(), (-2, -1)), mean))
 
 
 def test_scale_slices():
     """
     Test scaling of slices works as expected.
-
     """
     slcs = scale_slices(None, 2)
     assert slcs is not None
@@ -70,3 +27,19 @@ def test_scale_slices():
     assert slcs_scld[0].stop == 4
     assert slcs_scld[1].start == 0
     assert slcs_scld[1].stop == 4
+
+
+def test_round_time():
+    """
+    Test the rounding of times.
+    """
+    ref_time = np.datetime64("2020-01-01T01:15:00", "s")
+
+    datetime = np.datetime64("2020-01-01T01:20:00", "s")
+    step = np.timedelta64(15, "m")
+    rounded = round_time(datetime, step)
+    assert rounded == ref_time
+
+    datetime = np.datetime64("2020-01-01T01:10:00", "s")
+    rounded = round_time(datetime, step)
+    assert rounded == ref_time

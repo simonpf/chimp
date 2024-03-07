@@ -22,7 +22,7 @@ from chimp.data.utils import get_output_filename
 
 
 HAS_PANSAT_PASSWORD = "PANSAT_PASSWORD" in os.environ
-NEEDS_PANSAT = pytest.mark.skipif(
+NEEDS_PANSAT_PASSWORD = pytest.mark.skipif(
     not HAS_PANSAT_PASSWORD, reason="PANSAT_PASSWORD not set."
 )
 
