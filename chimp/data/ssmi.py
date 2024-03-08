@@ -12,12 +12,13 @@ from typing import Optional
 
 import numpy as np
 from pansat import TimeRange
-from pansat.products.satellite.ncei import ssmi_csu_gridded, ssmis_csu_gridded
+from pansat.products.satellite.ncei import ssmi_csu_gridded_all
 import pyresample
 from pyresample.geometry import SwathDefinition
 from pyresample import kd_tree
 import xarray as xr
 
+from chimp.areas import Area
 from chimp.data.input import InputDataset
 from chimp.data.utils import get_output_filename
 
@@ -57,95 +58,26 @@ def load_observations(path: Path) -> xr.Dataset:
 
         data = data.assign_coords(lon=(((data.lon + 180) % 360) - 180))
 
-        obs_lores_asc = xr.concat(
-            [data[chan + "_asc"] for chan in channels[:5]], "channels_lores"
+        obs_asc = xr.concat(
+            [data[chan + "_asc"] for chan in channels], "channels"
         )
-        obs_lores_des = xr.concat(
-            [data[chan + "_dsc"] for chan in channels[:5]], "channels_lores"
+        obs_des = xr.concat(
+            [data[chan + "_dsc"] for chan in channels], "channels"
         )
-        obs_hires_asc = xr.concat(
-            [data[chan + "_asc"] for chan in channels[5:]], "channels_hires"
-        )
-        obs_hires_des = xr.concat(
-            [data[chan + "_dsc"] for chan in channels[5:]], "channels_hires"
-        )
+
+        time_asc = data.time_offset_asc.data.astype("timedelta64[s]")
+        time_des = data.time_offset_dsc.data.astype("timedelta64[s]")
 
     data = xr.Dataset({
         "longitude": (("longitude",), data.lon.data),
         "latitude": (("latitude",), data.lat.data),
-        "obs_lores_asc": (("latitude", "longitude", "channels_lores"), obs_lores_asc.transpose("lat", "lon", "channels_lores").data),
-        "obs_lores_des": (("latitude", "longitude", "channels_lores"), obs_lores_des.transpose("lat", "lon", "channels_lores").data),
-        "obs_hires_asc": (("latitude", "longitude", "channels_hires"), obs_hires_asc.transpose("lat", "lon", "channels_hires").data),
-        "obs_hires_des": (("latitude", "longitude", "channels_hires"), obs_hires_des.transpose("lat", "lon", "channels_hires").data)
+        "obs_asc": (("latitude", "longitude", "channels"), obs_asc.transpose("lat", "lon", "channels").data),
+        "obs_des": (("latitude", "longitude", "channels"), obs_asc.transpose("lat", "lon", "channels").data),
+        "second_of_day_asc": (("latitude", "longitude",), time_asc.astype("int64")),
+        "second_of_day_des": (("latitude", "longitude"), time_des.astype("int64"))
     })
 
-    return data.transpose("latitude", "longitude", "channels_lores", "channels_hires")
-
-
-def resample_data(
-    dataset: xr.Dataset,
-    target_grid: pyresample.AreaDefinition,
-    output_data: Optional[xr.Dataset],
-    orbit_part="asc",
-):
-    """
-    Resample xarray.Dataset data to global grid.
-
-    Args:
-        dataset: xr.Dataset containing data to resample to global grid.
-        target_grid: A pyresample.AreaDefinition defining the global grid
-            to which to resample the data.
-
-    Return:
-        An xarray.Dataset containing the give dataset resampled to
-        the global grid.
-    """
-    lons_t, lats_t = target_grid.get_lonlats()
-
-    if output_data is None:
-        obs_lores = np.nan * np.zeros(lons_t.shape + (5,))
-        obs_hires = np.nan * np.zeros(lons_t.shape + (2,))
-        output_data = xr.Dataset(
-            {
-                "latitude": (("latitude",), lats_t[:, 0]),
-                "longitude": (("longitude",), lons_t[0]),
-                "obs_lores": (("latitude", "longitude", "channels_lores"), obs_lores),
-                "obs_hires": (("latitude", "longitude", "channels_hires"), obs_hires),
-            }
-        )
-
-    for res in ["lores", "hires"]:
-        lons = dataset[f"longitude_{res}"].data
-        lats = dataset[f"latitude_{res}"].data
-
-        dlat = np.zeros(lats.shape[:1])
-        dlat[1:] = np.diff(lats.mean(-1))
-        dlat[0] = dlat[1]
-        orbit = dlat > 0
-        if orbit_part == "des":
-            orbit = ~orbit
-
-        if orbit.sum() == 0:
-            continue
-
-        swath = SwathDefinition(lons=lons[orbit], lats=lats[orbit])
-        target = SwathDefinition(lons=lons_t, lats=lats_t)
-
-        info = kd_tree.get_neighbour_info(
-            swath, target, radius_of_influence=64e3, neighbours=1
-        )
-        ind_in, ind_out, inds, _ = info
-
-        obs = dataset[f"obs_{res}"].data[orbit]
-
-        obs_r = kd_tree.get_sample_from_neighbour_info(
-            "nn", target.shape, obs, ind_in, ind_out, inds, fill_value=np.nan
-        )
-
-        valid = np.isfinite(obs_r)
-        output_data[f"obs_{res}"].data[valid] = obs_r[valid]
-
-    return output_data
+    return data.transpose("latitude", "longitude", "channels")
 
 
 class SSMI(InputDataset):
@@ -159,7 +91,7 @@ class SSMI(InputDataset):
             "ssmi",
             "ssmi",
             1,
-            ["obs_lores_asc", "obs_lores_des", "obs_hires_asc", "obs_hires_des"],
+            ["obs"],
             spatial_dims=("latitude", "longitude")
         )
 
@@ -200,40 +132,68 @@ class SSMI(InputDataset):
         time = datetime(year=year, month=month, day=day)
         end = time + timedelta(days=1)
 
-        if isinstance(domain, dict):
+        if isinstance(domain, Area):
             domain = domain[16]
 
         lons, lats = domain.get_lonlats()
         lons = lons[0]
         lats = lats[:, 0]
+        time_bins = (np.arange(0, 25, 6) * 3600)
 
         while time < end:
             time_range = TimeRange(time, time + time_step - timedelta(seconds=1))
 
-            if time > datetime(2015, 1, 1):
-                prod = ssmis_csu_gridded
-            else:
-                prod = ssmi_csu_gridded
+            prod = ssmi_csu_gridded_all
 
             recs = prod.find_files(time_range)
+            tbs = np.nan * np.zeros((lats.size, lons.size, 4, 7), np.float32)
 
-            if len(recs) > 0:
-                rec = recs[0].get()
+            for rec in recs:
+                rec = rec.get()
                 data = load_observations(rec.local_path)
                 data = data.interp(
                     latitude=lats,
-                    longitude=lons
+                    longitude=lons,
+                    method="nearest"
                 )
-                filename = time.strftime("ssmi_%Y%m%d_%H%M.nc")
 
+                for ind in range(4):
+                    lower = time_bins[ind]
+                    upper = time_bins[ind + 1]
+
+                    sod = data.second_of_day_asc.data
+                    mask = (lower <= sod) * (sod < upper)
+                    valid = mask * np.isfinite(data.obs_asc.data).any(-1)
+                    tbs[valid, ind] = data.obs_asc.data[valid]
+
+                    sod = data.second_of_day_des.data
+                    mask = (lower <= sod) * (sod < upper)
+                    valid = mask * np.isfinite(data.obs_des.data).any(-1)
+                    tbs[valid, ind] = data.obs_des.data[valid]
+
+
+
+            if len(recs) > 0:
+                time_of_day = 0.5 * (time_bins[1:] + time_bins[:-1])
+                training_sample = xr.Dataset({
+                    "latitude": (("latitude",), lats),
+                    "longitude": (("longitude",), lons),
+                    "time_of_day": (("time_of_day"), time_of_day.astype(
+                        "timedelta64[s]"
+                    )),
+                    "obs": (("latitude", "longitude", "time_of_day", "channels"), tbs)
+                })
                 output_filename = get_output_filename(
                     "ssmi", time, minutes=1440
                 )
                 encodings = {
                     obs: {"dtype": "float32", "zlib": True}
-                    for obs in data.variables
+                    for obs in training_sample.variables
                 }
-                data.to_netcdf(output_folder / output_filename, encoding=encodings)
+                training_sample.to_netcdf(
+                    output_folder / output_filename,
+                    encoding=encodings
+                )
 
             time = time + time_step
 

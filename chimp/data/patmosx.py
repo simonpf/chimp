@@ -171,7 +171,6 @@ class PATMOSX(InputDataset):
             obs_imager = np.nan * np.zeros((lats.size, lons.size, 4, 15), np.float32)
             time_bins = np.arange(0, 25, 6) * 3600
 
-
             for rec in recs:
                 data = load_observations(rec.local_path)[{"time": 0}]
                 data = data.interp(latitude=lats, longitude=lons)
