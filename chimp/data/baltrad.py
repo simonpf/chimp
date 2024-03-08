@@ -8,7 +8,7 @@ and load precipitation estimates from the BALTRAD radar network.
 from datetime import datetime, timedelta
 from pathlib import Path
 import re
-from typing import Optional
+from typing import List, Optional
 
 from h5py import File
 import numpy as np
@@ -21,11 +21,13 @@ from pansat import FileRecord, TimeRange, Geometry
 from pansat.geometry import LonLatRect
 from pansat.catalog import Index
 from pansat.products import Product, FilenameRegexpMixin
+from pansat.time import to_datetime64
 
+from chimp.areas import Area
 from chimp.data import ReferenceDataset
 from chimp.data.reference import RetrievalTarget
 from chimp.utils import round_time
-from chimp.data.resample import resample_data
+from chimp.data.resample import resample_and_split
 from chimp.data.utils import get_output_filename
 
 
@@ -179,7 +181,7 @@ class BaltradData(FilenameRegexpMixin, Product):
             dataset.attrs["end_time"] = f"{end_date} {end_time}"
 
             time = self.get_temporal_coverage(rec)
-            dataset.attrs["time"] = str(time.start)
+            dataset["time"] = (("time"), np.array([to_datetime64(time.start)]))
             area = _load_projection_info(rec.local_path)
             dataset.attrs["projection"] = area
 
@@ -204,83 +206,88 @@ class Baltrad(ReferenceDataset):
             "baltrad", scale=4, targets=[RetrievalTarget("dbz")], quality_index="qi"
         )
 
-    def process_day(
-        self,
-        domain: dict,
-        year: int,
-        month: int,
-        day: int,
-        output_folder: Path,
-        path: Path = Optional[None],
-        time_step: timedelta = timedelta(minutes=15),
-        include_scan_time=False,
-    ):
+
+    def find_files(
+            self,
+            start_time: np.datetime64,
+            end_time: np.datetime64,
+            time_step: np.timedelta64,
+            roi: Optional[Geometry] = None,
+            path: Optional[Path] = None
+    ) -> List[Path]:
         """
-        Extract GMI input observations for the CHIMP retrieval.
+        Find input data files within a given file range from which to extract
+        training data.
 
         Args:
-            domain: A domain dict specifying the area for which to
-                extract GMI input data.
-            year: The year.
-            month: The month.
-            day: The day.
-            output_folder: The root of the directory tree to which to write
-                the training data.
-            path: Not used, included for compatibility.
-            time_step: The time step between consecutive retrieval steps.
-            include_scan_time: If set to 'True', the resampled scan time will
-                be included in the extracted training input.
+            start_time: Start time of the time range.
+            end_time: End time of the time range.
+            time_step: The time step of the retrieval.
+            roi: An optional geometry object describing the region of interest
+                that can be used to restriced the file selection a priori.
+            path: If provided, files should be restricted to those available from
+                the given path.
+
+        Return:
+            A list of locally available files to extract CHIMP training data from.
+        """
+        if path is None:
+            raise RuntimeError(
+                "BALTRAD data is not available publicly. Therefore, the 'path' argument"
+                " must not be 'None'."
+            )
+        path = Path(path)
+        all_files = sorted(list(path.glob("**/*.h5")))
+        matching = [path for path in all_files if baltrad_product.matches(path)]
+        return matching
+
+
+    def process_file(
+            self,
+            path: Path,
+            domain: Area,
+            output_folder: Path,
+            time_step: np.timedelta64
+    ):
+        """
+        Extract training samples from a given source file.
+
+        Args:
+           path: A Path object pointing to the file to process.
+           domain: An area object defining the training domain.
+           output_folder: A path pointing to the folder to which to write
+               the extracted training data.
+           time_step: A timedelta object defining the retrieval time step.
         """
         output_folder = Path(output_folder) / self.name
-        if not output_folder.exists():
-            output_folder.mkdir(parents=True, exist_ok=True)
-
-        files = (path / f"{year}/{month:02}/{day:02}").glob("**/*.h5")
-        index = Index.index(baltrad_product, files)
-
-        start_time = datetime(year, month, day)
-        end_time = datetime(year, month, day) + timedelta(hours=23, minutes=59)
-        time_range = TimeRange(start_time, end_time)
-
-        time = start_time
-
-        if isinstance(domain, dict):
-            domain = domain[self.scale]
-
-        while time < end_time:
-            print(time)
-            granules = index.find(
-                TimeRange(
-                    time - 0.5 * time_step,
-                    time + 0.5 * time_step,
-                )
-            )
-            if len(granules) > 0:
-                data = baltrad_product.open(granules[0].file_record)
-                data_r = resample_data(data, domain, radius_of_influence=4e3)
-                data_r = data_r.drop_vars(["latitude", "longitude"])
-
-                output_filename = get_output_filename(
-                    "baltrad", time, minutes=time_step.total_seconds() // 60
-                )
-
-                encoding = {
-                    "dbz": {
-                        "add_offset": data.dbz.attrs["add_offset"],
-                        "scale_factor": data.dbz.attrs["scale_factor"],
-                        "_FillValue": data.dbz.attrs["missing"],
-                        "zlib": True
-                    },
-                    "qi": {
-                        "add_offset": data.qi.attrs["add_offset"],
-                        "scale_factor": data.qi.attrs["scale_factor"],
-                        "zlib": True
-                    }
-                }
-
-                data_r.to_netcdf(output_folder / output_filename, encoding=encoding)
-
-            time = time + time_step
+        output_folder.mkdir(exist_ok=True)
 
 
-baltrad = Baltrad()
+        time_range = baltrad_product.get_temporal_coverage(path)
+        time = time_range.start
+
+        data = baltrad_product.open(path)
+        data_r = resample_and_split(data, domain[self.scale], time_step=time_step, radius_of_influence=4e3)
+        data_r = data_r[{"time": 0}]
+        data_r = data_r.drop_vars(["latitude", "longitude"])
+
+        output_filename = get_output_filename(
+            "baltrad", time, time_step
+        )
+        encoding = {
+            "dbz": {
+                "add_offset": data.dbz.attrs["add_offset"],
+                "scale_factor": data.dbz.attrs["scale_factor"],
+                "_FillValue": data.dbz.attrs["missing"],
+                "zlib": True
+            },
+            "qi": {
+                "add_offset": data.qi.attrs["add_offset"],
+                "scale_factor": data.qi.attrs["scale_factor"],
+                "zlib": True
+            }
+        }
+        data_r.to_netcdf(output_folder / output_filename, encoding=encoding)
+
+
+BALTRAD = Baltrad()
