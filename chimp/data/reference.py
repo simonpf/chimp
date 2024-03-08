@@ -55,21 +55,6 @@ class ReferenceDataset(DataSource):
         self.targets = targets
         self.quality_index = quality_index
 
-    def find_files(self, path: Path) -> List[Path]:
-        """
-        Find reference data files.
-
-        Args:
-            path: Path to the folder containing the training data.
-
-        Return:
-            A list of found reference data files.
-        """
-        pattern = "*????????_??_??.nc"
-        reference_files = sorted(
-            list((path / self.name).glob(pattern))
-        )
-        return reference_files
 
     def find_random_scene(
         self,
