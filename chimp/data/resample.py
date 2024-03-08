@@ -189,7 +189,7 @@ def resample_and_split(
     while time <= end_time:
 
         if "time" in dataset.dims:
-            data_t = dataset.interp(time=time, method="nearest")
+            data_t = dataset.interp(time=time.astype("datetime64[ns]"), method="nearest")
             mask = spatial_mask
             lons_swath = None
             lats_swath = None
@@ -240,5 +240,5 @@ def resample_and_split(
         time += time_step
 
     results = xr.concat(results, "time")
-    results["time"] = (("time"), np.array(times))
+    results["time"] = (("time"), np.array(times).astype("datetime64[ns]"))
     return results
