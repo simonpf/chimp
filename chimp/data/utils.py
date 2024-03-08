@@ -4,7 +4,7 @@ chimp.data.utils
 
 Utility functions used by the sub-modules of the chimp.data module.
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
@@ -13,7 +13,7 @@ import xarray as xr
 
 import torch
 
-from pansat.time import to_datetime
+from pansat.time import to_datetime, to_datetime64, to_timedelta64
 
 
 from chimp.definitions import N_CHANS
@@ -106,6 +106,10 @@ def round_time(time: np.datetime64, step: np.timedelta64) -> np.datetime64:
         step: A numpy.timedelta64 object representing the time step to
             which to round the results.
     """
+    if isinstance(time, datetime):
+        time = to_datetime64(time)
+    if isinstance(step, timedelta):
+        step = to_timedelta64(step)
     time = time.astype("datetime64[s]")
     step = step.astype("timedelta64[s]")
     rounded = (
