@@ -104,7 +104,7 @@ class GPML1CData(InputDataset):
             all_files = sorted(list(path.glob("**/*.HDF5")))
             matching = []
             for prod in self.products:
-                matching += [prod.matches(path.filename) for path in all_files]
+                matching += [path for path in all_files if prod.matches(path)]
             return matching
 
         recs = []
