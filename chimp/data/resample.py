@@ -161,7 +161,7 @@ def resample_and_split(
         dataset = dataset.transpose("latitude", "longitude", ...)
         lons = dataset.longitude.data
         lats = dataset.latitude.data
-        lons, lats = xr.meshgrid(lons, lats)
+        lons, lats = np.meshgrid(lons, lats)
     else:
         lons = dataset.longitude.data
         lats = dataset.latitude.data
@@ -211,6 +211,9 @@ def resample_and_split(
             name: (("samples",) + da.dims[2:], da.data[mask])
             for name, da in data_t.variables.items() if da.ndim > 1
         })
+        if "latitude" not in data_t:
+            data_t["latitude"] = (("samples",), lats[spatial_mask])
+            data_t["longitude"] = (("samples",), lons[spatial_mask])
 
         data_r = resample_data(
             data_t,

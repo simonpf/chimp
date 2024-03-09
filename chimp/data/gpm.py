@@ -15,7 +15,7 @@ import numpy as np
 import pansat
 from pansat import Geometry
 from pansat.granule import merge_granules
-from pansat.time import TimeRange, to_datetime64, to_timedelta64
+from pansat.time import TimeRange
 from pansat.products.satellite.gpm import (
     l1c_gpm_gmi,
     l1c_metopb_mhs,
@@ -109,7 +109,7 @@ class GPML1CData(InputDataset):
 
         recs = []
         for prod in self.products:
-            recs += prod.get(start_time, end_time)
+            recs += prod.get(TimeRange(start_time, end_time))
         return [rec.local_path for rec in recs]
 
 
@@ -270,12 +270,12 @@ class GPMCMB(ReferenceDataset):
             all_files = sorted(list(path.glob("**/*.HDF5")))
             matching = []
             for prod in self.products:
-                matching += [prod.matches(path.filename) for path in all_files]
+                matching += [path for path in all_files if prod.matches(path)]
             return matching
 
         recs = []
         for prod in self.products:
-            recs += prod.get(start_time, end_time)
+            recs += prod.get(TimeRange(start_time, end_time))
         return [rec.local_path for rec in recs]
 
     def process_file(
