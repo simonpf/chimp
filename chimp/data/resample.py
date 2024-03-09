@@ -90,11 +90,18 @@ def resample_data(
     ind_in, ind_out, inds, _ = info
 
     resampled = {}
-    resampled["latitude"] = (("latitude",), lats_t[:, 0])
-    resampled["longitude"] = (("longitude",), lons_t[0, :])
+
+    if lons_t.ndim == 1 or np.isclose(lons_t[0], lons_t[1]).all():
+        regular = True
+    else:
+        regular = False
+
+    if regular:
+        resampled["latitude"] = (("latitude",), lats_t[:, 0])
+        resampled["longitude"] = (("longitude",), lons_t[0, :])
 
     for var in dataset:
-        if var in ["latitude", "longitude"]:
+        if regular and var in ["latitude", "longitude"]:
             continue
         data = dataset[var].data
         if data.ndim == 1 and lons.ndim > 1:
@@ -189,7 +196,11 @@ def resample_and_split(
     while time <= end_time:
 
         if "time" in dataset.dims:
-            data_t = dataset.interp(time=time.astype("datetime64[ns]"), method="nearest")
+            data_t = dataset.interp(
+                time=time.astype("datetime64[ns]"),
+                method="nearest",
+                kwargs={"fill_value": "extrapolate"}
+            )
             mask = spatial_mask
             lons_swath = None
             lats_swath = None

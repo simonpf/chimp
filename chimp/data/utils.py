@@ -87,7 +87,7 @@ def round_time(time: np.datetime64, step: np.timedelta64) -> np.datetime64:
     step = step.astype("timedelta64[s]")
     rounded = (
         np.datetime64(0, "s")
-        + (time + 0.5 * step).astype(np.int64) // step.astype(np.int64) * step
+        + time.astype(np.int64) // step.astype(np.int64) * step
     )
     return rounded
 
