@@ -38,7 +38,6 @@ from chimp.data.input import InputDataset
 from chimp.data.resample import resample_and_split
 from chimp.data.reference import ReferenceDataset, RetrievalTarget
 from chimp.data.utils import get_output_filename
-from chimp.utils import round_time
 
 
 LOGGER = logging.getLogger(__name__)
@@ -104,7 +103,9 @@ class GPML1CData(InputDataset):
             all_files = sorted(list(path.glob("**/*.HDF5")))
             matching = []
             for prod in self.products:
-                matching += [path for path in all_files if prod.matches(path)]
+                matching += [
+                    path for path in all_files if prod.matches(path)
+                ]
             return matching
 
         recs = []

@@ -26,7 +26,6 @@ from pansat.time import TimeRange
 from pansat.time import to_datetime64
 import xarray as xr
 
-from chimp.utils import round_time
 from chimp.data.utils import get_output_filename
 from chimp.data.reference import ReferenceDataset, RetrievalTarget
 from chimp import areas

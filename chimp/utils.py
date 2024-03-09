@@ -15,36 +15,6 @@ import xarray as xr
 from pansat.time import to_datetime
 
 
-def round_time(
-        time: datetime,
-        minutes: int = 15
-) -> datetime:
-    """
-    Round time to closest 15 minutes.
-
-    Args:
-        time: A representation of a time that can be parsed by
-            'pandas.Timestamp'
-
-    Return:
-        A 'datetime.datetime' object representing the rounded time.
-    """
-    if isinstance(minutes, timedelta):
-        minutes = minutes.total_seconds() // 60
-
-    time = to_datetime(time)
-    year = time.year
-    month = time.month
-    day = time.day
-    hour = time.hour
-    minute = time.minute
-
-    minute_r = minutes * np.round(minute / minutes)
-    time_r = datetime(year, month, day, hour) + timedelta(minutes=minute_r)
-
-    return time_r
-
-
 def get_available_times(path):
     """
     Get times of available CHIMP files within a given directory.
