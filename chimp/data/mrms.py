@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 import logging
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import List
+from typing import List, Optional
 
 from h5py import File
 import numpy as np
@@ -18,6 +18,7 @@ import pandas as pd
 from pyproj import Transformer
 from pyresample.geometry import AreaDefinition
 from scipy.stats import binned_statistic_2d
+from pansat.geometry import Geometry
 from pansat.download.providers import IowaStateProvider
 from pansat.products.ground_based import mrms
 from pansat.utils import resample_data
@@ -26,12 +27,13 @@ from pansat.time import TimeRange
 from pansat.time import to_datetime64
 import xarray as xr
 
-from chimp.data.utils import get_output_filename
+from chimp.areas import Area
+from chimp.data.utils import get_output_filename, round_time
 from chimp.data.reference import ReferenceDataset, RetrievalTarget
-from chimp import areas
 
 
 LOGGER = logging.getLogger(__name__)
+
 
 PRECIP_TYPES = {
     "No rain": [0.0],
@@ -40,98 +42,6 @@ PRECIP_TYPES = {
     "Hail": [7.0],
     "Snow": [3.0, 4.0],
 }
-
-
-def resample_mrms_data(
-        dataset: xr.Dataset,
-        domain: areas.Area
-) -> xr.Dataset:
-    """
-    Resample MRMS data to CHIMP grid.
-
-    Args:
-        dataset: 'xarray.Dataset' containing the MRMS surface precip and
-            radar quality index.
-        area: An Area object defining the domain to which to resample the MRMS
-            data.
-
-    Return:
-        A new dataset containing the surface precip and RQI data
-        resampled to the CONUS 4-km domain.
-    """
-    lons_out, lats_out = domain[4].get_lonlats()
-
-    lons_out = lons_out[0]
-    lon_bins = np.zeros(lons_out.size + 1)
-    lon_bins[1:-1] = 0.5 * (lons_out[1:] + lons_out[:-1])
-    lon_bins[0] = lon_bins[1] - (lon_bins[2] - lon_bins[1])
-    lon_bins[-1] = lon_bins[-2] + lon_bins[-2] - lon_bins[-3]
-
-    lats_out = lats_out[..., 0][::-1]
-    lat_bins = np.zeros(lats_out.size + 1)
-    lat_bins[1:-1] = 0.5 * (lats_out[1:] + lats_out[:-1])
-    lat_bins[0] = lat_bins[1] - (lat_bins[2] - lat_bins[1])
-    lat_bins[-1] = lat_bins[-2] + lat_bins[-2] - lat_bins[-3]
-
-    flipped = False
-    print(np.diff(lat_bins))
-    if np.diff(lat_bins)[0] < 0:
-        flipped = True
-        lat_bins = lat_bins[::-1]
-
-    lons, lats = areas.MRMS[4].get_lonlats()
-    sfp = dataset.surface_precip.data
-    valid = sfp >= 0.0
-    surface_precip = binned_statistic_2d(
-        lats[valid],
-        lons[valid],
-        sfp[valid],
-        bins=(lat_bins, lon_bins)
-    )[0][::-1]
-    rqi = dataset.rqi.data
-    valid = rqi >= 0.0
-    rqi = binned_statistic_2d(
-        lats[valid],
-        lons[valid],
-        rqi[valid],
-        bins=(lat_bins, lon_bins)
-    )[0][::-1]
-
-    precip_flag = dataset.precip_type.data
-    precip_type_cts = []
-    names = []
-    for name, flags in PRECIP_TYPES.items():
-        type_field = None
-        for type_flag in flags:
-            if type_field is None:
-                type_field = np.isclose(precip_flag, type_flag)
-            else:
-                type_field += np.isclose(precip_flag, type_flag)
-        cts = binned_statistic_2d(
-            lats[valid],
-            lons[valid],
-            type_field[valid],
-            bins=(lat_bins, lon_bins)
-        )[0][::-1]
-        precip_type_cts.append(cts)
-    precip_type_cts = np.argmax(np.stack(precip_type_cts), axis=0)
-    precip_type_cts = np.nan_to_num(precip_type_cts, nan=-1).astype("int8")
-
-    if flipped:
-        surface_precip = surface_precip[::-1]
-        rqi = rqi[::-1]
-        precip_type_cts = precip_type_cts[::-1]
-
-
-    dataset_r = xr.Dataset({
-        "latitude": (("latitude"), lats_out),
-        "longitude": (("longitude"), lons_out),
-        "surface_precip": (("latitude", "longitude"), surface_precip),
-        "rqi": (("latitude", "longitude"), rqi),
-        "precip_type": (("latitude", "longitude"), precip_type_cts),
-        "time": ((), dataset.time.data)
-    })
-    return dataset_r
 
 
 def save_file(dataset, output_folder, filename):
@@ -145,32 +55,42 @@ def save_file(dataset, output_folder, filename):
     """
     output_filename = Path(output_folder) / filename
 
+    if output_filename.exists():
+        output_data = xr.load_dataset(output_filename)
+    else:
+        output_data = xr.Dataset()
+
     comp = {"zlib": True}
-    encoding = {var: comp for var in dataset.variables.keys()}
+    encoding = {var: comp for var in output_data.variables.keys()}
 
-    surface_precip = np.minimum(dataset.surface_precip.data, 300)
-    dataset.surface_precip.data = surface_precip
-    encoding["surface_precip"] = {
-        "scale_factor": 1 / 100,
-        "dtype": "int16",
-        "zlib": True,
-        "_FillValue": -1
-    }
+    if "surface_precip" in dataset:
+        surface_precip = np.minimum(dataset.surface_precip.data, 300)
+        dataset.surface_precip.data = surface_precip
+        encoding["surface_precip"] = {
+            "scale_factor": 1 / 100,
+            "dtype": "int16",
+            "zlib": True,
+            "_FillValue": -1
+        }
+        output_data["surface_precip"] = (("y", "x"), surface_precip)
 
-    dataset.surface_precip.data = surface_precip
-    encoding["rqi"] = {
-        "scale_factor": 1 / 127,
-        "dtype": "int8",
-        "zlib": True,
-        "_FillValue": -1
-    }
+    if "rqi" in dataset:
+        encoding["rqi"] = {
+            "scale_factor": 1 / 127,
+            "dtype": "int8",
+            "zlib": True,
+            "_FillValue": -1
+        }
+        output_data["rqi"] = (("y", "x"), dataset.rqi.data)
 
-    encoding["precip_type"] = {
-        "dtype": "uint8",
-        "zlib": True
-    }
+    if "precip_type" in dataset:
+        encoding["precip_type"] = {
+            "dtype": "uint8",
+            "zlib": True
+        }
+        output_data["precip_type"] = (("y", "x"), dataset.precip_type.data)
 
-    dataset.to_netcdf(output_filename, encoding=encoding)
+    output_data.to_netcdf(output_filename, encoding=encoding)
 
 
 class MRMSData(ReferenceDataset):
@@ -192,73 +112,99 @@ class MRMSData(ReferenceDataset):
             quality_index: Name of the field hodling the quality index.
         """
         super().__init__(name, scale, targets, quality_index)
+        self.products = [mrms.precip_rate, mrms.radar_quality_index, mrms.precip_flag]
 
-    def find_files():
-        pass
 
-    def process_file():
-        pass
-
-    def process_day(
+    def find_files(
             self,
-            domain,
-            year,
-            month,
-            day,
-            output_folder,
-            path=None,
-            time_step=timedelta(minutes=15),
-            include_scan_time=False
-    ):
+            start_time: np.datetime64,
+            end_time: np.datetime64,
+            time_step: np.timedelta64,
+            roi: Optional[Geometry] = None,
+            path: Optional[Path] = None
+    ) -> List[Path]:
         """
-        Extract training data from a day of MRMS measurements.
+        Find input data files within a given file range from which to extract
+        training data.
 
         Args:
-            year: The year
-            month: The month
-            day: The day
-            output_folder: The folder to which to write the extracted
-                observations.
-            path: Not used, included for compatibility.
-            time_step: Time step defining the temporal resolution at which to extract
-                training samples.
-            include_scan_time: Ignored. Included for compatibility.
+            start_time: Start time of the time range.
+            end_time: End time of the time range.
+            time_step: The time step of the retrieval.
+            roi: An optional geometry object describing the region of interest
+                that can be used to restriced the file selection a priori.
+            path: If provided, files should be restricted to those available from
+                the given path.
+
+        Return:
+            A list of locally available files to extract CHIMP training data from.
         """
-        output_folder = Path(output_folder) / "mrms"
-        if not output_folder.exists():
-            output_folder.mkdir(parents=True, exist_ok=True)
+        found_files = []
 
-        start_time = datetime(year, month, day)
-        end_time = datetime(year, month, day) + timedelta(hours=24)
-        time = start_time
-        files = []
+        if path is not None:
+            all_files = sorted(list(path.glob("**/*.grib2.gz")))
 
-        while time < end_time:
+        for prod in self.products:
+            if path is not None:
+                recs = [
+                    FileRecord.from_local(prod, path) for path in all_files
+                    if prod.matches(path)
+                ]
+            else:
+                recs = prod.find_files(TimeRange(start_time, end_time))
 
-            time_range = TimeRange(time, time)
+            matched_recs = {}
+            matched_deltas = {}
 
-            precip_rate_rec = mrms.precip_rate.get(time_range)[0]
-            rqi_rec = mrms.radar_quality_index.get(time_range)[0]
-            precip_flag_rec = mrms.precip_flag.get(time_range)[0]
+            for rec in recs:
+                tr_rec = rec.temporal_coverage
+                time_c = to_datetime64(tr_rec.start + 0.5 * (tr_rec.end - tr_rec.start))
+                time_n = round_time(time_c, time_step)
+                delta = abs(time_c - time_n)
 
-            precip_rate_data = mrms.precip_rate.open(precip_rate_rec)
-            rqi_data = mrms.radar_quality_index.open(rqi_rec)
-            precip_flag_data = mrms.precip_flag.open(precip_flag_rec)
+                min_delta = matched_deltas.get(time_n)
+                if min_delta is None:
+                    matched_recs[time_n] = rec
+                    matched_deltas[time_n] = delta
+                else:
+                    if delta < min_delta:
+                        matched_recs[time_n] = rec
+                        matched_deltas[time_n] = delta
 
-            dataset = xr.merge(
-                [precip_rate_data, rqi_data, precip_flag_data],
-                compat="override"
-            )
-            dataset = dataset.rename({
-                "precip_rate": "surface_precip",
-                "radar_quality_index": "rqi",
-                "precip_flag": "precip_type"
-            })
-            dataset = resample_data(dataset, domain[4], radius_of_influence=4e3, new_dims=("y", "x"))
-            filename = get_output_filename("mrms", time, time_step)
-            save_file(dataset, output_folder, filename)
+            found_files += list(matched_recs.values())
 
-            time = time + time_step
+
+        return [rec.get().local_path for rec in found_files]
+
+
+
+    def process_file(
+        self,
+        path: Path,
+        domain: Area,
+        output_folder: Path,
+        time_step: np.timedelta64
+    ):
+
+        output_folder = Path(output_folder) / self.name
+        output_folder.mkdir(exist_ok=True)
+
+        product = [prod for prod in self.products if prod.matches(path)][0]
+        data = product.open(path)
+        new_names = {
+            "precip_rate": "surface_precip",
+            "radar_quality_index": "rqi",
+            "precip_flag": "precip_type"
+        }
+        new_names = {
+            name: new_names[name] for name in data.variables if name in new_names
+        }
+        data = data.rename(new_names)
+        data = resample_data(data, domain[4], radius_of_influence=4e3, new_dims=("y", "x"))
+        time_range = product.get_temporal_coverage(path)
+        time_c = time_range.start + 0.5 * (time_range.end - time_range.start)
+        filename = get_output_filename("mrms", time_c, time_step)
+        save_file(data, output_folder, filename)
 
 
     def find_training_files(self, path: Path) -> List[Path]:
@@ -325,14 +271,14 @@ class MRMSDataAnd(MRMSData):
 
 
 
-mrms_precip_rate = MRMSData(
+MRMS_PRECIP_RATE = MRMSData(
     "mrms",
     4,
     [RetrievalTarget("surface_precip", 1e-3)],
     "rqi"
 )
 
-mrms_precip_rate_and_type = MRMSData(
+MRMS_PRECIP_RATE_AND_TYPE = MRMSData(
     "mrms_w_type",
     4,
     [
