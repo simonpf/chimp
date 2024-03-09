@@ -105,8 +105,6 @@ class DailyPrecip(ReferenceDataset):
         start_time = to_datetime(start_time)
         end_Time = to_datetime(end_time)
 
-        print("LSTART :: ", min(end_time, SPLIT))
-        print("RSTART :: ", max(start_time, SPLIT))
         if start_time < SPLIT:
             matching += [
                 rec.get().local_path for rec in persiann.cdr_daily.get(
