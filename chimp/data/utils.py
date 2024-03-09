@@ -17,7 +17,6 @@ from pansat.time import to_datetime, to_datetime64, to_timedelta64
 
 
 from chimp.definitions import N_CHANS
-from chimp.utils import round_time
 
 
 def scale_slices(
@@ -71,6 +70,28 @@ def scale_slices(
     return (row_slice, col_slice)
 
 
+def round_time(time: np.datetime64, step: np.timedelta64) -> np.datetime64:
+    """
+    Round time to given time step.
+
+    Args:
+        time: A numpy.datetime64 object representing the time to round.
+        step: A numpy.timedelta64 object representing the time step to
+            which to round the results.
+    """
+    if isinstance(time, datetime):
+        time = to_datetime64(time)
+    if isinstance(step, timedelta):
+        step = to_timedelta64(step)
+    time = time.astype("datetime64[s]")
+    step = step.astype("timedelta64[s]")
+    rounded = (
+        np.datetime64(0, "s")
+        + (time + 0.5 * step).astype(np.int64) // step.astype(np.int64) * step
+    )
+    return rounded
+
+
 def get_output_filename(
         prefix: str,
         time: np.datetime64,
@@ -96,24 +117,3 @@ def get_output_filename(
     filename = f"{prefix}_{year}{month:02}{day:02}_{hour:02}_{minute:02}.nc"
     return filename
 
-
-def round_time(time: np.datetime64, step: np.timedelta64) -> np.datetime64:
-    """
-    Round time to given time step.
-
-    Args:
-        time: A numpy.datetime64 object representing the time to round.
-        step: A numpy.timedelta64 object representing the time step to
-            which to round the results.
-    """
-    if isinstance(time, datetime):
-        time = to_datetime64(time)
-    if isinstance(step, timedelta):
-        step = to_timedelta64(step)
-    time = time.astype("datetime64[s]")
-    step = step.astype("timedelta64[s]")
-    rounded = (
-        np.datetime64(0, "s")
-        + (time + 0.5 * step).astype(np.int64) // step.astype(np.int64) * step
-    )
-    return rounded
