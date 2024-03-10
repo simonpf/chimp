@@ -130,7 +130,6 @@ class GridSat(InputDataset):
         lats = lats[..., 0]
 
         data = load_gridsat_data(path)
-        print("TIME :: ", data.time.data)
         if regular:
             data = data.interp(latitude=lats, longitude=lons)
         else:

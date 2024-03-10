@@ -8,14 +8,19 @@ daily gridded AVHRR and HIRS observations from the PATMOS-X CDR.
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import List, Optional
 
 import numpy as np
 from pansat import TimeRange
+from pansat.geometry import Geometry
+from pansat.time import to_datetime64
 from pansat.products.satellite.ncei import patmosx_asc, patmosx_des
 import xarray as xr
 
+from chimp.areas import Area
 from chimp.data.utils import get_output_filename
 from chimp.data.input import InputDataset
+from chimp.data.resample import resample_and_split, split_time
 
 
 LOGGER = logging.getLogger()
@@ -102,114 +107,126 @@ class PATMOSX(InputDataset):
             ["obs_imager_asc", "obs_imager_des", "obs_sounder_asc", "obs_sounder_des"],
             spatial_dims=("latitude", "longitude")
         )
+        self.pansat_products = [patmosx_asc, patmosx_des]
 
     @property
     def n_channels(self) -> int:
         return 46
 
-    def process_day(
+    def find_files(
             self,
-            domain,
-            year,
-            month,
-            day,
-            output_folder,
-            path=None,
-            time_step=timedelta(days=1),
-            include_scan_time=False
-    ):
+            start_time: np.datetime64,
+            end_time: np.datetime64,
+            time_step: np.timedelta64,
+            roi: Optional[Geometry] = None,
+            path: Optional[Path] = None
+    ) -> List[Path]:
         """
-        Extract training data for a given day.
+        Find input data files within a given file range from which to extract
+        training data.
 
         Args:
-            domain: A domain object identifying the spatial domain for which
-                to extract input data.
-            year: The year
-            month: The month
-            day: The day
-            output_folder: The folder to which to write the extracted
-                observations.
-            path: Not used, included for compatibility.
-            time_step: The temporal resolution of the training data.
-            include_scan_time: Not used.
-        """
-        if time_step.total_seconds() != 24 * 60 * 60:
-            raise ValueError(
-                "PATMOS-X observations can only be extracted at time steps "
-                " of one day."
-            )
-        output_folder = Path(output_folder) / "patmosx"
-        if not output_folder.exists():
-            output_folder.mkdir(parents=True, exist_ok=True)
+            start_time: Start time of the time range.
+            end_time: End time of the time range.
+            time_step: The time step of the retrieval.
+            roi: An optional geometry object describing the region of interest
+                that can be used to restriced the file selection a priori.
+            path: If provided, files should be restricted to those available from
+                the given path.
 
-        time = datetime(year=year, month=month, day=day)
-        end = time + timedelta(days=1)
+        Return:
+            A list of locally available files to extract CHIMP training data from.
+        """
+        if path is not None:
+            path = Path(path)
+            all_files = sorted(list(path.glob("**/*.nc")))
+            matching = []
+            for prod in self.pansat_products:
+                matching += [
+                        path for path in all_files if prod.matches(path)
+                        and prod.get_temporal_coverage(path).covers(TimeRange(time_start, time_end))
+                ]
+            return matching
+
+        recs = []
+        for prod in self.pansat_products:
+            recs += prod.get(TimeRange(start_time, end_time))
+        return [rec.local_path for rec in recs]
+
+    def process_file(
+        self,
+        path: Path,
+        domain: Area,
+        output_folder: Path,
+        time_step: np.timedelta64
+    ):
+        """
+        Extract training samples from a given input data file.
+
+        Args:
+            path: A Path object pointing to the file to process.
+            domain: An area object defining the training domain.
+            output_folder: A path pointing to the folder to which to write
+                the extracted training data.
+            time_step: A timedelta object defining the retrieval time step.
+        """
+        prod = [prod for prod in self.pansat_products if prod.matches(path)][0]
+
+        output_folder = Path(output_folder) / self.name
+        output_folder.mkdir(exist_ok=True)
 
         lons, lats = domain[8].get_lonlats()
+        regular = (lons[0] == lons[1]).all()
         lons = lons[0]
         lats = lats[..., 0]
 
-        while time < end:
-            time_range = TimeRange(
-                time,
-                time + time_step - timedelta(seconds=1)
-            )
+        data = load_observations(path)[{"time": 0}]
 
-            recs = patmosx_asc.find_files(time_range)
-            recs += patmosx_des.find_files(time_range)
-            recs = [rec.get() for rec in recs]
+        start_time, end_time = prod.get_temporal_coverage(path)
 
-            if len(recs) == 0:
-                LOGGER.warning(
-                    "Didn't find any Patmos-X observations for %s.",
-                    time
+        if regular:
+            data = data.interp(latitude=lats, longitude=lons)
+            data["time"] = (
+                ("latitude", "longitude"),
+                (
+                    to_datetime64(start_time) +
+                    data["scan_line_time"].data.astype("int64").astype("timedelta64[s]")
                 )
-                time = time + time_step
-                continue
-
-            obs_sounder = np.nan * np.zeros((lats.size, lons.size, 4, 8), np.float32)
-            obs_imager = np.nan * np.zeros((lats.size, lons.size, 4, 15), np.float32)
-            time_bins = np.arange(0, 25, 6) * 3600
-
-            for rec in recs:
-                data = load_observations(rec.local_path)[{"time": 0}]
-                data = data.interp(latitude=lats, longitude=lons)
-                data = data.transpose("latitude", "longitude", ...)
-                scan_time = data.scan_line_time.data
-
-                for ind in range(4):
-                    lower = time_bins[ind]
-                    upper = time_bins[ind + 1]
-                    mask = (scan_time >= lower) * (scan_time < upper)
-
-                    data_sounder = data["obs_sounder"].data
-                    valid = mask * np.isfinite(data_sounder).any(-1)
-                    obs_sounder[valid, ind] = data["obs_sounder"].data[valid]
-
-                    data_imager = data["obs_imager"].data
-                    valid = mask * np.isfinite(data_imager).any(-1)
-                    obs_imager[valid, ind] = data["obs_imager"].data[valid]
-
-
-            time_of_day = time_bins[:-1] + 0.5 * (time_bins[1:] - time_bins[:-1])
-
-            results = xr.Dataset({
-                "latitude": (("latitude",), lats),
-                "longitude": (("longitude",), lons),
-                "time_of_day": (("time_of_day"), time_of_day.astype("timedelta64[s]")),
-                "obs_sounder": (("latitude", "longitude", "time_of_day", "channels_sounder"), obs_sounder),
-                "obs_imager": (("latitude", "longitude", "time_of_day", "channels_imager"), obs_imager)
-            })
-            output_filename = get_output_filename(
-                "patmosx", time, time_step.total_seconds() // 60
             )
+            data = split_time(data, "time", start_time, end_time, np.timedelta64(6, "h"))
+        else:
+            data["time"] = (
+                ("latitude", "longitude"),
+                (
+                    to_datetime64(start_time) +
+                    data["scan_line_time"].data.astype("int64").astype("timedelta64[s]")
+                )
+            )
+            data = resample_and_split(data, domain, time_step, radius_of_influence=10e3)
+            data = data.drop_vars(["latitude", "longitude"])
+            data = data.transpose("y", "x", "time", "channels_sounder", "channels_imager")
+            data["time"].data[:] = time
+
+        filename = get_output_filename(
+            "patmosx", start_time, time_step
+        )
+
+        output_file = output_folder / filename
+        if output_file.exists():
+            output_data = xr.load_dataset(output_file)
+            for var in ["obs_imager", "obs_sounder"]:
+                mask = np.isfinite(data[var].data)
+                output_data[var].data[mask] = data[var].data[mask]
             encodings = {
                 obs: {"dtype": "float32", "zlib": True}
-                for obs in results.variables if obs != "time_of_day"
+                for obs in data.variables if obs != "time_of_day"
             }
-            results.to_netcdf(output_folder / output_filename, encoding=encodings)
+            output_data.to_netcdf(output_file, encoding=encodings)
+        else:
+            encodings = {
+                obs: {"dtype": "float32", "zlib": True}
+                for obs in data.variables if obs != "time_of_day"
+            }
+            data.to_netcdf(output_file, encoding=encodings)
 
-            time = time + time_step
-
-
-patmosx = PATMOSX()
+PATMOSX = PATMOSX()

@@ -256,3 +256,51 @@ def resample_and_split(
     results = xr.concat(results, "time")
     results["time"] = (("time"), np.array(times).astype("datetime64[ns]"))
     return results
+
+
+def split_time(
+        dataset: xr.Dataset,
+        variable: str,
+        start_time: np.datetime64,
+        end_time: np.datetime64,
+        time_step: np.timedelta64
+):
+    """
+    Split dataset into discrete time interval along a continuous time variable.
+
+    Args:
+        dataset: The xarray dataset to split.
+        variable: The name of the time variable along which to split the dataset.
+        start_time: The starting point of the time inteval into which to split the data.
+        end_time: The end point of the time interval into which to split the data.
+        time_step: The length of the time step .
+
+    Return:
+        A new dataset containign the same data as 'dataset' but split along a new dimension
+        time covering the time range defined by 'start_time' and 'end_time' and discretized
+        into step of length 'time_step'.
+    """
+    new_vars = {}
+    time = dataset[variable].data
+
+    start_time = round_time(start_time, time_step)
+    end_time = round_time(end_time, time_step)
+    n_times = (end_time - start_time) // time_step
+    time_bnds = np.arange(start_time, end_time + 0.5 * time_step, time_step)
+
+    for var in dataset.variables:
+        if dataset[var].ndim < 2:
+            continue
+        new_shape = (n_times,) + dataset[var].shape
+        new_data = np.nan * np.zeros(new_shape, dtype=np.float32)
+        for t_ind in range(n_times):
+            lower = time_bnds[t_ind]
+            upper = time_bnds[t_ind + 1]
+            mask = (lower <= time) * (time < upper)
+            new_data[t_ind, mask] = dataset[var].data[mask]
+        new_vars[var] = (("time",) + dataset[var].dims, new_data)
+
+    for dim in dataset.dims:
+        new_vars[dim] = ((dim,), dataset[dim].data)
+    new_vars["time"] = time_bnds[:-1]
+    return xr.Dataset(new_vars)
