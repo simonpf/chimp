@@ -9,10 +9,12 @@ to extract and load SSMI CDR data.
 from datetime import datetime, timedelta
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 import numpy as np
 from pansat import TimeRange
+from pansat.geometry import Geometry
+from pansat.time import to_datetime64
 from pansat.products.satellite.ncei import ssmi_csu_gridded_all
 import pyresample
 from pyresample.geometry import SwathDefinition
@@ -22,6 +24,10 @@ import xarray as xr
 from chimp.areas import Area
 from chimp.data.input import InputDataset
 from chimp.data.utils import get_output_filename
+from chimp.data.resample import split_time, resample_and_split
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 LOGGER = logging.getLogger(__name__)
@@ -84,7 +90,7 @@ def load_observations(path: Path) -> xr.Dataset:
     return data.transpose("latitude", "longitude", "channels")
 
 
-class SSMI(InputDataset):
+class SSMITBS(InputDataset):
     """
     Provides an interface to extract and load training data from the PATMOS-X
     dataset.
@@ -98,113 +104,154 @@ class SSMI(InputDataset):
             ["obs"],
             spatial_dims=("latitude", "longitude")
         )
+        self.pansat_product = ssmi_csu_gridded_all
 
     @property
     def n_channels(self) -> int:
         return 28
 
-    def process_day(
-        self,
-        domain,
-        year,
-        month,
-        day,
-        output_folder,
-        path=None,
-        time_step=timedelta(days=1),
-        include_scan_time=False,
-    ):
+    def find_files(
+            self,
+            start_time: np.datetime64,
+            end_time: np.datetime64,
+            time_step: np.timedelta64,
+            roi: Optional[Geometry] = None,
+            path: Optional[Path] = None
+    ) -> List[Path]:
         """
-        Extract training data for a given day.
+        Find input data files within a given file range from which to extract
+        reference data.
 
         Args:
-            domain: A domain object identifying the spatial domain for which
-                to extract input data.
-            year: The year
-            month: The month
-            day: The day
-            output_folder: The folder to which to write the extracted
-                observations.
-            path: Not used, included for compatibility.
-            time_step: The temporal resolution of the training data.
-            include_scan_time: Not used.
-        """
-        output_folder = Path(output_folder) / "ssmi"
-        if not output_folder.exists():
-            output_folder.mkdir(parents=True, exist_ok=True)
+            start_time: Start time of the time range.
+            end_time: End time of the time range.
+            time_step: The time step of the retrieval.
+            roi: An optional geometry object describing the region of interest
+                that can be used to restriced the file selection a priori.
+            path: If provided, files should be restricted to those available from
+                the given path.
 
-        time = datetime(year=year, month=month, day=day)
-        end = time + timedelta(days=1)
+        Return:
+            A list of locally available files to extract CHIMP reference data from.
+        """
+        if path is not None:
+            path = Path(path)
+            all_files = sorted(list(path.glob("**/*.grib")))
+            matching = [
+                path for path in all_files if self.pansat_product.matches(path)
+                and prod.get_temporal_coverage(path).covers(TimeRange(time_start, time_end))
+            ]
+            return matching
+
+        recs = self.pansat_product.get(TimeRange(start_time, end_time))
+        return [rec.local_path for rec in recs]
+
+    def process_file(
+        self,
+        path: Path,
+        domain: Area,
+        output_folder: Path,
+        time_step: np.timedelta64
+    ):
+        """
+        Extract training samples from a given input data file.
+
+        Args:
+            path: A Path object pointing to the file to process.
+            domain: An area object defining the training domain.
+            output_folder: A path pointing to the folder to which to write
+                the extracted training data.
+            time_step: A timedelta object defining the retrieval time step.
+        """
+        output_folder = Path(output_folder) / self.name
+        output_folder.mkdir(exist_ok=True)
+
+        try:
+            data = load_observations(path)
+        except KeyError:
+            LOGGER.warning(
+                "File %s does not contain the expected variables."
+            )
+            return None
+
+        start_time, end_time = self.pansat_product.get_temporal_coverage(path)
 
         if isinstance(domain, Area):
-            domain = domain[16]
+            domain = domain[8]
 
         lons, lats = domain.get_lonlats()
+        regular = (lons[0] == lons[1]).all()
         lons = lons[0]
-        lats = lats[:, 0]
-        time_bins = (np.arange(0, 25, 6) * 3600)
+        lats = lats[..., 0]
 
-        while time < end:
-            time_range = TimeRange(time, time + time_step - timedelta(seconds=1))
-
-            prod = ssmi_csu_gridded_all
-
-            recs = prod.find_files(time_range)
-            tbs = np.nan * np.zeros((lats.size, lons.size, 4, 7), np.float32)
-
-            for rec in recs:
-                try:
-                    rec = rec.get()
-                    data = load_observations(rec.local_path)
-                    data = data.interp(
-                        latitude=lats,
-                        longitude=lons,
-                        method="nearest"
-                    )
-
-                    for ind in range(4):
-                        lower = time_bins[ind]
-                        upper = time_bins[ind + 1]
-
-                        sod = data.second_of_day_asc.data
-                        mask = (lower <= sod) * (sod < upper)
-                        valid = mask * np.isfinite(data.obs_asc.data).any(-1)
-                        tbs[valid, ind] = data.obs_asc.data[valid]
-
-                        sod = data.second_of_day_des.data
-                        mask = (lower <= sod) * (sod < upper)
-                        valid = mask * np.isfinite(data.obs_des.data).any(-1)
-                        tbs[valid, ind] = data.obs_des.data[valid]
-
-                except:
-                    LOGGER.warning(
-                        "Encountered an error opening file '%s'",
-                        rec.local_path.name
-                    )
-
-            if np.isfinite(tbs).sum() > 0:
-                time_of_day = 0.5 * (time_bins[1:] + time_bins[:-1])
-                training_sample = xr.Dataset({
-                    "latitude": (("latitude",), lats),
-                    "longitude": (("longitude",), lons),
-                    "time_of_day": (("time_of_day"), time_of_day.astype(
-                        "timedelta64[s]"
-                    )),
-                    "obs": (("latitude", "longitude", "time_of_day", "channels"), tbs)
-                })
-                output_filename = get_output_filename(
-                    "ssmi", time, minutes=1440
+        if regular:
+            data = data.interp(latitude=lats, longitude=lons)
+            data["time_asc"] = (
+                ("latitude", "longitude"),
+                (
+                    to_datetime64(start_time) +
+                    data["second_of_day_asc"].data.astype("int64").astype("timedelta64[s]")
                 )
-                encodings = {
-                    obs: {"dtype": "float32", "zlib": True}
-                    for obs in training_sample.variables
-                }
-                training_sample.to_netcdf(
-                    output_folder / output_filename,
-                    encoding=encodings
+            )
+            data_asc = split_time(data, "time_asc", start_time, end_time, np.timedelta64(6, "h"))
+            data["time_des"] = (
+                ("latitude", "longitude"),
+                (
+                    to_datetime64(start_time) +
+                    data["second_of_day_des"].data.astype("int64").astype("timedelta64[s]")
                 )
+            )
+            data_des = split_time(data, "time_des", start_time, end_time, np.timedelta64(6, "h"))
+        else:
+            data["time"] = (
+                ("latitude", "longitude"),
+                (
+                    to_datetime64(start_time) +
+                    data["second_of_day_asc"].data.astype("int64").astype("timedelta64[s]")
+                )
+            )
+            data_asc = resample_and_split(data, domain, time_step, radius_of_influence=10e3)
+            data_asc = data.drop_vars(["latitude", "longitude"])
+            data_asc = data.transpose("y", "x", "time", "channels")
 
-            time = time + time_step
+            data["time"] = (
+                ("latitude", "longitude"),
+                (
+                    to_datetime64(start_time) +
+                    data["second_of_day_des"].data.astype("int64").astype("timedelta64[s]")
+                )
+            )
+            data_des = resample_and_split(data, domain, time_step, radius_of_influence=10e3)
+            data_des = data.drop_vars(["latitude", "longitude"])
+            data_des = data.transpose("y", "x", "time", "channels")
+
+        filename = get_output_filename(
+            "patmosx", start_time, time_step
+        )
+
+        output_file = output_folder / filename
+        if output_file.exists():
+            output_data = xr.load_dataset(output_file)
+
+            mask = np.isfinite(data_asc["obs_asc"].data)
+            output_data["obs"].data[mask] = data_asc["obs_asc"].data[mask]
+            mask = np.isfinite(data_des["obs_des"].data)
+            output_data["obs"].data[mask] = data_des["obs_des"].data[mask]
+
+            encodings = {
+                obs: {"dtype": "float32", "zlib": True}
+                for obs in output_data.variables if obs != "time_of_day"
+            }
+            output_data.to_netcdf(output_file, encoding=encodings)
+        else:
+            mask = np.isfinite(data_des["obs_des"].data)
+            data_asc["obs_asc"].data[mask] = data_des["obs_asc"].data[mask]
+            data_asc = data_asc.drop_vars(["obs_des"]).rename(obs_asc="obs")
+            encodings = {
+                obs: {"dtype": "float32", "zlib": True}
+                for obs in data_asc.variables if obs != "time_of_day"
+            }
+            data_asc.to_netcdf(output_file, encoding=encodings)
 
 
-ssmi = SSMI()
+SSMI = SSMITBS()
