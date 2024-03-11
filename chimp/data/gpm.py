@@ -46,9 +46,8 @@ LOGGER = logging.getLogger(__name__)
 
 class GPML1CData(InputDataset):
     """
-    Represents all input data derived from GPM L1C products.
+    Represents  input data derived from GPM L1C products.
     """
-
     def __init__(
         self,
         name: str,
@@ -98,8 +97,7 @@ class GPML1CData(InputDataset):
                 the given path.
 
         Return:
-            A list of locally available files from to extract CHIMP training
-            data.
+            A list of locally available files to extract CHIMP training data from.
         """
         if path is not None:
             path = Path(path)
@@ -174,7 +172,7 @@ class GPML1CData(InputDataset):
             tbs = data_t.tbs.data
             if np.isfinite(tbs).any(-1).sum() < 100:
                 LOGGER.info(
-                    "Less than 100 valid pixel in training sample @ %s.",
+                    "Less than 100 valid pixels in training sample @ %s.",
                     time
                 )
                 continue
@@ -199,65 +197,6 @@ class GPML1CData(InputDataset):
                 output_folder / filename
             )
             data_t.to_netcdf(output_folder / filename, encoding=encoding)
-
-
-    def process_day(
-        self,
-        domain: dict,
-        year: int,
-        month: int,
-        day: int,
-        output_folder: Path,
-        path: Path = Optional[None],
-        time_step: timedelta = timedelta(minutes=15),
-        include_scan_time=False,
-    ):
-        """
-        Extract GMI input observations for the CHIMP retrieval.
-
-        Args:
-            domain: A domain dict specifying the area for which to
-                extract GMI input data.
-            year: The year.
-            month: The month.
-            day: The day.
-            output_folder: The root of the directory tree to which to write
-                the training data.
-            path: Not used, included for compatibility.
-            time_step: The time step between consecutive retrieval steps.
-            include_scan_time: If set to 'True', the resampled scan time will
-                be included in the extracted training input.
-        """
-        output_folder = Path(output_folder) / self.name
-        if not output_folder.exists():
-            output_folder.mkdir(parents=True, exist_ok=True)
-
-        start_time = datetime(year, month, day)
-        end_time = datetime(year, month, day) + timedelta(hours=23, minutes=59)
-        time_range = TimeRange(start_time, end_time)
-
-        for product in self.products:
-            product_files = product.find_files(time_range, roi=domain.roi)
-
-            for rec in product_files:
-                rec = rec.get()
-                index = Index.index(product, [rec.local_path])
-                granules = index.find(roi=domain.roi)
-                granules = merge_granules(granules)
-
-                for granule in granules:
-                    scene = granule.open()
-                    process_overpass(
-                        self.name,
-                        domain[self.scale],
-                        scene,
-                        self.n_swaths,
-                        self.radius_of_influence,
-                        output_folder,
-                        time_step,
-                        include_scan_time,
-                        min_valid=1_000 / np.sqrt(self.scale),
-                    )
 
 
 GMI = GPML1CData("gmi", 4, [l1c_gpm_gmi], 2, 13, 15e3)
@@ -298,93 +237,111 @@ class GPMCMB(ReferenceDataset):
             RetrievalTarget("surface_precip"),
             quality_index=None
         )
+        self.products = [l2b_gpm_cmb]
+        self.scale = 4
+        self.radius_of_influence = 6e3
 
-    def find_files():
-        pass
-
-    def process_file():
-        pass
-
-    def process_day(
-        self,
-        domain: dict,
-        year: int,
-        month: int,
-        day: int,
-        output_folder: Path,
-        path: Path = Optional[None],
-        time_step: timedelta = timedelta(minutes=15),
-        include_scan_time=False,
-    ):
+    def find_files(
+            self,
+            start_time: np.datetime64,
+            end_time: np.datetime64,
+            time_step: np.timedelta64,
+            roi: Optional[Geometry] = None,
+            path: Optional[Path] = None
+    ) -> List[Path]:
         """
-        Extract GMI input observations for the CHIMP retrieval.
+        Find input data files within a given file range from which to extract
+        training data.
 
         Args:
-            domain: A domain dict specifying the area for which to
-                extract GMI input data.
-            year: The year.
-            month: The month.
-            day: The day.
-            output_folder: The root of the directory tree to which to write
-                the training data.
-            path: Not used, included for compatibility.
-            time_step: The time step between consecutive retrieval steps.
-            include_scan_time: If set to 'True', the resampled scan time will
-                be included in the extracted training input.
+            start_time: Start time of the time range.
+            end_time: End time of the time range.
+            time_step: The time step of the retrieval.
+            roi: An optional geometry object describing the region of interest
+                that can be used to restriced the file selection a priori.
+            path: If provided, files should be restricted to those available from
+                the given path.
+
+        Return:
+            A list of locally available files to extract CHIMP training data from.
+        """
+        if path is not None:
+            path = Path(path)
+            all_files = sorted(list(path.glob("**/*.HDF5")))
+            matching = []
+            for prod in self.products:
+                matching += [prod.matches(path.filename) for path in all_files]
+            return matching
+
+        recs = []
+        for prod in self.products:
+            recs += prod.get(start_time, end_time)
+        return [rec.local_path for rec in recs]
+
+    def process_file(
+            self,
+            path: Path,
+            domain: Area,
+            output_folder: Path,
+            time_step: np.timedelta64
+    ):
+        """
+        Extract training samples from a given source file.
+
+        Args:
+           path: A Path object pointing to the file to process.
+           domain: An area object defining the training domain.
+           output_folder: A path pointing to the folder to which to write
+               the extracted training data.
+           time_step: A timedelta object defining the retrieval time step.
         """
         output_folder = Path(output_folder) / self.name
-        if not output_folder.exists():
-            output_folder.mkdir(parents=True, exist_ok=True)
+        output_folder.mkdir(exist_ok=True)
 
-        start_time = datetime(year, month, day)
-        end_time = datetime(year, month, day) + timedelta(hours=23, minutes=59)
+        input_data = self.products[0].open(path)
+        data = input_data.rename({
+            "scan_time": "time",
+            "estim_surf_precip_tot_rate": "surface_precip"
+        })
 
-        time = start_time
-        while time < end_time:
-            min_time = to_datetime64(time) - 0.5 * to_timedelta64(time_step)
-            max_time = to_datetime64(time) + 0.5 * to_timedelta64(time_step)
-            time_range = TimeRange(min_time, max_time)
-            recs = l2b_gpm_cmb.find_files(time_range)
-            recs = [rec.get() for rec in recs]
-            index = Index.index(l2b_gpm_cmb, [rec.local_path for rec in recs])
-            granules = index.find(roi=domain.roi)
-            granules = merge_granules(granules)
+        # Need to expand scan time to full dimensions.
+        time, _ = xr.broadcast(data.time, data.longitude)
+        data["time"] = time
 
-            datasets = []
-            for granule in granules:
-                scene = granule.open()[["estim_surf_precip_tot_rate", "scan_time"]].rename(
-                    estim_surf_precip_tot_rate="surface_precip"
+        data = resample_and_split(
+            data,
+            domain[self.scale],
+            time_step,
+            radius_of_influence=self.radius_of_influence,
+            include_swath_center_coords=True
+        )
+
+        for time_ind  in range(data.time.size):
+
+            data_t = data[{"time": time_ind}]
+
+            precip = data_t.surface_precip.data
+            if np.isfinite(precip).any(-1).sum() < 100:
+                LOGGER.info(
+                    "Less than 100 valid pixels in training sample @ %s.",
+                    time
                 )
-                invalid = scene["surface_precip"].data < 0
-                scene["surface_precip"].data[invalid] = np.nan
-
-                scans = (min_time < scene.scan_time.data) * (scene.scan_time.data < max_time)
-                scene = scene[{"matched_scans": scans}]
-
-                print(time, granule.file_record.filename, granule.time_range, scans.sum())
-
-                if scene.matched_scans.size > 0:
-                    datasets.append(scene)
-
-            if len(datasets) == 0:
-                time = time + time_step
                 continue
 
-            scene = xr.concat(datasets, "matched_scans")
-            scene_r = resample_data(
-                scene,
-                domain[4],
-                radius_of_influence=5e3,
-                new_dims=("y", "x")
+            encoding = {
+                "surface_precip": {"dtype": "float32", "zlib": True},
+                "col_inds_swath_center": {"dtype": "int16"},
+                "row_inds_swath_center": {"dtype": "int16"},
+            }
+            filename = get_output_filename(
+                self.name, data.time[time_ind].data, time_step
             )
 
-            if (scene_r.surface_precip.data >= 0.0).sum() > 0:
-                output_filename = get_output_filename("cmb", time, time_step)
-                encoding = {
-                    "surface_precip": {"dtype": "float32", "zlib": True}
-                }
-                scene_r.to_netcdf(output_folder / output_filename, encoding=encoding)
-            time = time + time_step
+            LOGGER.info(
+                "Writing training samples to %s.",
+                output_folder / filename
+            )
+            data_t.to_netcdf(output_folder / filename, encoding=encoding)
 
 
-gpm_cmb = GPMCMB()
+CMB = GPMCMB()
