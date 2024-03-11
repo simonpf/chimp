@@ -279,6 +279,8 @@ class InputDataset(InputBase):
                     x_s = data[vrbl][dict(zip(self.spatial_dims, slices))].data
                     if x_s.ndim < 3:
                         x_s = x_s[None]
+                    if x_s.ndim > 3:
+                        x_s = x_s.reshape(x_s.shape[:2] + (-1,))
                     x_s = np.transpose(x_s, (2, 0, 1))
                     all_data.append(x_s)
                 x_s = np.concatenate(all_data, axis=0)

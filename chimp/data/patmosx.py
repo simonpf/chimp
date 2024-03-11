@@ -99,13 +99,13 @@ class PATMOSX(InputDataset):
             "patmosx",
             "patmosx",
             1,
-            ["obs_imager_asc", "obs_imager_des", "obs_sounder_asc", "obs_sounder_des"],
+            ["obs_imager", "obs_sounder"],
             spatial_dims=("latitude", "longitude")
         )
 
     @property
     def n_channels(self) -> int:
-        return 46
+        return 92
 
     def process_day(
             self,

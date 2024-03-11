@@ -7,6 +7,7 @@ to extract and load SSMI CDR data.
 """
 
 from datetime import datetime, timedelta
+import logging
 from pathlib import Path
 from typing import Optional
 
@@ -21,6 +22,9 @@ import xarray as xr
 from chimp.areas import Area
 from chimp.data.input import InputDataset
 from chimp.data.utils import get_output_filename
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 def load_observations(path: Path) -> xr.Dataset:
@@ -97,7 +101,7 @@ class SSMI(InputDataset):
 
     @property
     def n_channels(self) -> int:
-        return 14
+        return 28
 
     def process_day(
         self,
@@ -149,31 +153,36 @@ class SSMI(InputDataset):
             tbs = np.nan * np.zeros((lats.size, lons.size, 4, 7), np.float32)
 
             for rec in recs:
-                rec = rec.get()
-                data = load_observations(rec.local_path)
-                data = data.interp(
-                    latitude=lats,
-                    longitude=lons,
-                    method="nearest"
-                )
+                try:
+                    rec = rec.get()
+                    data = load_observations(rec.local_path)
+                    data = data.interp(
+                        latitude=lats,
+                        longitude=lons,
+                        method="nearest"
+                    )
 
-                for ind in range(4):
-                    lower = time_bins[ind]
-                    upper = time_bins[ind + 1]
+                    for ind in range(4):
+                        lower = time_bins[ind]
+                        upper = time_bins[ind + 1]
 
-                    sod = data.second_of_day_asc.data
-                    mask = (lower <= sod) * (sod < upper)
-                    valid = mask * np.isfinite(data.obs_asc.data).any(-1)
-                    tbs[valid, ind] = data.obs_asc.data[valid]
+                        sod = data.second_of_day_asc.data
+                        mask = (lower <= sod) * (sod < upper)
+                        valid = mask * np.isfinite(data.obs_asc.data).any(-1)
+                        tbs[valid, ind] = data.obs_asc.data[valid]
 
-                    sod = data.second_of_day_des.data
-                    mask = (lower <= sod) * (sod < upper)
-                    valid = mask * np.isfinite(data.obs_des.data).any(-1)
-                    tbs[valid, ind] = data.obs_des.data[valid]
+                        sod = data.second_of_day_des.data
+                        mask = (lower <= sod) * (sod < upper)
+                        valid = mask * np.isfinite(data.obs_des.data).any(-1)
+                        tbs[valid, ind] = data.obs_des.data[valid]
 
+                except:
+                    LOGGER.warning(
+                        "Encountered an error opening file '%s'",
+                        rec.local_path.name
+                    )
 
-
-            if len(recs) > 0:
+            if np.isfinite(tbs).sum() > 0:
                 time_of_day = 0.5 * (time_bins[1:] + time_bins[:-1])
                 training_sample = xr.Dataset({
                     "latitude": (("latitude",), lats),

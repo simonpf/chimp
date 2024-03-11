@@ -68,7 +68,6 @@ class GridSat(InputDataset):
         base_scale: int,
         slices: Tuple[slice, slice],
         rng: np.random.Generator,
-        missing_value_policy: str,
         rotate: Optional[float] = None,
         flip: Optional[bool] = False,
     ) -> torch.Tensor:
@@ -83,8 +82,6 @@ class GridSat(InputDataset):
             sclices: Tuple of slices defining the part of the data to load.
             rng: A numpy random generator object to use to generate random
                 data.
-            missing_value_policy: A string describing how to handle missing
-                values.
             rotate: If given, the should specify the number of degree by
                 which the input should be rotated.
             flip: Bool indicated whether or not to flip the input along the
@@ -146,20 +143,9 @@ class GridSat(InputDataset):
             if flip:
                 x_s = np.flip(x_s, -2)
         else:
-            if missing_value_policy == "sparse":
-                return None
             x_s = np.nan * np.ones(((self.n_channels,) + crop_size), dtype=np.float32)
 
-        # If we are here we're not returning None.
-        if missing_value_policy == "sparse":
-            missing_value_policy = "missing"
-
         x_s = torch.tensor(x_s.copy(), dtype=torch.float32)
-        if missing_value_policy == "masked":
-            mask = torch.ones_like(x_s).to(dtype=bool)
-            x_s = MaskedTensor(x_s, mask=mask)
-        x_s = self.replace_missing(x_s, missing_value_policy, rng)
-
         return x_s
 
     def process_day(
