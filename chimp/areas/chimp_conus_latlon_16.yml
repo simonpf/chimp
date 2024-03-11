@@ -1,0 +1,13 @@
+cpcir_area:
+  description: CPCIR grid
+  projection:
+    proj: longlat
+    datum: WGS84
+    no_defs: null
+    type: crs
+  shape:
+    height: 250
+    width: 500
+  area_extent:
+    lower_left_xy: [-140.0, 10.0]
+    upper_right_xy: [-40.0, 60.0]
