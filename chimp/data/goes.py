@@ -230,11 +230,13 @@ class GOES(InputDataset):
         if path is not None:
             all_files = sorted(list(path.glob("**/*.nc")))
 
+        time_range = TimeRange(start_time, end_time)
+
         for prod in self.products:
             if path is not None:
                 recs = [
-                    FileRecord.from_local(prod, path) for path in all_files
-                    if prod.matches(path)
+                    FileRecord(path, product=prod) for path in all_files
+                    if prod.matches(path) and prod.get_temporal_coverage(path).covers(time_range)
                 ]
             else:
                 recs = prod.find_files(TimeRange(start_time, end_time))

@@ -26,7 +26,6 @@ from pansat.time import to_datetime64
 from chimp.areas import Area
 from chimp.data import ReferenceDataset
 from chimp.data.reference import RetrievalTarget
-from chimp.utils import round_time
 from chimp.data.resample import resample_and_split
 from chimp.data.utils import get_output_filename
 
