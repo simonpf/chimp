@@ -7,12 +7,14 @@ results from ECMWF S2S database.
 """
 from pathlib import Path
 from datetime import datetime, timedelta
+from typing import List, Optional
 
 
 import numpy as np
 import xarray as xr
 import pansat
 from pansat import TimeRange
+from pansat.geometry import Geometry
 from pansat.download.providers import ecmwf
 from pansat.products.model.ecmwf import (
     s2s_ecmwf_total_precip,
@@ -21,7 +23,8 @@ from pansat.products.model.ecmwf import (
     s2s_ukmo_total_precip_3,
 )
 
-from chimp.data.utils import get_output_filename
+from chimp.areas import Area
+from chimp.data.utils import get_output_filename, round_time
 from chimp.data.reference import ReferenceDataset
 
 
@@ -44,97 +47,122 @@ class S2SForecast(ReferenceDataset):
         self.ensemble_product = ensemble_product
         super().__init__(name, self.scale, None, None)
 
-    def process_day(
+    def find_files(
             self,
-            domain,
-            year,
-            month,
-            day,
-            output_folder,
-            path=None,
-            time_step=timedelta(minutes=15),
-            include_scan_time=False
-    ):
+            start_time: np.datetime64,
+            end_time: np.datetime64,
+            time_step: np.timedelta64,
+            roi: Optional[Geometry] = None,
+            path: Optional[Path] = None
+    ) -> List[Path]:
         """
-        Extract s2s forecasts.
+        Find input data files within a given file range from which to extract
+        reference data.
 
         Args:
-            year: The year
-            month: The month
-            day: The day
-            output_folder: The folder to which to write the extracted
-                observations.
-            path: Not used, included for compatibility.
-            time_step: Time step defining the temporal resolution at which to extract
-                training samples.
-            include_scan_time: Ignored. Included for compatibility.
+            start_time: Start time of the time range.
+            end_time: End time of the time range.
+            time_step: The time step of the retrieval.
+            roi: An optional geometry object describing the region of interest
+                that can be used to restriced the file selection a priori.
+            path: If provided, files should be restricted to those available from
+                the given path.
+
+        Return:
+            A list of locally available files to extract CHIMP reference data from.
+        """
+        if path is not None:
+            path = Path(path)
+            all_files = sorted(list(path.glob("**/*.grib")))
+            matching = []
+            for prod in [self.control_product, self.ensemble_product]:
+                matching += [
+                        path for path in all_files if prod.matches(path)
+                        and prod.get_temporal_coverage(path).covers(TimeRange(time_start, time_end))
+                ]
+            return matching
+
+        recs = []
+        for prod in [self.control_product, self.ensemble_product]:
+            recs += prod.get(TimeRange(start_time, end_time))
+        return [rec.local_path for rec in recs]
+
+    def process_file(
+        self,
+        path: Path,
+        domain: Area,
+        output_folder: Path,
+        time_step: np.timedelta64
+    ):
+        """
+        Extract training samples from a given input data file.
+
+        Args:
+            path: A Path object pointing to the file to process.
+            domain: An area object defining the training domain.
+            output_folder: A path pointing to the folder to which to write
+                the extracted training data.
+            time_step: A timedelta object defining the retrieval time step.
         """
         output_folder = Path(output_folder) / self.name
-        if not output_folder.exists():
-            output_folder.mkdir(parents=True, exist_ok=True)
+        output_folder.mkdir(exist_ok=True)
 
-        start_time = datetime(year, month, day)
-        end_time = datetime(year, month, day) + timedelta(hours=24)
+        prod = [prod for prod in [self.control_product, self.ensemble_product] if prod.matches(path)][0]
+        data = prod.open(path)
 
-        if isinstance(domain, dict):
-            domain = domain[self.scale]
-
-        lons, lats = domain.get_lonlats()
-        lons = lons[0]
-        lats = lats[:, 0]
-
+        start_time = round_time(data.time.data.min(), time_step)
+        end_time = round_time(data.time.data.max(), time_step)
         time = start_time
+
+        print("TIMES", start_time, end_time)
+
         while time < end_time:
-            time_range = TimeRange(time, time + timedelta(days=1))
-            recs = self.control_product.find_files(time_range)
-            if len(recs) > 0:
 
-                rec = recs[0].get()
-                data = self.control_product.open(rec)
+            if not time in data.time:
+                time += time_step
+                continue
 
-                time_64 = np.datetime64(time.strftime("%Y-%m-%dT%H:%M:%S"))
-                if time_64 in data.time:
+            lons, lats = domain[8].get_lonlats()
+            regular = (lons[0] == lons[1]).all()
+            lons = lons[0]
+            lats = lats[..., 0]
 
-                    ind = np.where(data.time == time_64)[0][0]
-                    data_t = data[{"time": ind}]
+            ind = np.where(data.time == time)[0][0]
+            data_t = data[{"time": ind}]
 
-                    if np.timedelta64(0, "h") not in data_t.step:
-                        steps = np.concatenate([[np.timedelta64(0, "h")], data_t.step.data])
-                        data_t = data_t.interp(step=steps, method="nearest", kwargs={"fill_value": 0.0})
-                    precip = np.diff(data_t.tp.data, axis=0)
+            data_t = data_t.interp(longitude=lons, latitude=lats)
 
-                    recs_ens = self.ensemble_product.get(time_range)
-                    data_ens = self.ensemble_product.open(recs_ens[0])
-                    data_ens = data_ens[{"time": ind}]
-                    if np.timedelta64(0, "h") not in data_ens.step:
-                        steps = np.concatenate([[np.timedelta64(0, "h")], data_ens.step.data])
-                        data_ens = data_ens.interp(step=steps, method="nearest", kwargs={"fill_value": "extrapolate"})
-                    data_ens = data_ens.mean("number")
-                    precip_ens = np.diff(data_t.tp.data, axis=0)
+            if np.timedelta64(0, "h") not in data_t.step:
+                steps = np.concatenate([[np.timedelta64(0, "h")], data_t.step.data])
+                data_t = data_t.interp(step=steps, method="nearest", kwargs={"fill_value": 0.0})
 
-                    data_t = xr.Dataset({
-                        "latitude": (("latitude",), data_t.latitude.data),
-                        "longitude": (("longitude",), data_t.longitude.data),
-                        "step": (("step",), data_t.step.data[:-1]),
-                        "precipitation": (("step", "latitude", "longitude"), precip),
-                        "precipitation_em": (("step", "latitude", "longitude"), precip_ens)
-                    })
-                    data_t = data_t.resample(step="1D").sum()
-                    data_t = data_t.interp(
-                        longitude=lons,
-                        latitude=lats
-                    )
+            ensemble = False
+            if "number" in data_t.dims:
+                data_t = data_t.mean("number")
+                ensemble = True
 
-                    output_filename = get_output_filename(
-                        self.name, time, time_step.total_seconds() // 60
-                    )
+            precip = np.diff(data_t.tp.data, axis=0)
 
-                    data_t.to_netcdf(
-                        output_folder / output_filename,
-                    )
+            output_filename = get_output_filename(self.name, time, time_step)
+            output_file = output_folder / output_filename
+            varname = "precipitation" if not ensemble else "precipitation_em"
 
-            time = time + time_step
+            if output_file.exists():
+                output_data = xr.load_dataset(output_file)
+                output_data[varname] = (("step", "latitude", "longitude"), precip)
+            else:
+                output_data = xr.Dataset({
+                    "latitude": (("latitude",), data_t.latitude.data),
+                    "longitude": (("longitude",), data_t.longitude.data),
+                    "step": (("step",), data_t.step.data[:-1]),
+                    varname: (("step", "latitude", "longitude"), precip)
+                })
+
+            output_data.to_netcdf(
+                output_folder / output_filename,
+            )
+            time += time_step
 
 
-s2s_ecwmf = S2SForecast("s2s_ecmwf", s2s_ecmwf_total_precip, s2s_ecmwf_total_precip_10)
-s2s_ukmo = S2SForecast("s2s_ukmo", s2s_ukmo_total_precip, s2s_ukmo_total_precip_3)
+ECMWF = S2SForecast("s2s_ecmwf", s2s_ecmwf_total_precip, s2s_ecmwf_total_precip_10)
+UKMO = S2SForecast("s2s_ukmo", s2s_ukmo_total_precip, s2s_ukmo_total_precip_3)
