@@ -177,7 +177,7 @@ class SSMITBS(InputDataset):
         start_time, end_time = self.pansat_product.get_temporal_coverage(path)
 
         if isinstance(domain, Area):
-            domain = domain[8]
+            domain = domain[16]
 
         lons, lats = domain.get_lonlats()
         regular = (lons[0] == lons[1]).all()
