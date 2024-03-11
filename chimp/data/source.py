@@ -7,6 +7,7 @@ data product that can be downloaded and used to generate training
 or validation data.
 """
 from abc import ABC, abstractmethod
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional, Union
 
@@ -18,6 +19,7 @@ import xarray as xr
 
 from pansat.geometry import Geometry
 from pansat.utils import resample_data
+from pansat.time import to_datetime64, to_timedelta64
 
 from chimp.areas import Area
 from chimp.data.utils import round_time
@@ -33,49 +35,98 @@ class DataSource(ABC):
         self.name = name
         ALL_SOURCES[name] = self
 
-    #def find_files(
-    #        self,
-    #        start_time: np.datetime64,
-    #        end_time: np.datetime64,
-    #        time_step: np.timedelta64,
-    #        roi: Optional[Geometry] = None,
-    #        path: Optional[Path] = None
-    #) -> List[Path]:
-    #    """
-    #    Find input data files from which to extract training data in a
-    #    given time range.
+    def find_files(
+            self,
+            start_time: np.datetime64,
+            end_time: np.datetime64,
+            time_step: np.timedelta64,
+            roi: Optional[Geometry] = None,
+            path: Optional[Path] = None
+    ) -> List[Path]:
+        """
+        Find input data files from which to extract training data in a
+        given time range.
 
-    #    Args:
-    #        start_time: Start time of the time range.
-    #        end_time: End time of the time range.
-    #        time_step: The time step of the retrieval.
-    #        roi: An optional geometry object describing the region of interest
-    #            that can be used to restriced the file selection a priori.
-    #        path: If provided, files should be restricted to those available from
-    #            the given path.
+        Args:
+            start_time: Start time of the time range.
+            end_time: End time of the time range.
+            time_step: The time step of the retrieval.
+            roi: An optional geometry object describing the region of interest
+                that can be used to restriced the file selection a priori.
+            path: If provided, files should be restricted to those available from
+                the given path.
 
-    #    Return:
-    #        A list of locally available files from to extract CHIMP training
-    #        data.
-    #    """
+        Return:
+            A list of locally available files from to extract CHIMP training
+            data.
+        """
 
-    #def process_file(
-    #        self,
-    #        path: Path,
-    #        domain: Area,
-    #        output_folder: Path,
-    #        time_step: np.timedelta64
-    #) -> None:
-    #    """
-    #    Extract training samples from a given source file.
+    def process_file(
+            self,
+            path: Path,
+            domain: Area,
+            output_folder: Path,
+            time_step: np.timedelta64
+    ) -> None:
+        """
+        Extract training samples from a given source file.
 
-    #    Args:
-    #        path: A Path object pointing to the file to process.
-    #        domain: An area object defining the training domain.
-    #        output_folder: A path pointing to the folder to which to write
-    #            the extracted training data.
-    #        time_step: A timedelta object defining the retrieval time step.
-    #    """
+        Args:
+            path: A Path object pointing to the file to process.
+            domain: An area object defining the training domain.
+            output_folder: A path pointing to the folder to which to write
+                the extracted training data.
+            time_step: A timedelta object defining the retrieval time step.
+
+
+
+        """
+
+    def process_day(
+        self,
+        domain,
+        year,
+        month,
+        day,
+        output_folder,
+        path=None,
+        time_step=timedelta(minutes=15),
+        include_scan_time=False,
+    ):
+        """
+        Extract training data from a day of GOES observations.
+
+        Args:
+            domain: A domain object identifying the spatial domain for which
+                to extract input data.
+            year: The year
+            month: The month
+            day: The day
+            output_folder: The folder to which to write the extracted
+                observations.
+            path: Not used, included for compatibility.
+            time_step: The temporal resolution of the training data.
+            include_scan_time: Not used.
+        """
+        start_time = datetime(year, month, day)
+        end_time = start_time + timedelta(hours=23, minutes=59)
+        start_time = to_datetime64(start_time)
+        end_time = to_datetime64(end_time)
+
+        input_files = self.find_files(
+            start_time,
+            end_time,
+            time_step,
+            roi=domain,
+            path=path
+        )
+        for input_file in input_files:
+            self.process_file(
+                input_file,
+                domain,
+                output_folder,
+                time_step
+            )
 
     def find_training_files(self, path: Path) -> List[Path]:
         """

@@ -24,7 +24,6 @@ from pansat.geometry import Geometry
 import xarray as xr
 
 from chimp.areas import Area
-from chimp.utils import round_time
 from chimp.data.reference import ReferenceDataset, RetrievalTarget
 from chimp.data.utils import get_output_filename
 from chimp import areas
