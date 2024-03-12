@@ -257,6 +257,9 @@ def resample_and_split(
         times.append(time)
         time += time_step
 
+    if len(results) == 0:
+        return None
+
     results = xr.concat(results, "time")
     results["time"] = (("time"), np.array(times).astype("datetime64[ns]"))
     return results
