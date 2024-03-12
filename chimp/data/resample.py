@@ -208,8 +208,8 @@ def resample_and_split(
             data_t = dataset.drop_vars("time")
             mask = (
                 spatial_mask *
-                (time - 0.5 * time_step <= dataset.time.data) *
-                (time + 0.5 * time_step > dataset.time.data)
+                (time <= dataset.time.data) *
+                (time + time_step > dataset.time.data)
             )
             lons_swath = data_t.longitude.data[mask.any(-1)]
             lats_swath = data_t.latitude.data[mask.any(-1)]
@@ -241,11 +241,15 @@ def resample_and_split(
             row_inds, col_inds = resample_swath_centers(
                 domain, lons_swath, lats_swath, radius_of_influence=radius_of_influence
             )
-            inds = np.random.permutation(row_inds.size)[:128]
-            if inds.size < 128:
-                inds = np.random.choice(inds, size=128)
-            row_inds = row_inds[inds].astype("int16")
-            col_inds = col_inds[inds].astype("int16")
+            if len(row_inds) == 0:
+                row_inds = -1 * np.ones(128, dtype="int16")
+                col_inds = -1 * np.ones(128, dtype="int16")
+            else:
+                inds = np.random.permutation(row_inds.size)[:128]
+                if inds.size < 128:
+                    inds = np.random.choice(inds, size=128)
+                row_inds = row_inds[inds].astype("int16")
+                col_inds = col_inds[inds].astype("int16")
             data_r["row_inds_swath_center"] = (("center_indices",), row_inds)
             data_r["col_inds_swath_center"] = (("center_indices",), col_inds)
 
