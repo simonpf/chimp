@@ -122,13 +122,23 @@ class DataSource(ABC):
             roi=domain,
             path=path
         )
+        failed = []
         for input_file in input_files:
-            self.process_file(
-                input_file,
-                domain,
-                output_folder,
-                time_step
-            )
+            try:
+                self.process_file(
+                    input_file,
+                    domain,
+                    output_folder,
+                    time_step
+                )
+            except Exception:
+                LOGGER.exception(
+                    "An error was encountered when processing file %s",
+                    input_file.name
+                )
+                failed.append(input_file)
+        return failed
+
 
     def find_training_files(self, path: Path) -> List[Path]:
         """
