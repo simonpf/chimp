@@ -8,6 +8,7 @@ or validation data.
 """
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
+import logging
 from pathlib import Path
 from typing import List, Optional, Union
 
@@ -25,6 +26,8 @@ from chimp.areas import Area
 from chimp.data.utils import round_time
 from chimp import extensions
 
+
+LOGGER = logging.getLogger(__name__)
 
 ALL_SOURCES = {}
 
