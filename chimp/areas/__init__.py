@@ -144,7 +144,7 @@ CONUS_LATLON_4 = pyresample.load_area(Path(__file__).parent / "chimp_conus_latlo
 CONUS_LATLON_8 = pyresample.load_area(Path(__file__).parent / "chimp_conus_latlon_8.yml")
 CONUS_LATLON_16 = pyresample.load_area(Path(__file__).parent / "chimp_conus_latlon_16.yml")
 
-CONUS_PLUS = Area(
+CONUS_LATLON = Area(
     name="conus_latlon",
     areas={
         4: CONUS_LATLON_4,
