@@ -155,15 +155,23 @@ class GPML1CData(InputDataset):
             time, _ = xr.broadcast(data.time, data.longitude)
             data["time"] = time
 
-            swath_data.append(
-                resample_and_split(
+            data_s = resample_and_split(
                     data,
                     domain[self.scale],
                     time_step,
                     self.radius_of_influence,
                     include_swath_center_coords=True
                 )
+            if data_s is None:
+                continue
+            swath_data.append(data_s)
+
+        if len(swath_data) == 0:
+            LOGGER.info(
+                "Found no overpasses in file %s.",
+                path.name
             )
+            return None
 
         data = xr.concat(swath_data, "channels")
         for time_ind  in range(data.time.size):
