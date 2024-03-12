@@ -322,7 +322,7 @@ class GPMCMB(ReferenceDataset):
             data_t = data[{"time": time_ind}]
 
             precip = data_t.surface_precip.data
-            if np.isfinite(precip).any(-1).sum() < 100:
+            if np.isfinite(precip).sum() < 100:
                 LOGGER.info(
                     "Less than 100 valid pixels in training sample @ %s.",
                     time
