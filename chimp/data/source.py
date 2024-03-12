@@ -23,6 +23,7 @@ from pansat.time import to_datetime64, to_timedelta64
 
 from chimp.areas import Area
 from chimp.data.utils import round_time
+from chimp import extensions
 
 
 ALL_SOURCES = {}
@@ -112,6 +113,7 @@ class DataSource(ABC):
         end_time = start_time + timedelta(hours=23, minutes=59)
         start_time = to_datetime64(start_time)
         end_time = to_datetime64(end_time)
+        time_step = to_timedelta64(time_step)
 
         input_files = self.find_files(
             start_time,
@@ -158,6 +160,8 @@ def get_source(name: Union[str, DataSource]) -> DataSource:
         A DataSource object that can be used to extract data for a given
         dataset.
     """
+    extensions.load()
+
     if isinstance(name, DataSource):
         return name
     if name in ALL_SOURCES:
