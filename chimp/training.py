@@ -52,13 +52,13 @@ def find_most_recent_checkpoint(path: Path, model_name: str) -> Path:
     """
     path = Path(path)
 
-    checkpoint_files = list(path.glob(f"chimp_{model_name}*.ckpt"))
+    checkpoint_files = list(path.glob(f"{model_name}*.ckpt"))
     if len(checkpoint_files) == 0:
         return None
     if len(checkpoint_files) == 1:
         return checkpoint_files[0]
 
-    checkpoint_regexp = re.compile(rf"chimp_{model_name}(-v\d*)?.ckpt")
+    checkpoint_regexp = re.compile(rf"{model_name}(-v\d*)?.ckpt")
     versions = []
     for checkpoint_file in checkpoint_files:
         match = checkpoint_regexp.match(checkpoint_file.name)
@@ -463,9 +463,10 @@ def cli(
         name: TrainingConfig.parse(name, cfg) for name, cfg in training_config.items()
     }
 
+    module_name = model_config.get("name", "retrieval_module")
     module = LightningRetrieval(
         retrieval_model,
-        name="retrieval_module",
+        name=module_name,
         training_schedule=training_schedule
     )
 
