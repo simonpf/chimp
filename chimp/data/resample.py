@@ -117,11 +117,16 @@ def resample_data(
         else:
             fill_value = np.nan
 
+        input_shape = data.shape[lons.ndim:]
+        if data.ndim - 1 > lons.ndim:
+            data = data.reshape(lons.shape + (-1,))
+
         data_r = kd_tree.get_sample_from_neighbour_info(
             "nn", target.shape, data, ind_in, ind_out, inds, fill_value=fill_value
         )
+        data_r = data_r.reshape((-1,) + input_shape)
 
-        data_full = np.zeros(shape + data.shape[lons.ndim :], dtype=dtype)
+        data_full = np.zeros(shape + input_shape, dtype=dtype)
         if np.issubdtype(dtype, np.floating):
             data_full = np.nan * data_full
         elif np.issubdtype(dtype, np.datetime64):
@@ -132,7 +137,7 @@ def resample_data(
             data_full[:] = -9999
 
         data_full[valid_pixels] = data_r
-        resampled[var] = (new_dims + dataset[var].dims[lons.ndim :], data_full)
+        resampled[var] = (new_dims + dataset[var].dims[lons.ndim:], data_full)
 
     return xr.Dataset(resampled)
 

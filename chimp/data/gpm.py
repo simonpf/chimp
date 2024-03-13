@@ -12,6 +12,7 @@ from tempfile import TemporaryDirectory
 from typing import Union, List, Optional
 
 import numpy as np
+from scipy.ndimage import gaussian_filter1d
 import pansat
 from pansat import Geometry
 from pansat.granule import merge_granules
@@ -28,7 +29,8 @@ from pansat.products.satellite.gpm import (
     l1c_f17_ssmis,
     l1c_f18_ssmis,
     l1c_gcomw1_amsr2,
-    l2b_gpm_cmb
+    l2b_gpm_cmb,
+    l2a_gpm_dpr
 )
 from pyresample import AreaDefinition
 import xarray as xr
@@ -389,3 +391,150 @@ class GPMCMB(ReferenceDataset):
 
 
 CMB = GPMCMB()
+
+#
+# GPM DPR
+#
+
+
+class GPMDPR(InputDataset):
+    """
+    Represents retrieval reference data derived from GPM combined radar-radiometer retrievals.
+    """
+    def __init__(
+            self,
+            bands: List[int] = [0, 1]
+    ):
+        if 0 in bands and 1 in bands:
+            input_name = "dpr"
+        elif 0 in bands:
+            input_name = "dpr_ku"
+        elif 1 in bands:
+            input_name = "dpr_ka"
+        else:
+            raise RuntimeError(
+                "The list of bands must be [0], [1], or [0, 1]."
+            )
+
+        super().__init__(
+            input_name,
+            input_name,
+            4,
+            "refls",
+            n_dim=2
+        )
+        self.products = [l2a_gpm_dpr]
+        self.scale = 4
+        self.radius_of_influence = 6e3
+
+    def find_files(
+            self,
+            start_time: np.datetime64,
+            end_time: np.datetime64,
+            time_step: np.timedelta64,
+            roi: Optional[Geometry] = None,
+            path: Optional[Path] = None
+    ) -> List[Path]:
+        """
+        Find input data files within a given file range from which to extract
+        training data.
+
+        Args:
+            start_time: Start time of the time range.
+            end_time: End time of the time range.
+            time_step: The time step of the retrieval.
+            roi: An optional geometry object describing the region of interest
+                that can be used to restriced the file selection a priori.
+            path: If provided, files should be restricted to those available from
+                the given path.
+
+        Return:
+            A list of locally available files to extract CHIMP training data from.
+        """
+        if path is not None:
+            path = Path(path)
+            all_files = sorted(list(path.glob("**/*.HDF5")))
+            matching = []
+            for prod in self.products:
+                matching += [path for path in all_files if prod.matches(path)]
+            return matching
+
+        recs = []
+        for prod in self.products:
+            recs += prod.get(TimeRange(start_time, end_time))
+        return [rec.local_path for rec in recs]
+
+    def process_file(
+            self,
+            path: Path,
+            domain: Area,
+            output_folder: Path,
+            time_step: np.timedelta64
+    ):
+        """
+        Extract training samples from a given source file.
+
+        Args:
+           path: A Path object pointing to the file to process.
+           domain: An area object defining the training domain.
+           output_folder: A path pointing to the folder to which to write
+               the extracted training data.
+           time_step: A timedelta object defining the retrieval time step.
+        """
+        output_folder = Path(output_folder) / self.name
+        output_folder.mkdir(exist_ok=True)
+
+        input_data = self.products[0].open(path)
+        data = input_data.rename({
+            "scan_time": "time",
+        })[["time", "reflectivity", "path_attenuation", "freezing_level"]]
+
+        # Need to expand scan time to full dimensions.
+        time, _ = xr.broadcast(data.time, data.longitude)
+        data["time"] = time
+
+        refl = data.reflectivity.data
+        refl = gaussian_filter1d(data.reflectivity.data, 5, -2)
+        refl[refl < 0] = np.nan
+        data["reflectivity"].data[:] = refl
+        data = data[{"bins": slice(0, None, 6)}]
+
+        data = resample_and_split(
+            data,
+            domain[self.scale],
+            time_step,
+            radius_of_influence=self.radius_of_influence,
+            include_swath_center_coords=True
+        )
+
+        for time_ind  in range(data.time.size):
+
+            data_t = data[{"time": time_ind}]
+
+            refl = data_t.reflectivity.data
+            if np.isfinite(refl).any(-2).sum() < 100:
+                LOGGER.info(
+                    "Less than 100 valid pixels in training sample @ %s.",
+                    time
+                )
+                continue
+
+            encoding = {
+                "reflectivity": {"dtype": "int8", "zlib": True, "_FillValue": 255},
+                "path_attenuation": {"dtype": np.float32, "zlib": True},
+                "freezing_level": {"dtype": np.float32, "zlib": True},
+                "col_inds_swath_center": {"dtype": "int16"},
+                "row_inds_swath_center": {"dtype": "int16"},
+            }
+            filename = get_output_filename(
+                self.name, data.time[time_ind].data, time_step
+            )
+
+            LOGGER.info(
+                "Writing training samples to %s.",
+                output_folder / filename
+            )
+            data_t.to_netcdf(output_folder / filename, encoding=encoding)
+
+
+DPR = GPMDPR(bands=[0, 1])
