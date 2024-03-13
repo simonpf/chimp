@@ -9,7 +9,7 @@ import pytest
 import xarray as xr
 
 from chimp.areas import CONUS_PLUS
-from chimp.data.gpm import GMI, CMB
+from chimp.data.gpm import GMI, CMB, ATMS_W_ANGLE
 
 
 @NEEDS_PANSAT_PASSWORD
@@ -54,6 +54,32 @@ def test_process_files_gmi(tmp_path):
     tbs = training_data.tbs.data
     assert np.isfinite(tbs).all(-1).sum() > 100
 
+@pytest.mark.slow
+@NEEDS_PANSAT_PASSWORD
+def test_process_files_atms_w_angle(tmp_path):
+    """
+    Ensure that extraction of ATMS observations works as expected.
+    """
+    start_time = np.datetime64("2020-01-01T00:00:00")
+    end_time = np.datetime64("2020-01-01T03:00:00")
+    time_step = np.timedelta64(15, "m")
+    files = ATMS_W_ANGLE.find_files(
+        start_time,
+        end_time,
+        time_step
+    )
+    ATMS_W_ANGLE.process_file(
+        files[0],
+        CONUS_PLUS,
+        tmp_path,
+        time_step=time_step
+    )
+    training_files = sorted(list((tmp_path / "atms_w_angle").glob("*.nc")))
+    assert len(training_files) > 0
+    training_data = xr.load_dataset(training_files[0])
+    tbs = training_data.tbs.data
+    assert np.isfinite(tbs).all(-1).sum() > 100
+    assert "incidence_angle" in training_data
 
 @NEEDS_PANSAT_PASSWORD
 def test_find_files_cmb():

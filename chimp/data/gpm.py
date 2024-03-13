@@ -49,16 +49,18 @@ class GPML1CData(InputDataset):
     """
     def __init__(
         self,
-        name: str,
+        dataset_name: str,
         scale: int,
         products: List[pansat.Product],
         n_swaths: int,
         n_channels: int,
-        radius_of_influence,
+        radius_of_influence: float,
+        input_name: Optional[str] = None,
+        include_incidence_angle: bool = False
     ):
         """
         Args:
-            name: Name of the sensor.
+            dataset_name: A name that uniquely identifies the input dataset.
             scale: The spatial scale to which the output will be mapped.
             products: The pansat products reprsenting the L1C products of the
                 sensors.
@@ -66,12 +68,22 @@ class GPML1CData(InputDataset):
             n_channels: The number of channels in the input data.
             radius_of_influence: The radius of influence in meters to use for the
                 resampling of the data.
+            input_name: Optional input name in case it is meant to deviate from the
+                dataset name.
+            include_incidence_angle: Whether or not to include the incidence angle in
+                the retrieval input.
         """
-        InputDataset.__init__(self, name, name, scale, "tbs", n_dim=2)
+        if input_name is None:
+            input_name = dataset_name
+        target_names = ["tbs"]
+        if include_incidence_angle:
+            target_names = target_names + ["incidence_angle"]
+        InputDataset.__init__(self, dataset_name, input_name, scale, "tbs", n_dim=2)
         self.products = products
         self.n_swaths = n_swaths
-        self.n_channels = n_channels
+        self.n_channels = n_channels + include_incidence_angle
         self.radius_of_influence = radius_of_influence
+        self.include_incidence_angle = include_incidence_angle
 
 
     def find_files(
@@ -142,11 +154,13 @@ class GPML1CData(InputDataset):
                 f"latitude_s{swath}": "latitude",
                 f"longitude_s{swath}": "longitude",
                 f"tbs_s{swath}": "tbs",
+                f"incidence_angle_s{swath}": "incidence_angle",
                 f"scan_time": "time",
                 f"channels_s{swath}": "channels",
             }
+            vars = ["latitude", "longitude", "tbs", "time"]
             data = input_data.rename(new_names)[
-                ["latitude", "longitude", "tbs", "time"]
+                ["latitude", "longitude", "tbs", "incidence_angle", "time"]
             ]
             if f"pixels_s{swath}" in data:
                 data = data.rename({f"pixels_s{swath}": "pixels"})
@@ -174,6 +188,10 @@ class GPML1CData(InputDataset):
             return None
 
         data = xr.concat(swath_data, "channels")
+        if self.include_incidence_angle:
+            angs = data.incidence_angle[{"channels": 0}].data
+            data["incidence_angle"] = (("time", "y", "x",), angs)
+
         for time_ind  in range(data.time.size):
 
             data_t = data[{"time": time_ind}]
@@ -197,6 +215,13 @@ class GPML1CData(InputDataset):
                 "col_inds_swath_center": {"dtype": "int16"},
                 "row_inds_swath_center": {"dtype": "int16"},
             }
+            if self.include_incidence_angle:
+                encoding["incidence_angle"] = {
+                    "dtype": "int16",
+                    "scale_factor": 0.1,
+                    "zlib": True,
+                    "_FillValue": 2**15 - 1,
+                }
             filename = get_output_filename(
                 self.name, data.time[time_ind].data, time_step
             )
@@ -210,6 +235,16 @@ class GPML1CData(InputDataset):
 
 GMI = GPML1CData("gmi", 4, [l1c_gpm_gmi], 2, 13, 15e3)
 ATMS = GPML1CData("atms", 16, [l1c_noaa20_atms, l1c_npp_atms], 4, 9, 64e3)
+ATMS_W_ANGLE = GPML1CData(
+    "atms_w_angle",
+    16,
+    [l1c_noaa20_atms, l1c_npp_atms],
+    4,
+    9,
+    64e3,
+    input_name = "atms",
+    include_incidence_angle=True
+)
 
 MHS_PRODUCTS = [
     l1c_noaa18_mhs,
