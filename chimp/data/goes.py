@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 import logging
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import List, Optional, Tuple
+from typing import List, Optional
 import subprocess
 
 import numpy as np
