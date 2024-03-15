@@ -224,51 +224,6 @@ class MRMSData(ReferenceDataset):
         return reference_files
 
 
-class MRMSDataAnd(MRMSData):
-    """
-    Combines
-    """
-    def __init__(
-            self,
-            name: str,
-            scale: int,
-            targets: List[RetrievalTarget],
-            quality_index: str
-    ):
-        """
-        Args:
-            name: The name of the reference dataset.
-            scale: The spatial scale of the data.
-            targets: A list of the retrieval targets provided by the dataset.
-            quality_index: Name of the field hodling the quality index.
-        """
-        super().__init__(name, scale, targets, quality_index)
-
-
-    def process_day(
-            self,
-            domain,
-            year,
-            month,
-            day,
-            output_folder,
-            path=None,
-            time_step=timedelta(minutes=15),
-            include_scan_time=False
-    ):
-
-        super().proces_day(
-            domain,
-            year,
-            month,
-            day,
-            output_folder,
-            path=None,
-            time_step=timedelta(minutes=15),
-            include_scan_time=False
-        )
-
-
 
 
 MRMS_PRECIP_RATE = MRMSData(
