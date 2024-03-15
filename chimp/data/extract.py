@@ -146,4 +146,4 @@ def cli(
 
     # Write failed days to file
     with open(output / f".{inpt.name}_failed.txt", "w") as output:
-        output.write("\n".join(failed))
+        output.write("\n".join([str(path) for path in failed]))
