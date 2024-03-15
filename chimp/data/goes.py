@@ -208,7 +208,7 @@ class GOES(InputDataset):
             time_step: np.timedelta64,
             roi: Optional[Geometry] = None,
             path: Optional[Path] = None
-    ):
+    ) -> List[List[FileRecord]]:
         """
         Find input data files within a given file range from which to extract
         training data.
@@ -223,7 +223,7 @@ class GOES(InputDataset):
                 the given path.
 
         Return:
-            A list of locally available files to extract CHIMP training data from.
+            A list of list of files to extract the GOES retrieval input data from.
         """
         found_files = {}
 
@@ -272,26 +272,27 @@ class GOES(InputDataset):
             output_folder: Path,
             time_step: np.timedelta64
     ):
-        path = records_to_path(path)
+        path = records_to_paths(path)
         output_folder = Path(output_folder) / self.name
         output_folder.mkdir(exist_ok=True)
 
-        if isinstance(path, list):
-            scene = Scene([str(pth) for pth in path], reader="abi_l1b")
-            products = [[prod for prod in self.products if prod.matches(pth)][0] for pth in path]
+        if not isinstance(path, list):
+            paths = [path]
         else:
-            scene = Scene([str(path)], reader="abi_l1b")
-            products = [prod for prod in self.products if prod.matches(path)]
+            paths = path
+
+        scene = Scene([str(path) for path in paths], reader="abi_l1b")
+        products = [[prod for prod in self.products if prod.matches(pth)][0] for pth in paths]
+        time_range = products[0].get_temporal_coverage(paths[0])
 
         channel_names = [f"C{prod.channel:02}" for prod in products]
-        scene.load(channels_names, generate=False)
+        scene.load(channel_names, generate=False)
         scene = scene.resample(domain[self.scale])
         data = scene.to_xarray_dataset().compute()
 
         obs_refl = []
         obs_therm = []
 
-        time_range = product.get_temporal_coverage(path)
         time_c = time_range.start + 0.5 * (time_range.end - time_range.start)
         filename = get_output_filename(
             self.name, time_c, time_step
@@ -318,11 +319,11 @@ class GOES(InputDataset):
         dataset = dataset.copy()
         output_filename = Path(output_folder) / filename
         if "input_files" in dataset.attrs:
-            dataset.attrs["input_files"] += ", " + path.name
+            dataset.attrs["input_files"] += "\n".join([path.name for path in paths])
         else:
-            dataset.attrs["input_files"] = path.name
-        encoding = {}
+            dataset.attrs["input_files"] = "\n".join([path.name for path in paths])
 
+        encoding = {}
         dataset["refls"].data[:] = np.minimum(dataset["refls"].data, 127)
         encoding["refls"] = {
             "dtype": "uint8",

@@ -9,12 +9,32 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from datetime import timedelta
 import logging
 from pathlib import Path
+from typing import  Any, List, Union
 
 import click
 
 from chimp import areas
 
 LOGGER = logging.getLogger(__name__)
+
+
+def flatten(lst: Union[List[Any], List[List[Any]]]) -> List[Any]:
+    """
+    Flatten a potentially nested list.
+
+    Args:
+        lst: A list that may contain arbitrarily nested list.
+
+    Return:
+        A list containing all elements flattened to a single nesting level.
+    """
+    res = []
+    for elem in lst:
+        if isinstance(elem, lst):
+            res += flattend(lst)
+        else:
+            res.append(elem)
+    return res
 
 
 @click.argument("input", type=str)
@@ -142,7 +162,8 @@ def cli(
 
     failed = []
     for task, date in zip(tasks, dates):
-        failed += task.result()
+        res = task.result()
+        failed += flatten(res)
 
     # Write failed days to file
     with open(output / f".{inpt.name}_failed.txt", "w") as output:

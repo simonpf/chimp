@@ -28,7 +28,7 @@ from pansat.time import to_datetime64
 import xarray as xr
 
 from chimp.areas import Area
-from chimp.data.utils import get_output_filename, round_time
+from chimp.data.utils import get_output_filename, round_time, records_to_paths
 from chimp.data.reference import ReferenceDataset, RetrievalTarget
 
 
@@ -88,7 +88,7 @@ def save_file(dataset, output_folder, filename):
             "dtype": "uint8",
             "zlib": True
         }
-        output_data["precip_type"] = (("y", "x"), dataset.precip_type.data)
+        output_data["precip_type"] = (("y", "x"), dataset.precip_type.data.astype("int8"))
 
     output_data.to_netcdf(output_filename, encoding=encoding)
 
@@ -139,7 +139,7 @@ class MRMSData(ReferenceDataset):
         Return:
             A list of locally available files to extract CHIMP training data from.
         """
-        found_files = []
+        found_files = {}
 
         if path is not None:
             all_files = sorted(list(path.glob("**/*.grib2.gz")))
@@ -162,7 +162,7 @@ class MRMSData(ReferenceDataset):
                 time_n = round_time(time_c, time_step)
                 delta = abs(time_c - time_n)
 
-                min_delta = matched_deltas.get(time_n)
+                min_delta = matched_deltas.get(time_n, None)
                 if min_delta is None:
                     matched_recs[time_n] = rec
                     matched_deltas[time_n] = delta
@@ -171,10 +171,10 @@ class MRMSData(ReferenceDataset):
                         matched_recs[time_n] = rec
                         matched_deltas[time_n] = delta
 
-            found_files += list(matched_recs.values())
+            for time_n, matched_rec in matched_recs.items():
+                found_files.setdefault(time_n, []).append(matched_rec)
 
-
-        return [rec.get().local_path for rec in found_files]
+        return list(found_files.values())
 
 
 
@@ -185,12 +185,20 @@ class MRMSData(ReferenceDataset):
         output_folder: Path,
         time_step: np.timedelta64
     ):
+        if not isinstance(path, list):
+            paths = [path]
+        else:
+            paths = path
+        paths = records_to_paths(paths)
 
         output_folder = Path(output_folder) / self.name
         output_folder.mkdir(exist_ok=True)
 
-        product = [prod for prod in self.products if prod.matches(path)][0]
-        data = product.open(path)
+        data = []
+        for path in paths:
+            product = [prod for prod in self.products if prod.matches(path)][0]
+            data.append(product.open(path))
+        data = xr.merge(data)
         new_names = {
             "precip_rate": "surface_precip",
             "radar_quality_index": "rqi",
@@ -201,6 +209,9 @@ class MRMSData(ReferenceDataset):
         }
         data = data.rename(new_names)
         data = resample_data(data, domain[4], radius_of_influence=4e3, new_dims=("y", "x"))
+        if "precip_type" in data:
+            precip_type = np.nan_to_num(data.precip_type.data, nan=-1, copy=True).astype(np.int8)
+            data["precip_type"] = (data.surface_precip.dims, precip_type)
         time_range = product.get_temporal_coverage(path)
         time_c = time_range.start + 0.5 * (time_range.end - time_range.start)
         filename = get_output_filename("mrms", time_c, time_step)

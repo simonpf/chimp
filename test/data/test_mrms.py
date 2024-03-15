@@ -10,6 +10,7 @@ import xarray as xr
 
 from chimp.areas import CONUS_PLUS
 from chimp.data.mrms import MRMS_PRECIP_RATE
+from chimp.data.utils import records_to_paths
 
 
 def test_find_files_mrms():
@@ -24,15 +25,16 @@ def test_find_files_mrms():
         end_time,
         time_step
     )
-    assert len(files) == 12
+    assert len(files) == 4
 
+    files = records_to_paths(files)
     local_files = MRMS_PRECIP_RATE.find_files(
         start_time,
         end_time,
         time_step,
-        files[0].parent
+        files[0][0].parent
     )
-    assert len(files) == 12
+    assert len(files) == 4
 
 
 
@@ -49,7 +51,7 @@ def test_process_files_mrms(tmp_path):
         end_time,
         time_step
     )
-    assert len(files) == 3
+    assert len(files) == 1
     for path in files:
         MRMS_PRECIP_RATE.process_file(
             path,

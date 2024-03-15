@@ -137,7 +137,7 @@ class DataSource(ABC):
             except Exception:
                 LOGGER.exception(
                     "An error was encountered when processing file %s",
-                    input_file.name
+                    input_file
                 )
                 failed.append(input_file)
         return failed

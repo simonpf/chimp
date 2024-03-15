@@ -15,9 +15,6 @@ from pansat import FileRecord
 from pansat.time import to_datetime, to_datetime64, to_timedelta64
 
 
-from chimp.definitions import N_CHANS
-
-
 def scale_slices(
         slices: Union[Tuple[slice, slice], Tuple[int, int, int, int], None],
         rel_scale: float

@@ -58,7 +58,6 @@ def test_process_files_goes(tmp_path):
             tmp_path,
             time_step=time_step
         )
-
     training_files = sorted(list((tmp_path / "goes_18").glob("*.nc")))
     assert len(training_files) == 1
 
