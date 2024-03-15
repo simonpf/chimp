@@ -9,28 +9,41 @@ import logging
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import subprocess
+from typing import List, Optional
 from zipfile import ZipFile
 
 import numpy as np
 from pansat import Product, TimeRange
-from pansat.roi import any_inside
-from pansat.download.providers.eumetsat import EUMETSATProvider
+from pansat.geometry import Geometry
 from pansat.products.satellite.meteosat import l1b_msg_seviri, l1b_rs_msg_seviri
 from pansat.time import to_datetime64
-from pyresample import geometry, kd_tree
 from satpy import Scene
 import xarray as xr
 
+from chimp.areas import Area
 from chimp.data import InputDataset
-from chimp.data.utils import get_output_filename
+from chimp.data.utils import round_time, get_output_filename
 
 
 LOGGER = logging.getLogger(__name__)
 
 
 CHANNEL_CONFIGURATIONS = {
-    "all": [
+    "ALL": [
         "HRV",
+        "VIS006",
+        "VIS008",
+        "IR_016",
+        "IR_039",
+        "WV_062",
+        "WV_073",
+        "IR_087",
+        "IR_097",
+        "IR_108",
+        "IR_120",
+        "IR_134",
+    ],
+    "MATCHED" : [
         "VIS006",
         "VIS008",
         "IR_016",
@@ -46,7 +59,7 @@ CHANNEL_CONFIGURATIONS = {
 }
 
 
-def save_file(dataset, time_step, output_folder):
+def save_file(dataset, time, time_step, output_folder):
     """
     Save a training data file.
 
@@ -64,59 +77,9 @@ def save_file(dataset, time_step, output_folder):
     dataset.to_netcdf(output_filename, encoding=encoding)
 
 
-def download_and_resample_data(
-    product: Product,
-    time: datetime,
-    domain: geometry.AreaDefinition,
-    channel_configuration: str,
-) -> xr.Dataset:
-    """
-    Download, load and resample SEVIRI data.
-
-    Args:
-        product: A pansat.Product defining the SEVIRI product to download.
-        time: A datetime object specifying the time for which to download
-            SEVIRI data.
-        domain: An AreaDefinition object specifying the domain over which to
-            extract the satellite observations.
-        channel_configuration: A string specifying the SEVIRI channel
-            configuration.
-
-    Return:
-        An xarray.Dataset containing the loaded SEVIRI observations.
-    """
-    time_range = TimeRange(time - timedelta(minutes=2), time + timedelta(minutes=2))
-    recs = product.get(time_range)
-    closest = time_range.find_closest_ind([rec.temporal_coverage for rec in recs])
-    rec = recs[closest[0]].get()
-
-    with TemporaryDirectory() as tmp:
-        with ZipFile(rec.local_path, "r") as zip_ref:
-            zip_ref.extractall(tmp)
-        files = list(Path(tmp).glob("*.nat"))
-        scene = Scene(files)
-        datasets = scene.available_dataset_names()
-
-        datasets = CHANNEL_CONFIGURATIONS[channel_configuration]
-        scene.load(datasets, generate=False)
-        scene_r = scene.resample(domain, radius_of_influence=12e3)
-
-        obs = []
-        names = []
-        for name in datasets:
-            obs.append(scene_r[name].compute().data)
-
-        acq_time = scene[datasets[0]].compute().acq_time.mean().data
-
-        obs = np.stack(obs, -1)
-
-        data = xr.Dataset({"obs": (("y", "x", "channels"), obs)})
-        data["time"] = to_datetime64(time)
-        data["acq_time_mean"] = acq_time
-        return data
 
 
-class SEVIRI(InputDataset):
+class SEVIRIL1B(InputDataset):
     """
     Input class implementing an interface to extract and load SEVIRI input
     data.
@@ -130,70 +93,128 @@ class SEVIRI(InputDataset):
                 from which to extract the observations.
             channel_configuration: A 'str' specifying the channel configuration.
         """
-        super().__init__(name, name, 4, ["obs"])
+        super().__init__(name, "seviri", 4, ["obs"])
         self.pansat_product = pansat_product
-        self.channel_configuration = channel_configuration
+        if not channel_configuration.upper() in CHANNEL_CONFIGURATIONS:
+            raise RuntimeError(
+                f"Channel configuration must by one of {list(CHANNEL_CONFIGURATIONS.keys())}."
+            )
+        self.channel_configuration = channel_configuration.upper()
 
     @property
     def n_channels(self) -> int:
         return 12
 
-    #def find_files():
-    #    pass
-
-    #def process_file():
-    #    pass
-
-    def process_day(
-        self,
-        domain,
-        year,
-        month,
-        day,
-        output_folder,
-        path=None,
-        time_step=timedelta(minutes=15),
-        include_scan_time=False,
+    def find_files(
+            self,
+            start_time: np.datetime64,
+            end_time: np.datetime64,
+            time_step: np.timedelta64,
+            roi: Optional[Geometry] = None,
+            path: Optional[Path] = None
     ):
         """
-        Extract training data from a day of GOES observations.
+        Find input data files within a given file range from which to extract
+        training data.
 
         Args:
-            domain: A domain object identifying the spatial domain for which
-                to extract input data.
-            year: The year
-            month: The month
-            day: The day
-            output_folder: The folder to which to write the extracted
-                observations.
-            path: Not used, included for compatibility.
-            time_step: The temporal resolution of the training data.
-            include_scan_time: Not used.
+            start_time: Start time of the time range.
+            end_time: End time of the time range.
+            time_step: The time step of the retrieval.
+            roi: An optional geometry object describing the region of interest
+                that can be used to restriced the file selection a priori.
+            path: If provided, files should be restricted to those available from
+                the given path.
+
+        Return:
+            A list of locally available files to extract CHIMP training data from.
         """
-        output_folder = Path(output_folder) / "seviri"
-        if not output_folder.exists():
-            output_folder.mkdir(parents=True, exist_ok=True)
+        prod = self.pansat_product
 
-        existing_files = [
-            f.name for f in output_folder.glob(f"goes_{year}{month:02}{day:02}*.nc")
-        ]
+        if path is not None:
+            all_files = sorted(list(path.glob("**/MSG*")))
 
-        start_time = datetime(year, month, day)
-        end_time = datetime(year, month, day) + timedelta(hours=23, minutes=59)
-        time = start_time
-        while time < end_time:
-            output_filename = get_output_filename("seviri", time, time_step)
-            if not (output_folder / output_filename).exists():
-                dataset = download_and_resample_data(
-                    self.pansat_product,
-                    time,
-                    domain[self.scale],
-                    self.channel_configuration,
-                )
-                save_file(dataset, time_step, output_folder)
+        time_range = TimeRange(start_time, end_time)
 
-            time = time + time_step
+        if path is not None:
+            recs = [
+                FileRecord(path, product=prod) for path in all_files
+                if prod.matches(path) and prod.get_temporal_coverage(path).covers(time_range)
+            ]
+        else:
+            recs = prod.find_files(TimeRange(start_time, end_time))
+
+        matched_recs = {}
+        matched_deltas = {}
+
+        for rec in recs:
+            tr_rec = rec.temporal_coverage
+            time_c = to_datetime64(tr_rec.start + 0.5 * (tr_rec.end - tr_rec.start))
+            time_n = round_time(time_c, time_step)
+            delta = abs(time_c - time_n)
+
+            min_delta = matched_deltas.get(time_n)
+            if min_delta is None:
+                matched_recs[time_n] = rec
+                matched_deltas[time_n] = delta
+            else:
+                if delta < min_delta:
+                    matched_recs[time_n] = rec
+                    matched_deltas[time_n] = delta
+
+        found_files = list(matched_recs.values())
+        return [rec.get().local_path for rec in found_files]
+
+    def process_file(
+            self,
+            path: Path,
+            domain: Area,
+            output_folder: Path,
+            time_step: np.timedelta64
+    ):
+        """
+        Extract training samples from a given input data file.
+
+        Args:
+            path: A Path object pointing to the file to process.
+            domain: An area object defining the training domain.
+            output_folder: A path pointing to the folder to which to write
+                the extracted training data.
+            time_step: A timedelta object defining the retrieval time step.
+        """
+        output_folder = Path(output_folder) / self.name
+        output_folder.mkdir(exist_ok=True)
+
+        if isinstance(domain, Area):
+            domain = domain[4]
+
+        with TemporaryDirectory() as tmp:
+            with ZipFile(path, "r") as zip_ref:
+                zip_ref.extractall(tmp)
+            files = list(Path(tmp).glob("*.nat"))
+            scene = Scene(files)
+            datasets = scene.available_dataset_names()
+
+            start, end = self.pansat_product.get_temporal_coverage(path)
+            time_c = start + 0.5 * (end - start)
+
+            datasets = CHANNEL_CONFIGURATIONS[self.channel_configuration]
+            scene.load(datasets, generate=False)
+            scene_r = scene.resample(domain, radius_of_influence=12e3)
+
+            obs = []
+            names = []
+            for name in datasets:
+                obs.append(scene_r[name].compute().data)
+
+            acq_time = scene[datasets[0]].compute().acq_time.mean().data
+
+            obs = np.stack(obs, -1)
+            data = xr.Dataset({"obs": (("y", "x", "channels"), obs)})
+            data["time"] = to_datetime64(time_c)
+            data["acq_time_mean"] = time_c
+            save_file(data, time_c, time_step, output_folder)
 
 
-seviri_rs = SEVIRI("seviri_rs", l1b_rs_msg_seviri, "all")
-seviri = SEVIRI("seviri", l1b_msg_seviri, "all")
+SEVIRI = SEVIRIL1B("seviri", l1b_msg_seviri, "all")
+SEVIRI_RS = SEVIRIL1B("seviri_rs", l1b_rs_msg_seviri, "all")
