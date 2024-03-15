@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 import logging
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Union, List, Optional
+from typing import Dict,  List, Optional, Tuple, Union
 
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
@@ -18,7 +18,7 @@ from pansat import Geometry
 from pansat.granule import merge_granules
 from pansat.time import TimeRange
 from pansat.products.satellite.gpm import (
-    l1c_gpm_gmi,
+    l1c_r_gpm_gmi,
     l1c_metopb_mhs,
     l1c_metopc_mhs,
     l1c_noaa18_mhs,
@@ -33,12 +33,17 @@ from pansat.products.satellite.gpm import (
     l2a_gpm_dpr
 )
 from pyresample import AreaDefinition
+import torch
 import xarray as xr
 
 from chimp.areas import Area
 from chimp.data.input import InputDataset
 from chimp.data.resample import resample_and_split
 from chimp.data.reference import ReferenceDataset, RetrievalTarget
+from chimp.data.mrms import MRMS_PRECIP_RATE
+from chimp.utils import get_date
+
+
 from chimp.data.utils import get_output_filename
 
 
@@ -152,18 +157,19 @@ class GPML1CData(InputDataset):
         swath_data =  []
 
         for swath in range(1, self.n_swaths + 1):
-            new_names = {
-                f"latitude_s{swath}": "latitude",
-                f"longitude_s{swath}": "longitude",
-                f"tbs_s{swath}": "tbs",
-                f"incidence_angle_s{swath}": "incidence_angle",
-                f"scan_time": "time",
-                f"channels_s{swath}": "channels",
-            }
-            vars = ["latitude", "longitude", "tbs", "time"]
-            data = input_data.rename(new_names)[
-                ["latitude", "longitude", "tbs", "incidence_angle", "time"]
-            ]
+            if self.n_swaths > 1:
+                new_names = {
+                    f"latitude_s{swath}": "latitude",
+                    f"longitude_s{swath}": "longitude",
+                    f"tbs_s{swath}": "tbs",
+                    f"incidence_angle_s{swath}": "incidence_angle",
+                    f"scan_time": "time",
+                    f"channels_s{swath}": "channels",
+                }
+                data = input_data.rename(new_names)
+
+            vars = ["latitude", "longitude", "tbs", "incidence_angle", "time"]
+            data = data[vars]
             if f"pixels_s{swath}" in data:
                 data = data.rename({f"pixels_s{swath}": "pixels"})
 
@@ -178,8 +184,14 @@ class GPML1CData(InputDataset):
                     self.radius_of_influence,
                     include_swath_center_coords=True
                 )
+
             if data_s is None:
                 continue
+
+            if data_s.incidence_angle.data.ndim == 2:
+                angs, _ = xr.broadcast_to(data_s.incidence_angle, data_s.tbs)
+                data_s["incidence_angle"] = angs
+
             swath_data.append(data_s)
 
         if len(swath_data) == 0:
@@ -235,7 +247,7 @@ class GPML1CData(InputDataset):
             data_t.to_netcdf(output_folder / filename, encoding=encoding)
 
 
-GMI = GPML1CData("gmi", 4, [l1c_gpm_gmi], 2, 13, 15e3)
+GMI = GPML1CData("gmi", 4, [l1c_r_gpm_gmi], 2, 13, 15e3)
 ATMS = GPML1CData("atms", 16, [l1c_noaa20_atms, l1c_npp_atms], 4, 9, 64e3)
 ATMS_W_ANGLE = GPML1CData(
     "atms_w_angle",
@@ -275,12 +287,14 @@ class GPMCMB(ReferenceDataset):
     """
     Represents retrieval reference data derived from GPM combined radar-radiometer retrievals.
     """
-    def __init__(self):
-        self.name = "cmb"
+    def __init__(self, name=None):
+        if name is None:
+            name = "cmb"
+        self.name = name
         super().__init__(
             self.name,
             4,
-            RetrievalTarget("surface_precip"),
+            [RetrievalTarget("surface_precip")],
             quality_index=None
         )
         self.products = [l2b_gpm_cmb]
@@ -391,6 +405,209 @@ class GPMCMB(ReferenceDataset):
 
 
 CMB = GPMCMB()
+
+
+class GPMCMBAnd(GPMCMB):
+    """
+    This reference data class loads reference data from GPM CMB training files and
+    another reference dataset.
+    """
+    def __init__(self, other: str):
+        name = "cmb_and_" + other.name
+        super().__init__(name=name)
+        self.other = other
+
+
+    def other_path(self, path):
+        filename = path.name
+        other_filename = self.other.name + filename[3:]
+        other_path = path.parent.parent / self.other.name / other_filename
+        return other_path
+
+    def _find_training_files(self, path: Path, name: str):
+        """
+        Find training data files.
+
+        Args:
+            path: Path to the folder the training data for all input
+                and reference datasets.
+            name: The name of the dataset.
+
+        Return:
+            A list of found reference data files.
+        """
+        pattern = "*????????_??_??.nc"
+        reference_files = sorted(
+            list((path / name).glob(pattern))
+        )
+        return reference_files
+
+    def find_training_files(self, path: Path) -> List[Path]:
+        """
+        Find training data files.
+
+        Args:
+            path: Path to the folder the training data for all input
+                and reference datasets.
+
+        Return:
+            A list of found reference data files.
+        """
+        cmb_files = self._find_training_files(path, "cmb")
+        other_files = self._find_training_files(path, self.other.name)
+        cmb_dates = set(map(get_date,cmb_files))
+        for other_file in other_files:
+            if get_date(other_file) not in cmb_dates:
+                cmb_files.append(other_file)
+        return sorted(cmb_files)
+
+
+    def find_random_scene(
+        self,
+        path: Path,
+        rng: np.random.Generator,
+        multiple: int = 4,
+        scene_size: int = 256,
+        quality_threshold: float = 0.8,
+        valid_fraction: float = 0.2,
+    ) -> Tuple[int, int, int, int]:
+        """
+        Finds a random scene in the reference data that has given minimum
+        fraction of values of values exceeding a given RQI threshold.
+
+        Args:
+            path: The path of the reference data file from which to sample a random
+                scene.
+            rng: A numpy random generator instance to randomize the scene search.
+            multiple: Limits the scene position to coordinates that a multiples
+                of the given value.
+            quality_threshold: If the reference dataset has a quality index,
+                all reference data pixels below the given threshold will considered
+                invalid outputs.
+            valid_fraction: The minimum amount of valid samples in the extracted
+                region.
+
+        Return:
+            A tuple ``(i_start, i_end, j_start, j_end)`` defining the position
+            of the random crop.
+        """
+        if not path.name.startswith("cmb"):
+            return self.other.find_random_scene(
+                path=path,
+                rng=rng,
+                multiple=multiple,
+                scene_size=scene_size,
+                quality_threshold=quality_threshold,
+                valid_fraction=valid_fraction
+            )
+
+        if isinstance(scene_size, (int, float)):
+            scene_size = (int(scene_size),) * 2
+
+        with xr.open_dataset(path) as data:
+
+            if self.quality_index is not None:
+                qi = data[self.quality_index].data
+            else:
+                qi = np.isfinite(data[self.targets[0].name].data)
+
+            other_path = self.other_path(path)
+            if other_path.exists():
+                with xr.open_dataset(other_path) as other_data:
+                    if self.other.quality_index is not None:
+                        qi = np.maximum(qi, other_data[self.other.quality_index].data)
+                    else:
+                        qi = np.maximum(qi, np.isfinite(data[self.other.targets[0].name].data))
+
+            found = False
+            count = 0
+            while not found:
+                if count > 20:
+                    return None
+                count += 1
+                n_rows, n_cols = qi.shape
+                i_start = rng.integers(0, (n_rows - scene_size[0]) // multiple)
+                i_end = i_start + scene_size[0] // multiple
+                j_start = rng.integers(0, (n_cols - scene_size[1]) // multiple)
+                j_end = j_start + scene_size[1] // multiple
+
+                i_start = i_start * multiple
+                i_end = i_end * multiple
+                j_start = j_start * multiple
+                j_end = j_end * multiple
+
+                row_slice = slice(i_start, i_end)
+                col_slice = slice(j_start, j_end)
+
+                if (qi[row_slice, col_slice] > quality_threshold).mean() > valid_fraction:
+                    found = True
+
+        return (i_start, i_end, j_start, j_end)
+
+    def load_sample(
+            self,
+            path: Path,
+            crop_size: int,
+            base_scale,
+            slices: Tuple[int, int, int, int],
+            rng: np.random.Generator,
+            rotate: Optional[float] = None,
+            flip: Optional[bool] = None,
+            quality_threshold: float = 0.8
+    ) -> Dict[str, torch.Tensor]:
+
+        if not path.name.startswith("cmb"):
+            other_targets = self.other.load_sample(
+                path=path,
+                crop_size=crop_size,
+                base_scale=base_scale,
+                slices=slices,
+                rng=rng,
+                rotate=rotate,
+                flip=flip,
+                quality_threshold=quality_threshold
+            )
+            for name in self.targets:
+                if not name in other_targets:
+                    shape = self.targets[name].shape + (crop_size,) * 2
+                    other_targets[target] = torch.nan * torch.ones(shape)
+            return other_targets
+
+
+        targets = super().load_sample(
+            path=path,
+            crop_size=crop_size,
+            base_scale=base_scale,
+            slices=slices,
+            rng=rng,
+            rotate=rotate,
+            flip=flip,
+            quality_threshold=quality_threshold
+        )
+        other_path = self.other_path(path)
+        if other_path.exists():
+            other_targets = self.other.load_sample(
+                path=other_path,
+                crop_size=crop_size,
+                base_scale=base_scale,
+                slices=slices,
+                rng=rng,
+                rotate=rotate,
+                flip=flip,
+                quality_threshold=quality_threshold
+            )
+            for name in other_targets:
+                if name in targets:
+                    y_cmb = targets[name].base
+                    y_other = other_targets[name]
+                    mask = torch.isfinite(y_cmb)
+                    y_other[mask] = y_cmb[mask]
+                    targets[name] = y_other
+
+        return targets
+
+
+CMB_AND_MRMS = GPMCMBAnd(MRMS_PRECIP_RATE)
 
 #
 # GPM DPR
