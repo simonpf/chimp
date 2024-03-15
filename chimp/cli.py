@@ -6,6 +6,7 @@ Implements the command line interface for CHIMP.
 """
 import click
 
+from chimp import logging
 from chimp import training
 from chimp import eda
 from chimp import lr_search
