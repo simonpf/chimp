@@ -372,7 +372,7 @@ class InputLoader():
         scene_sizes = [None] * n_input_datasets
 
         for input_ind, input_dataset in enumerate(self.input_datasets):
-            input_files = input_dataset.find_files(self.path)
+            input_files = input_dataset.find_training_files(self.path)
             times = np.array(list(map(get_date, input_files)))
 
             # Determine input size for all inputs.
