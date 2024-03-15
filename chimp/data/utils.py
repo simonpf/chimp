@@ -10,9 +10,8 @@ from typing import List, Optional, Tuple, Union
 
 import numpy as np
 import xarray as xr
-
 import torch
-
+from pansat import FileRecord
 from pansat.time import to_datetime, to_datetime64, to_timedelta64
 
 
@@ -117,3 +116,26 @@ def get_output_filename(
     filename = f"{prefix}_{year}{month:02}{day:02}_{hour:02}_{minute:02}.nc"
     return filename
 
+
+def records_to_paths(
+        path_or_rec: Union[List[FileRecord], List[Path], Path, FileRecord]
+) -> Union[Path, List[Path]]:
+    """
+    Get local path of a file or list of files.
+
+    Args:
+        path_or_rec: A path or file record object or list thereof.
+
+    Return:
+        A path object pointing to a locally available file or a list thereof.
+    """
+
+    if isinstance(path_or_rec, Path):
+        return path_or_rec
+    if isinstance(path_or_rec, FileRecord):
+        return path_or_rec.get().local_path
+    if isinstance(path_or_rec, list):
+        return [records_to_paths(por) for por in path_or_rec]
+    raise RuntimeError(
+        "Expected a path, file record or list of those."
+    )

@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
+from pansat import FileRecord
 from pansat.time import to_datetime
 
 

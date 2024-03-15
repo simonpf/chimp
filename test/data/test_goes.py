@@ -10,6 +10,7 @@ import xarray as xr
 
 from chimp.areas import CONUS_PLUS
 from chimp.data.goes import GOES_18
+from chimp.data.utils import records_to_paths
 
 
 def test_find_files_goes():
@@ -24,15 +25,16 @@ def test_find_files_goes():
         end_time,
         time_step
     )
-    assert len(files) == 16
+    assert len(files) == 1
+    files = records_to_paths(files)
 
     local_files = GOES_18.find_files(
         start_time,
         end_time,
         time_step,
-        files[0].parent
+        files[0][0].parent
     )
-    assert len(files) == 16
+    assert len(files) == 1
 
 
 

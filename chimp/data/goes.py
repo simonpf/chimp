@@ -28,7 +28,7 @@ import xarray as xr
 
 from chimp.areas import Area
 from chimp.data.input import InputDataset
-from chimp.data.utils import round_time, get_output_filename
+from chimp.data.utils import round_time, get_output_filename, records_to_paths
 
 LOGGER = logging.getLogger(__name__)
 
@@ -225,7 +225,7 @@ class GOES(InputDataset):
         Return:
             A list of locally available files to extract CHIMP training data from.
         """
-        found_files = []
+        found_files = {}
 
         if path is not None:
             all_files = sorted(list(path.glob("**/*.nc")))
@@ -259,9 +259,10 @@ class GOES(InputDataset):
                         matched_recs[time_n] = rec
                         matched_deltas[time_n] = delta
 
-            found_files += list(matched_recs.values())
+            for time_n, matched_rec in matched_recs.items():
+                found_files.setdefault(time_n, []).append(matched_rec)
 
-        return [rec.get().local_path for rec in found_files]
+        return list(found_files.values())
 
 
     def process_file(
@@ -271,14 +272,19 @@ class GOES(InputDataset):
             output_folder: Path,
             time_step: np.timedelta64
     ):
+        path = records_to_path(path)
         output_folder = Path(output_folder) / self.name
         output_folder.mkdir(exist_ok=True)
 
-        product = [prod for prod in self.products if prod.matches(path)][0]
-        channel = product.channel
-        channel_name = f"C{channel:02}"
-        scene = Scene([str(path)], reader="abi_l1b")
-        scene.load([channel_name], generate=False)
+        if isinstance(path, list):
+            scene = Scene([str(pth) for pth in path], reader="abi_l1b")
+            products = [[prod for prod in self.products if prod.matches(pth)][0] for pth in path]
+        else:
+            scene = Scene([str(path)], reader="abi_l1b")
+            products = [prod for prod in self.products if prod.matches(path)]
+
+        channel_names = [f"C{prod.channel:02}" for prod in products]
+        scene.load(channels_names, generate=False)
         scene = scene.resample(domain[self.scale])
         data = scene.to_xarray_dataset().compute()
 
@@ -302,10 +308,12 @@ class GOES(InputDataset):
                 "tbs": (("y", "x", "channels_therm"), obs_therm)
             })
 
-        if channel <= 6:
-            dataset["refls"].data[..., channel - 1] = data[channel_name]
-        else:
-            dataset["tbs"].data[..., channel - 1 - 6] = data[channel_name]
+        for name in channel_names:
+            channel = int(name[-2:])
+            if channel <= 6:
+                dataset["refls"].data[..., channel - 1] = data[name]
+            else:
+                dataset["tbs"].data[..., channel - 1 - 6] = data[name]
 
         dataset = dataset.copy()
         output_filename = Path(output_folder) / filename
