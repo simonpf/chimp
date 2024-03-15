@@ -167,11 +167,22 @@ class GPML1CData(InputDataset):
                     f"channels_s{swath}": "channels",
                 }
                 data = input_data.rename(new_names)
+            else:
+                data = input_data
 
             vars = ["latitude", "longitude", "tbs", "incidence_angle", "time"]
             data = data[vars]
             if f"pixels_s{swath}" in data:
                 data = data.rename({f"pixels_s{swath}": "pixels"})
+
+            drop = []
+            for var in data.variables.keys():
+                for swath in range(1, self.n_swaths + 1):
+                    if var.endswith(f"_s{swath}"):
+                        drop.append(var)
+            if not self.include_incidence_angle:
+                drop.append('incidence_angle')
+            data = data.drop(drop)
 
             # Need to expand scan time to full dimensions.
             time, _ = xr.broadcast(data.time, data.longitude)
@@ -188,7 +199,7 @@ class GPML1CData(InputDataset):
             if data_s is None:
                 continue
 
-            if data_s.incidence_angle.data.ndim == 2:
+            if self.include_incidence_angle and data_s.incidence_angle.data.ndim == 2:
                 angs, _ = xr.broadcast_to(data_s.incidence_angle, data_s.tbs)
                 data_s["incidence_angle"] = angs
 
@@ -214,7 +225,7 @@ class GPML1CData(InputDataset):
             if np.isfinite(tbs).any(-1).sum() < 100:
                 LOGGER.info(
                     "Less than 100 valid pixels in training sample @ %s.",
-                    time
+                    data_t.time.data
                 )
                 continue
 
