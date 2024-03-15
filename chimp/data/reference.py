@@ -26,8 +26,8 @@ class RetrievalTarget:
     This dataclass holds properties of retrieval targets provided
     by a reference dataset.
     """
-
     name: str
+    shape: Tuple[int] = (1,)
     lower_limit: Optional[float] = None
 
 

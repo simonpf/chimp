@@ -82,7 +82,7 @@ def mrms_surface_precip_data(tmp_path):
 
         sp = random_spectral_field((lats.size, lons.size), 10).astype("float32")
 
-        filename = get_output_filename("mrms", time)
+        filename = get_output_filename("mrms", time, np.timedelta64(30, "m"))
         dataset = xr.Dataset(
             {
                 "latitude": (("latitude"), lats),
@@ -120,7 +120,7 @@ def cpcir_data(tmp_path):
         tbs = random_spectral_field((lats.size, lons.size), 10)[..., None].astype(
             "float32"
         )
-        filename = get_output_filename("cpcir", time.item(), 30)
+        filename = get_output_filename("cpcir", time.item(), np.timedelta64(30, "m"))
         dataset = xr.Dataset(
             {
                 "time": ((), time),

@@ -42,7 +42,7 @@ def resample_swath_centers(domain, lons, lats, radius_of_influence=15e3):
     n_cols = domain.shape[1]
     col_indices = indices % n_cols
     row_indices = indices // n_cols
-    return row_indices, col_indices
+    return row_indices.astype("int16"), col_indices.astype("int16")
 
 
 def resample_data(
