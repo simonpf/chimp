@@ -41,6 +41,7 @@ from chimp.data.input import InputDataset
 from chimp.data.resample import resample_and_split
 from chimp.data.reference import ReferenceDataset, RetrievalTarget
 from chimp.data.mrms import MRMS_PRECIP_RATE
+from chimp.data.utils import records_to_paths
 from chimp.utils import get_date
 
 
@@ -129,8 +130,8 @@ class GPML1CData(InputDataset):
 
         recs = []
         for prod in self.products:
-            recs += prod.get(TimeRange(start_time, end_time))
-        return [rec.local_path for rec in recs]
+            recs += prod.find_files(TimeRange(start_time, end_time))
+        return recs
 
 
     def process_file(
@@ -150,6 +151,8 @@ class GPML1CData(InputDataset):
                 the extracted training data.
             time_step: A timedelta object defining the retrieval time step.
         """
+        path = records_to_paths(path)
+
         output_folder = Path(output_folder) / self.name
         output_folder.mkdir(exist_ok=True)
 
