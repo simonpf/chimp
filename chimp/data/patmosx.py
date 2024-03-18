@@ -8,17 +8,18 @@ daily gridded AVHRR and HIRS observations from the PATMOS-X CDR.
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple, Union
 
 import numpy as np
 from pansat import TimeRange
 from pansat.geometry import Geometry
 from pansat.time import to_datetime64
 from pansat.products.satellite.ncei import patmosx_asc, patmosx_des
+import torch
 import xarray as xr
 
 from chimp.areas import Area
-from chimp.data.utils import get_output_filename
+from chimp.data.utils import get_output_filename, scale_slices
 from chimp.data.input import InputDataset
 from chimp.data.resample import resample_and_split, split_time
 
@@ -228,5 +229,96 @@ class PATMOSX(InputDataset):
                 for obs in data.variables if obs != "time_of_day"
             }
             data.to_netcdf(output_file, encoding=encodings)
+
+    def load_sample(
+        self,
+        input_file: Path,
+        crop_size: Union[int, Tuple[int, int]],
+        base_scale: int,
+        slices: Tuple[slice, slice],
+        rng: np.random.Generator,
+        rotate: Optional[float] = None,
+        flip: Optional[bool] = False,
+    ) -> torch.Tensor:
+        """
+        Load input data sample from file.
+
+        Args:
+            input_file: Path pointing to the input file from which to load the
+                data.
+            crop_size: Size of the final crop.
+            base_scale: The scale of the reference data.
+            sclices: Tuple of slices defining the part of the data to load.
+            rng: A numpy random generator object to use to generate random
+                data.
+            rotate: If given, the should specify the number of degree by
+                which the input should be rotated.
+            flip: Bool indicated whether or not to flip the input along the
+                last dimensions.
+
+        Return:
+            A torch tensor containing the loaded input data.
+        """
+        rel_scale = self.scale / base_scale
+
+        if isinstance(crop_size, int):
+            crop_size = (crop_size,) * self.n_dims
+        crop_size = tuple((int(size / rel_scale) for size in crop_size))
+
+        if input_file is not None:
+            slices = scale_slices(slices, rel_scale)
+            with xr.open_dataset(input_file) as data:
+
+                vars = self.variables
+                if not isinstance(vars, list):
+                    vars = [vars]
+                all_data = []
+                for vrbl in vars:
+                    x_s = data[vrbl][dict(zip(self.spatial_dims, slices))].data
+                    if x_s.ndim < 3:
+                        x_s = x_s[None]
+                    x_s = np.transpose(x_s, (2, 3, 0, 1))
+
+                    if rng is not None:
+                        for t_ind in range(4):
+                            if rng.uniform() > 0.95:
+                                x_s[t_ind] = np.nan
+
+                        for ch_ind in range(x_s.shape[1]):
+                            if rng.uniform() > 0.98:
+                                x_s[:, ch_ind] = np.nan
+
+                    x_s = x_s.reshape((-1,) + x_s.shape[2:])
+
+                    all_data.append(x_s)
+                x_s = np.concatenate(all_data, axis=0)
+
+            # Apply augmentations
+            if rotate is not None:
+                x_s = ndimage.rotate(
+                    x_s, rotate, order=0, reshape=False, axes=(-2, -1), cval=np.nan
+                )
+                height = x_s.shape[-2]
+
+                # In case of a rotation, we may need to cut off some input.
+                height_out = crop_size[0]
+                if height > height_out:
+                    start = (height - height_out) // 2
+                    end = start + height_out
+                    x_s = x_s[..., start:end, :]
+
+                width = x_s.shape[-1]
+                width_out = crop_size[1]
+                if width > width_out:
+                    start = (width - width_out) // 2
+                    end = start + width_out
+                    x_s = x_s[..., start:end]
+            if flip:
+                x_s = np.flip(x_s, -2)
+        else:
+            x_s = np.nan * np.ones(((self.n_channels,) + crop_size), dtype=np.float32)
+
+        x_s = torch.tensor(x_s.copy(), dtype=torch.float32)
+        return x_s
 
 PATMOSX = PATMOSX()
