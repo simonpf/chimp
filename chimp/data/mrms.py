@@ -149,7 +149,7 @@ class MRMSData(ReferenceDataset):
         for prod in self.products:
             if path is not None:
                 recs = [
-                    FileRecord(prod, path) for path in all_files
+                    FileRecord(path, product=prod) for path in all_files
                     if prod.matches(path)
                     and prod.get_temporal_coverage(path).covers(time_range)
                 ]
