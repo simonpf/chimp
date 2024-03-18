@@ -18,6 +18,7 @@ import pandas as pd
 from pyproj import Transformer
 from pyresample.geometry import AreaDefinition
 from scipy.stats import binned_statistic_2d
+from pansat import FileRecord
 from pansat.geometry import Geometry
 from pansat.download.providers import IowaStateProvider
 from pansat.products.ground_based import mrms
