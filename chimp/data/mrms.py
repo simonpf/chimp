@@ -141,6 +141,7 @@ class MRMSData(ReferenceDataset):
             A list of locally available files to extract CHIMP training data from.
         """
         found_files = {}
+        time_range = TimeRange(start_time, end_time)
 
         if path is not None:
             all_files = sorted(list(path.glob("**/*.grib2.gz")))
@@ -150,6 +151,7 @@ class MRMSData(ReferenceDataset):
                 recs = [
                     FileRecord(prod, path) for path in all_files
                     if prod.matches(path)
+                    and prod.get_temporal_coverage(path).covers(time_range)
                 ]
             else:
                 recs = prod.find_files(TimeRange(start_time, end_time))
