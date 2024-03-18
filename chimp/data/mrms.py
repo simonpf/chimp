@@ -148,7 +148,7 @@ class MRMSData(ReferenceDataset):
         for prod in self.products:
             if path is not None:
                 recs = [
-                    FileRecord.from_local(prod, path) for path in all_files
+                    FileRecord(prod, path) for path in all_files
                     if prod.matches(path)
                 ]
             else:
