@@ -261,10 +261,11 @@ class InputDataset(InputBase):
                 if not isinstance(vars, list):
                     vars = [vars]
                 all_data = []
+                print(slices)
                 for vrbl in vars:
                     x_s = data[vrbl][dict(zip(self.spatial_dims, slices))].data
                     if x_s.ndim < 3:
-                        x_s = x_s[None]
+                        x_s = x_s[..., None]
                     if x_s.ndim > 3:
                         x_s = x_s.reshape(x_s.shape[:2] + (-1,))
                     x_s = np.transpose(x_s, (2, 0, 1))
@@ -446,9 +447,9 @@ class InputLoader():
         for ind, input_dataset in enumerate(self.input_datasets):
             x = input_dataset.load_sample(
                 files[ind], self.scene_sizes[ind], input_dataset.scale, None,
-                self.rng,
+                None,
             )
-            inputs[input_dataset.name] = x
+            inputs[input_dataset.name] = x[None]
 
         return inputs
 
@@ -518,7 +519,7 @@ class SequenceInputLoader(InputLoader):
                     slices=None,
                     rng=self.rng
                 )
-                inputs.setdefault(input_dataset.name, []).append(x)
+                inputs.setdefault(input_dataset.name, []).append(x[None])
 
         return inputs
 
