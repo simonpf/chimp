@@ -30,8 +30,8 @@ def flatten(lst: Union[List[Any], List[List[Any]]]) -> List[Any]:
     """
     res = []
     for elem in lst:
-        if isinstance(elem, lst):
-            res += flattend(lst)
+        if isinstance(elem, list):
+            res += flatten(lst)
         else:
             res.append(elem)
     return res
