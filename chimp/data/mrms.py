@@ -20,7 +20,6 @@ from pyresample.geometry import AreaDefinition
 from scipy.stats import binned_statistic_2d
 from pansat import FileRecord
 from pansat.geometry import Geometry
-from pansat.download.providers import IowaStateProvider
 from pansat.products.ground_based import mrms
 from pansat.utils import resample_data
 from pansat.time import TimeRange
@@ -66,6 +65,7 @@ def save_file(dataset, output_folder, filename):
 
     if "surface_precip" in dataset:
         surface_precip = np.minimum(dataset.surface_precip.data, 300)
+        surface_precip[surface_precip < 0] = np.nan
         dataset.surface_precip.data = surface_precip
         encoding["surface_precip"] = {
             "scale_factor": 1 / 100,
@@ -214,7 +214,7 @@ class MRMSData(ReferenceDataset):
         data = resample_data(data, domain[4], radius_of_influence=4e3, new_dims=("y", "x"))
         if "precip_type" in data:
             precip_type = np.nan_to_num(data.precip_type.data, nan=-1, copy=True).astype(np.int8)
-            data["precip_type"] = (data.surface_precip.dims, precip_type)
+            data["precip_type"] = (data.precip_type.dims, precip_type)
         time_range = product.get_temporal_coverage(path)
         time_c = time_range.start + 0.5 * (time_range.end - time_range.start)
         filename = get_output_filename("mrms", time_c, time_step)
