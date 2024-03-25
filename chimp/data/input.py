@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
 from scipy import ndimage
 import torch
+from torch import nn
 import xarray as xr
 
 from pytorch_retrieve.tensors import MaskedTensor
@@ -261,9 +262,10 @@ class InputDataset(InputBase):
                 if not isinstance(vars, list):
                     vars = [vars]
                 all_data = []
-                print(slices)
                 for vrbl in vars:
                     x_s = data[vrbl][dict(zip(self.spatial_dims, slices))].data
+                    if np.issubdtype(x_s.dtype, np.timedelta64):
+                        x_s = x_s.astype("timedelta64[m]").astype("float32")
                     if x_s.ndim < 3:
                         x_s = x_s[..., None]
                     if x_s.ndim > 3:
@@ -332,6 +334,47 @@ class InputDataset(InputBase):
             x_s = torch.tensor(np.concatenate(all_data, axis=0))
 
         return x_s
+
+
+def get_input_map(inputs: Dict[str, torch.Tensor]) -> torch.Tensor:
+    """
+    Calculate input map at lowest input scale.
+
+    Args:
+        inputs: A dictionary holding the retrieval inputs.
+
+    Return:
+        A 4D torch tensor holding binary maps for all inputs in 'inputs' stacked
+        along the first dimension.
+    """
+    max_dim = None
+    ref_name = None
+    for name, tensor in inputs.items():
+        if max_dim is None:
+            max_dim = max(tensor.shape[-2:])
+            ref_name = name
+        else:
+            dim = max(tensor.shape[-2:])
+            if dim > max_dim:
+                max_dim = dim
+                ref_name = name
+
+    ref_shape = tuple(inputs[ref_name].shape[-2:])
+    input_maps = []
+    input_names = []
+    for name, tensor in inputs.items():
+        if tensor.ndim < 4:
+            tensor = tensor[None]
+        dim = tensor.shape[-2:]
+        up_fac = (ref_shape[0] / dim[0], ref_shape[1] / dim[1])
+        upsample = nn.Upsample(scale_factor=up_fac)
+        input_map = upsample(
+            tensor.isfinite().any(dim=1)[:, None].to(dtype=torch.float32)
+        )
+        input_maps.append(input_map > 0.0)
+        input_names.append(name)
+    input_map = torch.cat(input_maps, 1)
+    return input_map
 
 
 
@@ -449,7 +492,7 @@ class InputLoader():
                 files[ind], self.scene_sizes[ind], input_dataset.scale, None,
                 None,
             )
-            inputs[input_dataset.name] = x[None]
+            inputs[input_dataset.name] = x
 
         return inputs
 

@@ -18,7 +18,7 @@ from pytorch_retrieve.architectures import load_model
 from pytorch_retrieve.modules.output import Quantiles
 
 from chimp.tiling import Tiler
-from chimp.data.input import InputLoader
+from chimp.data.input import InputLoader, get_input_map
 
 
 LOGGER = logging.getLogger(__name__)
@@ -61,6 +61,9 @@ def retrieval_step(
     Return:
         An ``xarray.Dataset`` containing the retrieval results.
     """
+    input_map = get_input_map(model_input)
+    input_names = list(model_input.keys())
+
     x = model_input
     x = {name: tensor[None].to(dtype=float_type, device=device) for name, tensor in x.items()}
     tiler = Tiler(x, tile_size=tile_size, overlap=32)
@@ -104,6 +107,9 @@ def retrieval_step(
 
     tau = next(iter(quantile_outputs.values()))
     results["tau"] = ("tau", tau)
+
+    results["input_map"] = (("inputs", "y", "x"), input_map.numpy()[0])
+    results["inputs"] = (("inputs", input_names))
 
     return results
 
