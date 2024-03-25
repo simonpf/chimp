@@ -20,7 +20,7 @@ import xarray as xr
 from chimp.areas import Area
 from chimp.data.input import InputDataset
 from chimp.data.resample import resample_and_split
-from chimp.data.utils import get_output_filename
+from chimp.data.utils import get_output_filename, records_to_paths
 
 
 LOGGER = logging.getLogger(__name__)
@@ -82,8 +82,7 @@ class CPCIRData(InputDataset):
             matching = [path for path in all_files if merged_ir.matches(path)]
             return matching
 
-        recs = merged_ir.get(TimeRange(start_time, end_time))
-        return [rec.local_path for rec in recs]
+        return merged_ir.find_files(TimeRange(start_time, end_time))
 
     def process_file(
             self,
@@ -102,6 +101,8 @@ class CPCIRData(InputDataset):
                the extracted training data.
            time_step: A timedelta object defining the retrieval time step.
         """
+        path = records_to_paths(path)
+
         output_folder = Path(output_folder) / self.name
         output_folder.mkdir(exist_ok=True)
 
