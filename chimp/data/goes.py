@@ -16,7 +16,6 @@ import pandas as pd
 from pansat import FileRecord, TimeRange
 from pansat.geometry import Geometry
 from pansat.time import to_datetime64
-from pansat.download.providers import GOESAWSProvider
 from pansat.products.satellite.goes import (
     GOES16L1BRadiances,
     GOES17L1BRadiances,

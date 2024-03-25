@@ -15,7 +15,6 @@ import xarray as xr
 import pansat
 from pansat import TimeRange
 from pansat.geometry import Geometry
-from pansat.download.providers import ecmwf
 from pansat.products.model.ecmwf import (
     s2s_ecmwf_total_precip,
     s2s_ecmwf_total_precip_10,

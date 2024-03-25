@@ -14,7 +14,6 @@ from typing import Optional, List
 import numpy as np
 import pandas as pd
 from scipy.stats import binned_statistic_2d
-from pansat.download.providers import IowaStateProvider
 from pansat.products.satellite import persiann, gpm
 
 from pansat.time import TimeRange
