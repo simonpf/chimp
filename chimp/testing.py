@@ -12,6 +12,7 @@ import click
 from pytorch_retrieve.architectures import load_model
 from pytorch_retrieve import metrics as mtrcs
 from pytorch_retrieve.metrics import ScalarMetric
+from rich.progress import Progress
 import torch
 from torch import nn
 from torch.utils.data import Dataset, DataLoader
@@ -96,6 +97,7 @@ def process_tile(
         y_pred = model(inputs)
 
         input_map = input_map.__getitem__((...,) + slcs)
+
         for key, y_pred_k in y_pred.items():
             metrics_k = metrics[key]
             metrics_k_c = metrics_conditional[key]
@@ -115,7 +117,7 @@ def process_tile(
             metrics_k_c = metrics_conditional.get(key, {})
             for ind, metrics_cond in enumerate(metrics_k_c.values()):
                 target_k_c = target_k.detach().clone()
-                target_k_c.mask[..., input_map[0, ind]] = True
+                target_k_c.mask[~input_map[:, ind]] = True
 
                 if target_k_c.mask.all():
                     continue
@@ -131,6 +133,7 @@ def run_tests(
         metrics: Dict[str, List[ScalarMetric]],
         conditional: bool = True,
         tile_size: Optional[int] = None,
+        batch_size: int = 32,
         device: str = "cuda",
         dtype: str = "float32"
 ) -> xr.Dataset:
@@ -160,29 +163,27 @@ def run_tests(
     else:
         metrics_conditional = {}
 
-    data_loader = DataLoader(test_dataset, batch_size=128, shuffle=False)
+    data_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
-    for ind, (inpt, targets) in enumerate(data_loader):
+    with Progress() as progress:
+        task = progress.add_task("Evaluating retrieval model: ", total=len(data_loader))
+        for ind, (inpt, targets) in enumerate(data_loader):
 
-        print(f"Processing {ind:03}/{len(data_loader)}")
-        if ind > 5:
-            break
+            if tile_size is None:
+                tile_size = get_max_dims(inpt)
+            tiler = Tiler((inpt, targets), tile_size=tile_size, overlap=0)
 
-        if tile_size is None:
-            tile_size = get_max_dims(inpt)
-        tiler = Tiler((inpt, targets), tile_size=tile_size, overlap=0)
+            for row_ind in range(tiler.M):
+                for col_ind in range(tiler.N):
 
-        for row_ind in range(tiler.M):
-            for col_ind in range(tiler.N):
-                print(row_ind, col_ind)
-
-                x, y = tiler.get_tile(row_ind, col_ind)
-                input_map = get_input_map(x)
-                slcs = tiler.get_slices(row_ind, col_ind)
-                process_tile(
-                    model, x, y, input_map, slcs, metrics, metrics_conditional,
-                    device=device, dtype=dtype
-                )
+                    x, y = tiler.get_tile(row_ind, col_ind)
+                    input_map = get_input_map(x)
+                    slcs = tiler.get_slices(row_ind, col_ind)
+                    process_tile(
+                        model, x, y, input_map, slcs, metrics, metrics_conditional,
+                        device=device, dtype=dtype
+                    )
+            progress.update(task, advance=1)
 
     results = {}
     for name, metrics in metrics.items():
@@ -207,6 +208,7 @@ def run_tests(
 @click.option("--device", type=str, default="cuda")
 @click.option("--dtype", type=str, default="bfloat16")
 @click.option("--tile_size", type=int, default=128)
+@click.option("--batch_size", type=int, default=32)
 @click.option("-v", "--verbose", count=True)
 def cli(
         model: Path,
@@ -217,7 +219,8 @@ def cli(
         device: str = "cuda",
         dtype: str = "bfloat16",
         tile_size: int = 128,
-        verbose: int = 0
+        verbose: int = 0,
+        batch_size: int = 32
 ) -> int:
     """
     Process input files.
@@ -225,7 +228,18 @@ def cli(
     model = load_model(model).eval()
 
     input_datasets = [name.strip() for name in  input_datasets.split(",")]
+    if len(input_datasets) < 1:
+        LOGGER.error(
+            "Must specify at least one input dataset using the '--input_datasets' option."
+        )
+        return 1
+
     reference_datasets = [name.strip() for name in  reference_datasets.split(",")]
+    if len(reference_datasets) < 1:
+        LOGGER.error(
+            "Must specify at least one reference dataset using the '--reference_datasets' option."
+        )
+        return 1
 
     test_data = SingleStepDataset(
         test_data_path,
@@ -253,7 +267,8 @@ def cli(
         conditional=True,
         tile_size=tile_size,
         device=device,
-        dtype=dtype
+        dtype=dtype,
+        batch_size=batch_size
     )
 
     results.to_netcdf(output_filename)
