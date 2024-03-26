@@ -9,3 +9,5 @@ chapters:
   sections:
   - file: training_data
   - file: training
+  - file: evaluation
+  - file: inference
