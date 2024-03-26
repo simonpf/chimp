@@ -170,7 +170,8 @@ class SSMITBS(InputDataset):
             data = load_observations(path)
         except KeyError:
             LOGGER.warning(
-                "File %s does not contain the expected variables."
+                "File %s does not contain the expected variables.",
+                path
             )
             return None
 
@@ -186,22 +187,25 @@ class SSMITBS(InputDataset):
 
         if regular:
             data = data.interp(latitude=lats, longitude=lons)
-            data["time_asc"] = (
+            data["time"] = (
                 ("latitude", "longitude"),
                 (
                     to_datetime64(start_time) +
                     data["second_of_day_asc"].data.astype("int64").astype("timedelta64[s]")
                 )
             )
-            data_asc = split_time(data, "time_asc", start_time, end_time, np.timedelta64(6, "h"))
-            data["time_des"] = (
+            data_asc = split_time(data, "time", start_time, end_time, np.timedelta64(6, "h"))
+            data["time"] = (
                 ("latitude", "longitude"),
                 (
                     to_datetime64(start_time) +
                     data["second_of_day_des"].data.astype("int64").astype("timedelta64[s]")
                 )
             )
-            data_des = split_time(data, "time_des", start_time, end_time, np.timedelta64(6, "h"))
+            data_des = split_time(data, "time", start_time, end_time, np.timedelta64(6, "h"))
+            data_asc = data_asc.transpose("latitude", "longitude", "time", "channels")
+            data_des = data_des.transpose("latitude", "longitude", "time", "channels")
+
         else:
             data["time"] = (
                 ("latitude", "longitude"),
@@ -212,7 +216,6 @@ class SSMITBS(InputDataset):
             )
             data_asc = resample_and_split(data, domain, time_step, radius_of_influence=10e3)
             data_asc = data.drop_vars(["latitude", "longitude"])
-            data_asc = data.transpose("y", "x", "time", "channels")
 
             data["time"] = (
                 ("latitude", "longitude"),
@@ -223,10 +226,12 @@ class SSMITBS(InputDataset):
             )
             data_des = resample_and_split(data, domain, time_step, radius_of_influence=10e3)
             data_des = data.drop_vars(["latitude", "longitude"])
-            data_des = data.transpose("y", "x", "time", "channels")
+
+            data_asc = data_asc.transpose("y", "x", "time", "channels")
+            data_des = data_des.transpose("y", "x", "time", "channels")
 
         filename = get_output_filename(
-            "patmosx", start_time, time_step
+            "ssmi", start_time, time_step
         )
 
         output_file = output_folder / filename
