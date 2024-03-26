@@ -19,6 +19,7 @@ from pansat.granule import merge_granules
 from pansat.time import TimeRange
 from pansat.products.satellite.gpm import (
     l1c_r_gpm_gmi,
+    l1c_r_gpm_gmi_b,
     l1c_metopb_mhs,
     l1c_metopc_mhs,
     l1c_noaa18_mhs,
@@ -30,6 +31,7 @@ from pansat.products.satellite.gpm import (
     l1c_f18_ssmis,
     l1c_gcomw1_amsr2,
     l2b_gpm_cmb,
+    l2b_gpm_cmb_b,
     l2a_gpm_dpr
 )
 from pyresample import AreaDefinition
@@ -64,7 +66,8 @@ class GPML1CData(InputDataset):
         n_channels: int,
         radius_of_influence: float,
         input_name: Optional[str] = None,
-        include_incidence_angle: bool = False
+        include_incidence_angle: bool = False,
+        valid_time: np.timedelta64 = np.timedelta64(0, "ns")
     ):
         """
         Args:
@@ -86,12 +89,19 @@ class GPML1CData(InputDataset):
         target_names = ["tbs"]
         if include_incidence_angle:
             target_names = target_names + ["incidence_angle"]
-        InputDataset.__init__(self, dataset_name, input_name, scale, "tbs", n_dim=2)
+        if valid_time > np.timedelta64(0, "ns"):
+            target_names = target_names + ["age"]
+        InputDataset.__init__(self, dataset_name, input_name, scale, target_names, n_dim=2)
         self.products = products
         self.n_swaths = n_swaths
-        self.n_channels = n_channels + include_incidence_angle
+        self.n_channels = (
+            n_channels +
+            include_incidence_angle +
+            (valid_time > np.timedelta64(0, "ns"))
+        )
         self.radius_of_influence = radius_of_influence
         self.include_incidence_angle = include_incidence_angle
+        self.valid_time = valid_time
 
 
     def find_files(
@@ -232,6 +242,10 @@ class GPML1CData(InputDataset):
                 )
                 continue
 
+            data_t["age"] = (("y", "x"), np.zeros(tbs.shape[:-1], dtype="timedelta64[ns]"))
+            data_t["age"].data[:] = np.timedelta64("NAT")
+            data_t.attrs["source_files"] = str(path.name)
+
             comp = {
                 "dtype": "uint16",
                 "scale_factor": 0.01,
@@ -250,18 +264,34 @@ class GPML1CData(InputDataset):
                     "zlib": True,
                     "_FillValue": 2**15 - 1,
                 }
-            filename = get_output_filename(
-                self.name, data.time[time_ind].data, time_step
-            )
 
-            LOGGER.info(
-                "Writing training samples to %s.",
-                output_folder / filename
-            )
-            data_t.to_netcdf(output_folder / filename, encoding=encoding)
+            age = np.timedelta64(0, "ns")
+            while age <= self.valid_time:
+                valid_mask = np.isfinite(tbs).any(-1)
+                data_t["age"].data[valid_mask] = age
+                filename = get_output_filename(
+                    self.name, data.time[time_ind].data + age, time_step
+                )
+                output_file = output_folder / filename
+                LOGGER.info(
+                    "Writing training samples to %s.",
+                    output_folder / filename
+                )
+                if output_file.exists():
+                    output_data = xr.load_dataset(output_file)
+                    mask = (output_data.age.data > data_t.age.data) * valid_mask
+                    output_data.tbs.data[mask] = tbs[mask]
+                    output_data.age.data[mask] = age
+                    if self.include_incidence_angle:
+                        output_data.incidence_angle.data[mask] = data_t.incidence_angle.data[mask]
+                    output_data.to_netcdf(output_file, encoding=encoding)
+                    output_data.attrs["source_files"] += f"\n{path.name}"
+                else:
+                    data_t.to_netcdf(output_folder / filename, encoding=encoding)
+                age += time_step
 
 
-GMI = GPML1CData("gmi", 4, [l1c_r_gpm_gmi], 2, 13, 15e3)
+GMI = GPML1CData("gmi", 4, [l1c_r_gpm_gmi, l1c_r_gpm_gmi_b], 2, 13, 15e3)
 ATMS = GPML1CData("atms", 16, [l1c_noaa20_atms, l1c_npp_atms], 4, 9, 64e3)
 ATMS_W_ANGLE = GPML1CData(
     "atms_w_angle",
@@ -272,6 +302,17 @@ ATMS_W_ANGLE = GPML1CData(
     64e3,
     input_name = "atms",
     include_incidence_angle=True
+)
+ATMS_W_ANGLE = GPML1CData(
+    "atms_2h",
+    16,
+    [l1c_noaa20_atms, l1c_npp_atms],
+    4,
+    9,
+    64e3,
+    input_name = "atms",
+    include_incidence_angle=True,
+    valid_time=np.timedelta64(120, "m")
 )
 
 MHS_PRODUCTS = [
@@ -311,7 +352,7 @@ class GPMCMB(ReferenceDataset):
             [RetrievalTarget("surface_precip")],
             quality_index=None
         )
-        self.products = [l2b_gpm_cmb]
+        self.products = [l2b_gpm_cmb, l2b_gpm_cmb_b]
         self.scale = 4
         self.radius_of_influence = 6e3
 
