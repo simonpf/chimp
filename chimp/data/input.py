@@ -266,6 +266,7 @@ class InputDataset(InputBase):
                     x_s = data[vrbl][dict(zip(self.spatial_dims, slices))].data
                     if np.issubdtype(x_s.dtype, np.timedelta64):
                         x_s = x_s.astype("timedelta64[m]").astype("float32")
+                        x_s[x_s < -1e16] = np.nan
                     if x_s.ndim < 3:
                         x_s = x_s[..., None]
                     if x_s.ndim > 3:
