@@ -314,5 +314,5 @@ def split_time(
 
     for dim in dataset.dims:
         new_vars[dim] = ((dim,), dataset[dim].data)
-    new_vars["time"] = time_bnds[:-1]
+    new_vars["time"] = time_bnds[:-1].astype("datetime64[ns]")
     return xr.Dataset(new_vars)
