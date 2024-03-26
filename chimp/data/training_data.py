@@ -166,7 +166,7 @@ class SingleStepDataset(Dataset):
             ref_file = np.where(reference_files[:, ref_dataset])[0][0]
             ref_file = reference_files[ref_file, ref_dataset]
             with xr.open_dataset(ref_file) as ref_data:
-                scene_size = tuple([dim for dim in ref_data.dims.values()])
+                scene_size = tuple([dim for dim in ref_data.sizes.values()])
             self.full = True
 
         self.scene_size = scene_size
@@ -346,32 +346,41 @@ class SingleStepDataset(Dataset):
             ang = None
             flip = False
 
-        if not self.full:
-            slices = self.reference_datasets[0].find_random_scene(
-                self.reference_files[sample_index][0],
-                self.rng,
-                multiple=4,
-                scene_size=scene_size,
-                quality_threshold=self.quality_threshold[0]
-            )
-            if slices is None:
-                LOGGER.warning(
-                    " Couldn't find a scene in reference file '%s' satisfying "
-                    "the quality requirements. Falling back to another "
-                    "radomly-chosen reference data file.",
-                    self.reference_files[sample_index][0]
+        try:
+            if not self.full:
+                slices = self.reference_datasets[0].find_random_scene(
+                    self.reference_files[sample_index][0],
+                    self.rng,
+                    multiple=4,
+                    scene_size=scene_size,
+                    quality_threshold=self.quality_threshold[0]
                 )
-                new_ind = self.rng.integers(0, len(self))
-                return self[new_ind]
-        else:
-            slices = (0, scene_size[0], 0, scene_size[1])
+                if slices is None:
+                    LOGGER.warning(
+                        " Couldn't find a scene in reference file '%s' satisfying "
+                        "the quality requirements. Falling back to another "
+                        "radomly-chosen reference data file.",
+                        self.reference_files[sample_index][0]
+                    )
+                    new_ind = self.rng.integers(0, len(self))
+                    return self[new_ind]
+            else:
+                slices = (0, scene_size[0], 0, scene_size[1])
 
-        x = self.load_input_sample(
-            self.input_files[sample_index], slices, self.scene_size, rotate=ang, flip=flip
-        )
-        y = self.load_reference_sample(
-            self.reference_files[sample_index], slices, self.scene_size, rotate=ang, flip=flip
-        )
+            x = self.load_input_sample(
+                self.input_files[sample_index], slices, self.scene_size, rotate=ang, flip=flip
+            )
+            y = self.load_reference_sample(
+                self.reference_files[sample_index], slices, self.scene_size, rotate=ang, flip=flip
+            )
+        except Exception:
+            LOGGER.exception(
+                f"Loading of training sample for '%s'"
+                "failed. Falling back to another radomly-chosen step.",
+                self.times[sample_index]
+            )
+            new_ind = self.rng.integers(0, len(self))
+            return self[new_ind]
 
         return x, y
 
