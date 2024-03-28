@@ -493,7 +493,7 @@ class InputLoader():
                 files[ind], self.scene_sizes[ind], input_dataset.scale, None,
                 None,
             )
-            inputs[input_dataset.name] = x
+            inputs[input_dataset.input_name] = x
 
         return inputs
 
@@ -563,7 +563,7 @@ class SequenceInputLoader(InputLoader):
                     slices=None,
                     rng=self.rng
                 )
-                inputs.setdefault(input_dataset.name, []).append(x[None])
+                inputs.setdefault(input_dataset.input_name, []).append(x[None])
 
         return inputs
 
