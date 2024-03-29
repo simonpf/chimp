@@ -13,12 +13,14 @@ import os
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Union
 
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 from matplotlib.cm import ScalarMappable
 from matplotlib.gridspec import GridSpec
 from matplotlib.animation import FuncAnimation
 import numpy as np
+from rich.progress import Progress
 from scipy import fft
 from scipy import ndimage
 import torch
@@ -166,7 +168,7 @@ class SingleStepDataset(Dataset):
             ref_file = np.where(reference_files[:, ref_dataset])[0][0]
             ref_file = reference_files[ref_file, ref_dataset]
             with xr.open_dataset(ref_file) as ref_data:
-                scene_size = tuple([dim for dim in ref_data.sizes.values()])
+                scene_size = tuple(ref_data.sizes.values())[:2]
             self.full = True
 
         self.scene_size = scene_size
@@ -452,6 +454,98 @@ class SingleStepDataset(Dataset):
             temporal_resolution="M"
     ):
         self._plot_sample_frequency(self.reference_datasets, self.reference_files, ax=ax, temporal_resolution=temporal_resolution)
+
+    def plot_input_data_availability(
+            self,
+            input_name: str,
+            start_time: Optional[np.datetime64] = None,
+            end_time: Optional[np.datetime64] = None
+    ) -> Tuple[mpl.Figure, mpl.Axes]:
+        """
+        Plot available input pixels by channel for a given input.
+
+        Args:
+            input_name: The name of the input dataset.
+
+        Return:
+            A tuple containing the matplotlib.Figure and matplotlib.Axes objects
+            containing the curves representing the number of valid inputs per
+            time step.
+        """
+        input_names = [inpt.name for inpt in self.input_datasets]
+        ind = input_names.index(input_name)
+        inpt = self.input_datasets[ind]
+        files = [
+            path for path in self.input_files[:, ind] if path is not None
+        ]
+
+        start_time = self.times.min()
+        end_time = self.times.max()
+        time_step = np.min(np.diff(self.times))
+        time_steps = np.arange(start_time, end_time, 1.01 * time_step)
+
+        n_chans = inpt.n_channels
+        counts = np.zeros((n_chans, len(time_steps)))
+
+        scene_size = None
+
+        with Progress() as progress:
+
+            task = progress.add_task(
+                "Calculating valid samples:", total=len(files)
+            )
+
+            for ind, path in enumerate(files):
+
+                try:
+                    if scene_size is None:
+                        with xr.open_dataset(path) as scene:
+                            scene_size = tuple(scene.sizes.values())[:2]
+
+                    data = inpt.load_sample(
+                        path,
+                        scene_size,
+                        inpt.scale,
+                        (slice(0, scene_size[0]), slice(0, scene_size[1])),
+                        None
+                    )
+                    for ch_ind in range(n_chans):
+                        counts[ch_ind, ind] = np.isfinite(data[ch_ind]).sum()
+                except Exception:
+                    LOGGER.error(
+                        "Encountered an error opening file %s.",
+                        path
+                    )
+
+                progress.update(task, advance=1)
+
+        fig = plt.Figure(figsize=(20, 4))
+        gs = GridSpec(1, 2, width_ratios=[1.0, 0.05])
+
+        ax = fig.add_subplot(gs[0, 0])
+
+        counts = np.cumsum(counts, 0)
+        norm = Normalize(0, n_chans)
+        cmap = ScalarMappable(norm=norm, cmap="plasma")
+
+        for ch_ind in range(n_chans - 1):
+            color = cmap.to_rgba(ch_ind)
+            ax.fill_between(
+                time_steps,
+                counts[ch_ind],
+                counts[ch_ind + 1],
+                facecolor=color
+            )
+
+        ax.set_ylabel("# valid pixels")
+        for label in ax.get_xticklabels():
+            label.set_rotation(90)
+
+        ax = fig.add_subplot(gs[0, 1])
+        plt.colorbar(cmap, cax=ax, label="Channel #")
+
+        return fig, ax
+
 
 
 class CHIMPPretrainDataset(SingleStepDataset):
