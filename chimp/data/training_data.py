@@ -455,6 +455,101 @@ class SingleStepDataset(Dataset):
     ):
         self._plot_sample_frequency(self.reference_datasets, self.reference_files, ax=ax, temporal_resolution=temporal_resolution)
 
+
+    def plot_reference_data_availability(
+            self,
+            reference_dataset: str,
+            start_time: Optional[np.datetime64] = None,
+            end_time: Optional[np.datetime64] = None
+    ) -> Tuple[mpl.figure.Figure, mpl.axes.Axes]:
+        """
+        Plot available reference data pixels by channel for a given input.
+
+        Args:
+            reference_dataset: The name of the reference dataset for which to
+                 plot the sample availability.
+
+        Return:
+            A tuple containing the matplotlib.Figure and matplotlib.Axes objects
+            containing the curves representing the number of valid reference data
+            samples per time step.
+        """
+        ref_names = [ref.name for ref in self.reference_datasets]
+        ind = ref_names.index(reference_dataset)
+        ref = self.reference_datasets[ind]
+        time_step = np.min(np.diff(self.times))
+
+        start_time = self.times.min()
+        end_time = self.times.max()
+        time_steps = np.arange(start_time, end_time, 1.01 * time_step)
+
+        times = np.array([
+            time for path, time in zip(self.reference_files[:, ind], self.times)
+            if path is not None
+        ])
+        files = [
+            path for path in self.reference_files[:, ind] if path is not None
+        ]
+
+
+        counts = {}
+        scene_size = None
+
+        with Progress() as progress:
+
+            task = progress.add_task(
+                "Calculating valid samples:", total=len(files)
+            )
+
+            for ind, (time, path) in enumerate(zip(times, files)):
+
+                t_ind = np.digitize(time.astype("int64"), time_steps.astype("int64"))
+
+                try:
+                    if scene_size is None:
+                        with xr.open_dataset(path) as scene:
+                            scene_size = tuple(scene.sizes.values())[:2]
+
+                    data = ref.load_sample(
+                        path,
+                        scene_size,
+                        ref.scale,
+                        (slice(0, scene_size[0]), slice(0, scene_size[1])),
+                        None
+                    )
+                    for key, data_t in data.items():
+                        cts = counts.setdefault(key, np.zeros(len(time_steps)))
+                        cts[t_ind] = torch.isfinite(data_t).sum()
+
+                except Exception:
+                    LOGGER.exception(
+                        "Encountered an error opening file %s.",
+                        path
+                    )
+
+                progress.update(task, advance=1)
+
+        fig = plt.Figure(figsize=(20, 4))
+        gs = GridSpec(1, 1)
+
+        ax = fig.add_subplot(gs[0, 0])
+
+        norm = Normalize(0, len(cts))
+        cmap = ScalarMappable(norm=norm, cmap="plasma")
+
+        for ind, (key, cts) in enumerate(counts.items()):
+            clr = cmap.to_rgba(ind)
+            ax.plot(time_steps, cts, label=key, c=clr)
+
+        ax.set_ylabel("# valid pixels")
+        for label in ax.get_xticklabels():
+            label.set_rotation(90)
+
+        ax.set_xlim(start_time, end_time)
+
+        return fig, ax
+
+
     def plot_input_data_availability(
             self,
             input_name: str,
@@ -528,7 +623,7 @@ class SingleStepDataset(Dataset):
                 progress.update(task, advance=1)
 
         fig = plt.Figure(figsize=(20, 4))
-        gs = GridSpec(1, 2, width_ratios=[1.0, 0.05])
+        gs = GridSpec(1, 2, width_ratios=[1.0, 0.03])
 
         ax = fig.add_subplot(gs[0, 0])
 
@@ -551,6 +646,9 @@ class SingleStepDataset(Dataset):
 
         ax = fig.add_subplot(gs[0, 1])
         plt.colorbar(cmap, cax=ax, label="Channel #")
+        ax.set_xlim(start_time, end_time)
+
+        plt.legend()
 
         return fig, ax
 
