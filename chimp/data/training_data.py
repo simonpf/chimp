@@ -460,7 +460,7 @@ class SingleStepDataset(Dataset):
             input_name: str,
             start_time: Optional[np.datetime64] = None,
             end_time: Optional[np.datetime64] = None
-    ) -> Tuple[mpl.Figure, mpl.Axes]:
+    ) -> Tuple[mpl.figure.Figure, mpl.axes.Axes]:
         """
         Plot available input pixels by channel for a given input.
 
@@ -475,14 +475,20 @@ class SingleStepDataset(Dataset):
         input_names = [inpt.name for inpt in self.input_datasets]
         ind = input_names.index(input_name)
         inpt = self.input_datasets[ind]
+        time_step = np.min(np.diff(self.times))
+
+        start_time = self.times.min()
+        end_time = self.times.max()
+        time_steps = np.arange(start_time, end_time, 1.01 * time_step)
+
+        times = np.array([
+            time for path, time in zip(self.input_files[:, ind], self.times)
+            if path is not None
+        ])
         files = [
             path for path in self.input_files[:, ind] if path is not None
         ]
 
-        start_time = self.times.min()
-        end_time = self.times.max()
-        time_step = np.min(np.diff(self.times))
-        time_steps = np.arange(start_time, end_time, 1.01 * time_step)
 
         n_chans = inpt.n_channels
         counts = np.zeros((n_chans, len(time_steps)))
@@ -495,7 +501,9 @@ class SingleStepDataset(Dataset):
                 "Calculating valid samples:", total=len(files)
             )
 
-            for ind, path in enumerate(files):
+            for ind, (time, path) in enumerate(zip(times, files)):
+
+                t_ind = np.digitize(time.astype("int64"), time_steps.astype("int64"))
 
                 try:
                     if scene_size is None:
@@ -510,7 +518,7 @@ class SingleStepDataset(Dataset):
                         None
                     )
                     for ch_ind in range(n_chans):
-                        counts[ch_ind, ind] = np.isfinite(data[ch_ind]).sum()
+                        counts[ch_ind, t_ind] = np.isfinite(data[ch_ind]).sum()
                 except Exception:
                     LOGGER.error(
                         "Encountered an error opening file %s.",
