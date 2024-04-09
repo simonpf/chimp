@@ -417,7 +417,7 @@ class GPMCMB(ReferenceDataset):
         data = input_data.rename({
             "scan_time": "time",
             "estim_surf_precip_tot_rate": "surface_precip"
-        })
+        })[["time", "surface_precip"]]
 
         # Need to expand scan time to full dimensions.
         time, _ = xr.broadcast(data.time, data.longitude)
@@ -431,6 +431,9 @@ class GPMCMB(ReferenceDataset):
             include_swath_center_coords=True
         )
 
+        if data is None:
+            return None
+
         for time_ind  in range(data.time.size):
 
             data_t = data[{"time": time_ind}]
@@ -439,7 +442,7 @@ class GPMCMB(ReferenceDataset):
             if np.isfinite(precip).sum() < 100:
                 LOGGER.info(
                     "Less than 100 valid pixels in training sample @ %s.",
-                    time
+                    data_t.time.data
                 )
                 continue
 
@@ -778,6 +781,8 @@ class GPMDPR(InputDataset):
             radius_of_influence=self.radius_of_influence,
             include_swath_center_coords=True
         )
+        if data is None:
+            return None
 
         for time_ind  in range(data.time.size):
 
@@ -787,7 +792,7 @@ class GPMDPR(InputDataset):
             if np.isfinite(refl).any(-2).sum() < 100:
                 LOGGER.info(
                     "Less than 100 valid pixels in training sample @ %s.",
-                    time
+                    data_t.time.data
                 )
                 continue
 
