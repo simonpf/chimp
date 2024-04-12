@@ -76,6 +76,8 @@ def save_file(dataset, output_folder, filename):
         output_data["surface_precip"] = (("y", "x"), surface_precip)
 
     if "rqi" in dataset:
+        rqi = dataset.rqi.data
+        rqi[rqi < 0.0] = np.nan
         encoding["rqi"] = {
             "scale_factor": 1 / 127,
             "dtype": "int8",
@@ -86,7 +88,7 @@ def save_file(dataset, output_folder, filename):
 
     if "precip_type" in dataset:
         encoding["precip_type"] = {
-            "dtype": "uint8",
+            "dtype": "int8",
             "zlib": True
         }
         output_data["precip_type"] = (("y", "x"), dataset.precip_type.data.astype("int8"))
