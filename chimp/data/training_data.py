@@ -8,7 +8,7 @@ input data and sequence data.
 from dataclasses import dataclass
 from datetime import datetime
 import logging
-from math import floor
+from math import floor, ceil
 import os
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Union
@@ -38,7 +38,12 @@ from pytorch_retrieve.tensors.masked_tensor import MaskedTensor
 from chimp import data
 from chimp.definitions import MASK
 from chimp.utils import get_date
-from chimp.data import get_input_dataset, get_reference_dataset
+from chimp.data import (
+    get_input_dataset,
+    get_reference_dataset,
+    InputDataset,
+    ReferenceDataset
+)
 from chimp.data import input, reference
 
 
@@ -47,14 +52,13 @@ LOGGER = logging.getLogger(__name__)
 
 class SingleStepDataset(Dataset):
     """
-    Pytorch Dataset class
+    PyTorch Dataset to load CHIMP training data for single-time-step retrievals.
     """
-
     def __init__(
         self,
         path: Path,
-        input_datasets: List[str],
-        reference_datasets: List[str],
+        input_datasets: List[Union[str, InputDataset]],
+        reference_datasets: List[Union[str, ReferenceDataset]],
         sample_rate: float = 1.0,
         scene_size: int = 128,
         start_time: Optional[np.datetime64] = None,
@@ -85,13 +89,13 @@ class SingleStepDataset(Dataset):
         """
         self.path = Path(path)
 
-        self.input_datasets = [
+        self.input_datasets = np.array([
             get_input_dataset(input_dataset) for input_dataset in input_datasets
-        ]
-        self.reference_datasets = [
+        ])
+        self.reference_datasets = np.array([
             get_reference_dataset(reference_dataset)
             for reference_dataset in reference_datasets
-        ]
+        ])
 
         self.sample_rate = sample_rate
         self.augment = augment
@@ -179,7 +183,7 @@ class SingleStepDataset(Dataset):
 
         if isinstance(quality_threshold, float):
             quality_threshold = [quality_threshold] * n_reference_datasets
-        self.quality_threshold = quality_threshold
+        self.quality_threshold = np.array(quality_threshold)
 
 
     def init_rng(self, w_id=0):
@@ -654,36 +658,40 @@ class SingleStepDataset(Dataset):
 
 
 
-class CHIMPPretrainDataset(SingleStepDataset):
+class SingleStepPretrainDataset(SingleStepDataset):
     """
-    Dataset class for the CHIMP training data.
-
-    Implements the PyTorch Dataset interface.
+    PyTorch dataset class for single-time-step retrievals with training
+    samples resampled to ensure uniform sampling of input observations.
     """
-
     def __init__(
         self,
         path: Path,
-        input_datasets: List[str],
-        reference_datasets: List[str],
-        sample_rate=1,
-        scene_size=128,
-        start_time=None,
-        end_time=None,
-        augment=True,
-        time_step=None,
-        quality_threshold=0.8,
+        input_datasets: List[Union[str, InputDataset]],
+        reference_datasets: List[Union[str, ReferenceDataset]],
+        sample_rate: float = 1.0,
+        scene_size: int = 128,
+        start_time: Optional[np.datetime64] = None,
+        end_time: Optional[np.datetime64] = None,
+        augment: bool = True,
+        time_step: Optional[np.timedelta64] = None,
+        validation: bool = False,
+        quality_threshold: Union[float, List[float]] = 0.8
     ):
         super().__init__(
-            path,
-            input_datasets,
-            reference_datasets,
+            path=path,
+            input_datasets=input_datasets,
+            reference_datasets=reference_datasets,
+            sample_rate=sample_rate,
             scene_size=scene_size,
             start_time=start_time,
             end_time=end_time,
             augment=augment,
             time_step=time_step,
+            validation=validation,
+            quality_threshold=quality_threshold
         )
+
+
         samples_by_input = [[] for _ in self.input_datasets]
         for scene_index in range(len(self.times)):
             input_files = self.input_files[scene_index]
@@ -691,66 +699,108 @@ class CHIMPPretrainDataset(SingleStepDataset):
                 # Input not available at time step
                 if input_files[input_ind] is None:
                     continue
+                samples_by_input[input_ind].append(scene_index)
 
-                with xr.open_dataset(input_files[input_ind]) as data:
-                    if "swath_centers" not in data.dims:
-                        samples_by_input[input_ind].append(scene_index)
-                    else:
-                        if data.swath_centers.size > 0:
-                            samples_by_input[input_ind].append(scene_index)
-
-        most_obs = max(map(len, samples_by_input))
-        total_samples = len(self.input_datasets) * most_obs
-        sample_indices = []
-        for input_ind in range(len(self.input_datasets)):
-            sample_indices.append(
-                self.rng.choice(samples_by_input[input_ind], most_obs, replace=True)
-            )
-        self.sample_indices = np.concatenate(sample_indices)
-        self.obs_per_input = most_obs
+        tot_samples = super().__len__()
+        self.samples_per_input = ceil(tot_samples / len(self.input_datasets))
+        self.samples_by_input = [
+            np.random.permutation(smpls) for smpls in samples_by_input
+        ]
 
     def __len__(self):
-        return len(self.sample_indices)  * self.sample_rate
-
-    def __getitem__(self, index):
-        """Return ith training sample."""
-        scene_index = self.sequence_starts[index // self.sample_rate]
-        input_index = index // self.obs_per_input
-
-        scl = inpt.scale // self.base_scale
-        slices = self.input_datasets[input_index].find_random_scene(
-            self.samples[scene_index][1 + input_index],
-            self.rng,
-            multiple=16 // inpt.scale,
-            scene_size=self.scene_size // scl,
-            rqi_thresh=self.quality_threshold,
+        return int(
+            self.samples_per_input * len(self.input_datasets) * self.sample_rate
         )
 
-        if slices is None:
-            new_index = self.rng.integers(0, len(self))
-            return self[new_index]
+    def __getitem__(self, ind: int) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
 
-        slices = tuple((index * scl for index in slices))
-
-        xs = []
-        ys = []
-
+        n_samples = self.samples_per_input * len(self.input_datasets)
+        input_index = ind // self.samples_per_input
+        input_dataset = self.input_datasets[input_index]
+        input_samples = self.samples_by_input[input_index]
+        scene_index = ind % self.samples_per_input
         if self.augment:
-            ang = -180 + 360 * self.rng.random()
+            limit = floor(scene_index * len(input_samples) / self.samples_per_input)
+            if limit > scene_index:
+                scene_index = self.rng.integers(scene_index, limit)
+
+        scene_index = input_samples[scene_index % len(input_samples)]
+
+
+        # We load a larger window when input is rotated to avoid
+        # missing values.
+        if self.augment:
+            if not self.full:
+                scene_size = int(1.42 * self.scene_size)
+                rem = scene_size % self.max_scale
+                if rem != 0:
+                    scene_size += self.max_scale - rem
+                ang = -180 + 360 * self.rng.random()
+            else:
+                scene_size = self.scene_size
+                ang = None
             flip = self.rng.random() > 0.5
         else:
+            scene_size = self.scene_size
             ang = None
             flip = False
 
-        x = self.load_input_sample(
-            self.samples[scene_index], slices, self.scene_size, rotate=ang, flip=flip
-        )
-        y = self.load_reference_sample(
-            self.samples[scene_index], slices, self.scene_size, rotate=ang, flip=flip
-        )
+        try:
+            if not self.full:
+                rel_scale = input_dataset.scale / self.base_scale
+                slices = input_dataset.find_random_scene(
+                    self.input_files[scene_index][input_index],
+                    self.rng,
+                    multiple=self.max_scale / input_dataset.scale,
+                    scene_size=scene_size / rel_scale,
+                )
+                if slices is None:
+                    LOGGER.warning(
+                        " Couldn't find a scene in input file '%s' containing "
+                        "valid input observations. Falling back to another "
+                        "radomly-chosen scene.",
+                        self.input_files[scene_index][input_index]
+                    )
+                    start = input_index * self.samples_per_input
+                    end = start + self.samples_per_input
+                    new_ind = self.rng.integers(start, end)
+                    return self[new_ind]
+            else:
+                slices = (0, scene_size[0], 0, scene_size[1])
+
+            slices = data.utils.scale_slices(slices, self.base_scale / input_dataset.scale)
+            slices = (slices[0].start, slices[0].stop, slices[1].start, slices[1].stop)
+
+            x = self.load_input_sample(
+                self.input_files[scene_index], slices, self.scene_size, rotate=ang, flip=flip
+            )
+            y = self.load_reference_sample(
+                self.reference_files[scene_index], slices, self.scene_size, rotate=ang, flip=flip
+            )
+
+            no_ref_data = all([tensor.isnan().all() for tensor in y.values()])
+            if no_ref_data:
+                LOGGER.warning(
+                    "No reference data in file '%s' ",
+                    self.input_files[scene_index][input_index]
+                )
+                start = input_index * self.samples_per_input
+                end = start + self.samples_per_input
+                new_ind = self.rng.integers(start, end)
+                return self[new_ind]
+
+        except Exception:
+            LOGGER.exception(
+                f"Loading of training sample for '%s'"
+                "failed. Falling back to another radomly-chosen step.",
+                self.times[scene_index]
+            )
+            start = input_index * self.samples_per_input
+            end = start + self.samples_per_input
+            new_ind = self.rng.integers(start, end)
+            return self[new_ind]
 
         return x, y
-
 
 
 class SequenceDataset(SingleStepDataset):
@@ -912,6 +962,7 @@ class SequenceDataset(SingleStepDataset):
                 for name, inpt in x_i.items():
                     x.setdefault(name, []).append(inpt)
                 if self.include_input_steps:
+
                     y_i = self.load_reference_sample(
                         self.reference_files[step_index], slices, self.scene_size, rotate=ang, flip=flip
                     )

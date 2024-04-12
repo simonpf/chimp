@@ -15,8 +15,8 @@ import xarray as xr
 from chimp.areas import CONUS
 from chimp.data.training_data import (
     SingleStepDataset,
+    SingleStepPretrainDataset,
     SequenceDataset,
-    CHIMPPretrainDataset,
 )
 
 
@@ -64,6 +64,27 @@ def test_find_files_single_step(cpcir_data, mrms_surface_precip_data):
         end_time=np.datetime64("2020-01-01T12:00:00")
     )
     assert len(training_data) == 6
+
+
+def test_single_step_pretrain_dataset(
+        cpcir_data,
+        gmi_data,
+        mrms_surface_precip_data
+):
+    """
+    Instantiate single-step pretrain dataset and ensure that:
+        - The identified training samples matches the expected number.
+
+    """
+    training_data = SingleStepPretrainDataset(
+        cpcir_data,
+        input_datasets=["cpcir", "gmi"],
+        reference_datasets=["mrms"],
+        sample_rate=1
+    )
+    assert len(training_data) == 24
+
+    x, y = training_data[0]
 
 
 def test_load_full_input(cpcir_data, gmi_data, mrms_surface_precip_data):

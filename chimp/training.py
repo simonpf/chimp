@@ -33,7 +33,9 @@ from pytorch_retrieve.training import run_training
 from torch.utils.data import DataLoader
 
 from chimp import extensions
-from chimp.data.training_data import SingleStepDataset, SequenceDataset
+from chimp.data.training_data import (
+    SingleStepDataset, SingleStepPretrainDataset, SequenceDataset
+)
 
 
 def find_most_recent_checkpoint(path: Path, model_name: str) -> Path:
@@ -105,6 +107,7 @@ class TrainingConfig(pr.training.TrainingConfigBase):
     metrics: Optional[Dict[str, List["Metric"]]] = None
     include_input_steps: bool = False
     require_input: bool = False
+    pretraining: bool = False
 
     log_every_n_steps: Optional[int] = None
     gradient_clip_val: Optional[float] = None
@@ -238,6 +241,9 @@ class TrainingConfig(pr.training.TrainingConfigBase):
         require_input = get_config_attr(
             "require_input", bool, config_dict, f"training stage '{name}'", False
         )
+        pretraining = get_config_attr(
+            "pretraining", bool, config_dict, f"training stage '{name}'", False
+        )
 
         log_every_n_steps = config_dict.get("log_every_n_steps", -1)
         if log_every_n_steps < 0:
@@ -289,6 +295,7 @@ class TrainingConfig(pr.training.TrainingConfigBase):
             metrics=metrics,
             include_input_steps=include_input_steps,
             require_input=require_input,
+            pretraining=pretraining,
             log_every_n_steps=log_every_n_steps,
             gradient_clip_val=gradient_clip_val,
             gradient_clip_algorithm=gradient_clip_algorithm,
@@ -304,14 +311,24 @@ class TrainingConfig(pr.training.TrainingConfigBase):
         Instantiates the appropriate training dataset.
         """
         if self.sequence_length == 1:
-            return SingleStepDataset(
-                self.training_data_path,
-                input_datasets=self.input_datasets,
-                reference_datasets=self.reference_datasets,
-                sample_rate=self.sample_rate,
-                augment=self.augment,
-                scene_size=self.scene_size,
-            )
+            if self.pretraining:
+                return SingleStepPretrainDataset(
+                    self.training_data_path,
+                    input_datasets=self.input_datasets,
+                    reference_datasets=self.reference_datasets,
+                    sample_rate=self.sample_rate,
+                    augment=self.augment,
+                    scene_size=self.scene_size,
+                )
+            else:
+                return SingleStepDataset(
+                    self.training_data_path,
+                    input_datasets=self.input_datasets,
+                    reference_datasets=self.reference_datasets,
+                    sample_rate=self.sample_rate,
+                    augment=self.augment,
+                    scene_size=self.scene_size,
+                )
         else:
             return SequenceDataset(
                 self.training_data_path,
