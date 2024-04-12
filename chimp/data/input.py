@@ -26,73 +26,6 @@ from chimp.data.source import DataSource
 LOGGER = logging.getLogger(__name__)
 
 
-def find_random_scene(
-    path, rng, multiple=4, window_size=256, rqi_thresh=0.8, valid_fraction=0.2
-):
-    """
-    Finds a random crop in the input data that is guaranteeed to have
-    valid observations.
-
-    Args:
-        path: The path of the reference data file.
-        rng: A numpy random generator instance to randomize the scene search.
-        multiple: Limits the scene position to coordinates that a multiples
-            of the given value.
-        rqi_thresh: Threshold for the minimum RQI of a reference pixel to
-            be considered valid.
-        valid_fraction: The minimum amount of valid samples in the
-            region.
-
-    Return:
-        A tuple ``(i_start, i_end, j_start, j_end)`` defining the position
-        of the random crop.
-    """
-    with xr.open_dataset(path) as data:
-        if "latitude" in data.dims:
-            n_rows = data.latitude.size
-            n_cols = data.longitude.size
-        else:
-            n_rows = data.y.size
-            n_cols = data.x.size
-
-        if "swath_centers" in data.dims:
-            row_inds = data.swath_center_row_inds.data
-            col_inds = data.swath_center_col_inds.data
-
-            valid = (
-                (row_inds > window_size // 2)
-                * (row_inds < n_rows - window_size // 2)
-                * (col_inds > window_size // 2)
-                * (col_inds < n_cols - window_size // 2)
-            )
-
-            if valid.sum() == 0:
-                return None
-
-            row_inds = row_inds[valid]
-            col_inds = col_inds[valid]
-
-            ind = rng.choice(np.arange(valid.sum()))
-            row_c = row_inds[ind]
-            col_c = col_inds[ind]
-
-            i_start = (row_c - window_size // 2) // multiple * multiple
-            i_end = i_start + window_size
-            j_start = (col_c - window_size // 2) // multiple * multiple
-            j_end = j_start + window_size
-
-        else:
-            i_start = rng.integers(0, (n_rows - window_size) // multiple)
-            i_end = i_start + window_size // multiple
-            j_start = rng.integers(0, (n_cols - window_size) // multiple)
-            j_end = j_start + window_size // multiple
-
-            i_start = i_start * multiple
-            i_end = i_end * multiple
-            j_start = j_start * multiple
-            j_end = j_end * multiple
-
-    return (i_start, i_end, j_start, j_end)
 
 
 class InputBase(DataSource):
@@ -336,31 +269,136 @@ class InputDataset(InputBase):
 
         return x_s
 
+    def find_random_scene(
+            self,
+            path,
+            rng,
+            multiple=4,
+            scene_size=256,
+            valid_fraction=0.2
+    ):
+        """
+        Finds a random crop in the input data that is guaranteeed to have
+        valid observations.
 
-def get_input_map(inputs: Dict[str, torch.Tensor]) -> torch.Tensor:
+        Args:
+            path: The path of the reference data file.
+            rng: A numpy random generator instance to randomize the scene search.
+            multiple: Limits the scene position to coordinates that are multiples
+                of the given value.
+            valid_fraction: The minimum amount of valid samples in the
+                region.
+
+        Return:
+            A tuple ``(i_start, i_end, j_start, j_end)`` defining the position
+            of the random crop.
+        """
+        with xr.open_dataset(path) as data:
+            if "latitude" in data.dims:
+                n_rows = data.latitude.size
+                n_cols = data.longitude.size
+            else:
+                n_rows = data.y.size
+                n_cols = data.x.size
+
+            if "center_indices" in data.dims:
+                row_inds = data.row_inds_swath_center.data
+                col_inds = data.col_inds_swath_center.data
+
+                valid = (
+                    (row_inds > scene_size // 2)
+                    * (row_inds < n_rows - scene_size // 2)
+                    * (col_inds > scene_size // 2)
+                    * (col_inds < n_cols - scene_size // 2)
+                )
+
+                if valid.sum() == 0:
+                    return None
+
+                row_inds = row_inds[valid]
+                col_inds = col_inds[valid]
+
+                ind = rng.choice(np.arange(valid.sum()))
+                row_c = row_inds[ind]
+                col_c = col_inds[ind]
+
+                i_start = int((row_c - scene_size // 2) // multiple * multiple)
+                i_end = int(i_start + scene_size)
+                j_start = int((col_c - scene_size // 2) // multiple * multiple)
+                j_end = int(j_start + scene_size)
+
+            else:
+
+                input_data = []
+                vars = self.variables
+                if not isinstance(vars, list):
+                    vars = [vars]
+                for vrbl in vars:
+                    x_s = data[vrbl].data
+                    if np.issubdtype(x_s.dtype, np.timedelta64):
+                        x_s = x_s.astype("timedelta64[m]").astype("float32")
+                        x_s[x_s < -1e16] = np.nan
+                    if x_s.ndim < 3:
+                        x_s = x_s[..., None]
+                    if x_s.ndim > 3:
+                        x_s = x_s.reshape(x_s.shape[:2] + (-1,))
+                    x_s = np.transpose(x_s, (2, 0, 1))
+                    input_data.append(x_s)
+
+                input_data = np.concatenate(input_data, axis=0)
+                valid = np.any(np.isfinite(input_data), axis=0)
+
+                found = False
+                cnt = 0
+                while not found:
+
+                    if cnt > 20:
+                        return None
+                    cnt += 1
+                    i_start = rng.integers(0, (n_rows - scene_size) // multiple)
+                    i_end = i_start + scene_size // multiple
+                    j_start = rng.integers(0, (n_cols - scene_size) // multiple)
+                    j_end = j_start + scene_size // multiple
+
+                    i_start = int(i_start * multiple)
+                    i_end = int(i_end * multiple)
+                    j_start = int(j_start * multiple)
+                    j_end = int(j_end * multiple)
+
+                    if valid[i_start:i_end, j_start:j_end].mean() > valid_fraction:
+                        found = True
+
+        return (i_start, i_end, j_start, j_end)
+
+def get_input_map(
+        inputs: Dict[str, torch.Tensor],
+        ref_shape: Optional[Tuple[int, int]] = None
+) -> torch.Tensor:
     """
     Calculate input map at lowest input scale.
 
     Args:
         inputs: A dictionary holding the retrieval inputs.
+        ref_shape: An optional spatial shape to which to upsample the input masks.
 
     Return:
         A 4D torch tensor holding binary maps for all inputs in 'inputs' stacked
         along the first dimension.
     """
-    max_dim = None
-    ref_name = None
-    for name, tensor in inputs.items():
-        if max_dim is None:
-            max_dim = max(tensor.shape[-2:])
-            ref_name = name
-        else:
-            dim = max(tensor.shape[-2:])
-            if dim > max_dim:
-                max_dim = dim
+    if ref_shape is None:
+        max_dim = None
+        ref_name = None
+        for name, tensor in inputs.items():
+            if max_dim is None:
+                max_dim = max(tensor.shape[-2:])
                 ref_name = name
+            else:
+                dim = max(tensor.shape[-2:])
+                if dim > max_dim:
+                    max_dim = dim
+                    ref_name = name
+        ref_shape = tuple(inputs[ref_name].shape[-2:])
 
-    ref_shape = tuple(inputs[ref_name].shape[-2:])
     input_maps = []
     input_names = []
     for name, tensor in inputs.items():
@@ -376,6 +414,97 @@ def get_input_map(inputs: Dict[str, torch.Tensor]) -> torch.Tensor:
         input_names.append(name)
     input_map = torch.cat(input_maps, 1)
     return input_map
+
+
+def get_input_age(
+        inputs: Dict[str, List[torch.Tensor]],
+        bidirectional: bool = True,
+        ref_shape: Optional[Tuple[int, int]] = None
+) -> torch.Tensor:
+    """
+    Calculate the input age for for sequence inputs.
+
+    Args:
+        inputs: A dictionary holding the input sequences for all inputs.
+        bidirectional: If True, the age will correspond to the signed, shortest step-difference
+            to nearest input step. Else only the nearest distance in forward direction will
+            be considered and values will be positive.
+        ref_shape: An optional spatial shape to which to upsample the input masks.
+
+    Return:
+        A list of 4D tensors containing the respective age of all observations for all time
+        steps in the sequence.
+    """
+    if ref_shape is None:
+        max_dim = None
+        ref_name = None
+        for name, seq in inputs.items():
+            if max_dim is None:
+                max_dim = max(seq[0].shape[-2:])
+                ref_name = name
+            else:
+                dim = max(seq[0].shape[-2:])
+                if dim > max_dim:
+                    max_dim = dim
+                    ref_name = name
+        ref_shape = tuple(inputs[ref_name][0].shape[-2:])
+
+    seq = next(iter(inputs.values()))
+    n_batch = seq[0].shape[0]
+    device = seq[0].device
+    dtype = seq[0].dtype
+    seq_len = len(seq)
+    map_shape = (n_batch, len(inputs)) + ref_shape
+
+    input_maps = []
+    input_names = []
+    ages = []
+
+    curr_age = torch.nan * torch.zeros(map_shape, dtype=dtype, device=device)
+    for step in range(seq_len):
+        ages.append(np.nan * torch.zeros(map_shape, dtype=dtype, device=device))
+        for ind, (name, seq) in enumerate(inputs.items()):
+            tensor = seq[step]
+
+            if tensor.ndim < 4:
+                tensor = tensor[None]
+
+            dim = tensor.shape[-2:]
+            up_fac = (ref_shape[0] / dim[0], ref_shape[1] / dim[1])
+            upsample = nn.Upsample(scale_factor=up_fac)
+            input_map = upsample(
+                tensor.isfinite().any(dim=1)[:, None].to(dtype=torch.float32)
+            )
+            input_map = input_map > 0
+            curr_age[:, ind][~input_map[:, 0]] += 1.0
+            curr_age[:, ind][input_map[:, 0]] = 0.0
+
+        update_mask = (curr_age.abs() < ages[-1].abs()) + torch.isnan(ages[-1])
+        ages[-1][update_mask] = curr_age[update_mask]
+
+    if bidirectional:
+        curr_age = torch.nan * torch.zeros(map_shape, dtype=dtype, device=device)
+        for step in range(seq_len - 1, -1, -1):
+            for ind, (name, seq) in enumerate(inputs.items()):
+                tensor = seq[step]
+
+                if tensor.ndim < 4:
+                    tensor = tensor[None]
+
+                dim = tensor.shape[-2:]
+                up_fac = (ref_shape[0] / dim[0], ref_shape[1] / dim[1])
+                upsample = nn.Upsample(scale_factor=up_fac)
+                input_map = upsample(
+                    tensor.isfinite().any(dim=1)[:, None].to(dtype=torch.float32)
+                )
+                input_map = input_map > 0
+                curr_age[:, ind][~input_map[:, 0]] -= 1.0
+                curr_age[:, ind][input_map[:, 0]] = 0.0
+
+            update_mask = (curr_age.abs() < ages[step].abs()) + torch.isnan(ages[step])
+            ages[step][update_mask] = curr_age[update_mask]
+
+    return ages
 
 
 
@@ -444,7 +573,7 @@ class InputLoader():
         self.sample_files = sample_files_filtered
         self.scene_sizes = scene_sizes
 
-        self.times = times
+        self.times = list(sample_files.keys())
         if time_step is None:
             times = np.array(list(sample_files.keys()))
             if len(times) <= 1:
