@@ -929,7 +929,7 @@ class SequenceDataset(SingleStepDataset):
 
         if not self.full:
             # Find valid input range for last sample in sequence
-            last_index = self.sequence_starts[index] + self.total_length
+            last_index = self.sequence_starts[index] + self.total_length - 1
             slices = self.reference_datasets[0].find_random_scene(
                 self.reference_files[last_index][0],
                 self.rng,
@@ -941,7 +941,7 @@ class SequenceDataset(SingleStepDataset):
                 LOGGER.warning(
                     " Couldn't find a scene in reference file '%s' satisfying "
                     "the quality requirements. Falling back to another "
-                    "radomly-chosen reference data file.",
+                    "radomly-chosen sample.",
                     self.reference_files[last_index][0]
                 )
                 new_ind = self.rng.integers(0, len(self))
@@ -956,16 +956,37 @@ class SequenceDataset(SingleStepDataset):
         for step in range(self.sequence_length):
             step_index = start_index + step
             if step < self.sequence_length:
-                x_i = self.load_input_sample(
-                    self.input_files[step_index], slices, self.scene_size, rotate=ang, flip=flip
-                )
+
+                try:
+                    x_i = self.load_input_sample(
+                        self.input_files[step_index], slices, self.scene_size, rotate=ang, flip=flip
+                    )
+                except Exception:
+                    LOGGER.warning(
+                        "Encountered an error when loading input data from files '%s'."
+                        "Falling back to another radomly-chosen sample.",
+                        self.input_files[step_index]
+                    )
+                    new_ind = self.rng.integers(0, len(self))
+                    return self[new_ind]
+
                 for name, inpt in x_i.items():
                     x.setdefault(name, []).append(inpt)
                 if self.include_input_steps:
 
-                    y_i = self.load_reference_sample(
-                        self.reference_files[step_index], slices, self.scene_size, rotate=ang, flip=flip
-                    )
+                    try:
+                        y_i = self.load_reference_sample(
+                            self.reference_files[step_index], slices, self.scene_size, rotate=ang, flip=flip
+                        )
+                    except Exception:
+                        LOGGER.warning(
+                            "Encountered an error when loading reference data from files '%s'."
+                            "Falling back to another radomly-chosen sample.",
+                            self.reference_files[step_index]
+                        )
+                        new_ind = self.rng.integers(0, len(self))
+                        return self[new_ind]
+
                     if self.shrink_output:
                         y_i = {
                             name: center_crop(
@@ -984,9 +1005,20 @@ class SequenceDataset(SingleStepDataset):
 
         for step in forecast_steps[:self.forecast]:
             step_index = start_index + self.sequence_length + step
-            y_i = self.load_reference_sample(
-                self.reference_files[step_index], slices, self.scene_size, rotate=ang, flip=flip
-            )
+
+            try:
+                y_i = self.load_reference_sample(
+                    self.reference_files[step_index], slices, self.scene_size, rotate=ang, flip=flip
+                )
+            except Exception:
+                LOGGER.warning(
+                    "Encountered an error when loading reference data from files '%s'."
+                    "Falling back to another radomly-chosen sample.",
+                    self.reference_files[step_index]
+                )
+                new_ind = self.rng.integers(0, len(self))
+                return self[new_ind]
+
             for name, inpt in y_i.items():
                 y.setdefault(name, []).append(inpt)
 
