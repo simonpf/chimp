@@ -625,8 +625,8 @@ class GPMCMBAnd(GPMCMB):
                 flip=flip,
                 quality_threshold=quality_threshold
             )
-            for name in self.targets:
-                if not name in other_targets:
+            for targ in self.targets:
+                if not targ.name in other_targets:
                     shape = self.targets[name].shape + (crop_size,) * 2
                     other_targets[target] = torch.nan * torch.ones(shape)
             return other_targets
