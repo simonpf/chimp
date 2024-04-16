@@ -373,7 +373,7 @@ class InputDataset(InputBase):
 def get_input_map(
         inputs: Dict[str, torch.Tensor],
         ref_shape: Optional[Tuple[int, int]] = None
-) -> torch.Tensor:
+) -> Union[torch.Tensor, List[torch.Tensor]]:
     """
     Calculate input map at lowest input scale.
 
@@ -382,38 +382,68 @@ def get_input_map(
         ref_shape: An optional spatial shape to which to upsample the input masks.
 
     Return:
-        A 4D torch tensor holding binary maps for all inputs in 'inputs' stacked
-        along the first dimension.
+        If the retrieval inputs correspond to a single time step, a 4D torch tensor is returned
+        holding binary maps for all inputs in 'inputs' stacked along the first dimension.
+        If the retrieval inputs contain a sequence of input tensors, a list of 4D input maps for
+        each input steps is returned.
     """
     if ref_shape is None:
         max_dim = None
         ref_name = None
+        ref_shape = None
         for name, tensor in inputs.items():
+
+            if isinstance(tensor, list):
+                tensor = tensor[0]
+
             if max_dim is None:
                 max_dim = max(tensor.shape[-2:])
                 ref_name = name
+                ref_shape = tuple(tensor.shape[-2:])
             else:
                 dim = max(tensor.shape[-2:])
                 if dim > max_dim:
                     max_dim = dim
                     ref_name = name
-        ref_shape = tuple(inputs[ref_name].shape[-2:])
+                    ref_shape = tuple(tensor.shape[-2:])
 
-    input_maps = []
-    input_names = []
-    for name, tensor in inputs.items():
-        if tensor.ndim < 4:
-            tensor = tensor[None]
-        dim = tensor.shape[-2:]
-        up_fac = (ref_shape[0] / dim[0], ref_shape[1] / dim[1])
-        upsample = nn.Upsample(scale_factor=up_fac)
-        input_map = upsample(
-            tensor.isfinite().any(dim=1)[:, None].to(dtype=torch.float32)
-        )
-        input_maps.append(input_map > 0.0)
-        input_names.append(name)
-    input_map = torch.cat(input_maps, 1)
-    return input_map
+    if isinstance(inputs[ref_name], list):
+        seq_len = len(inputs[ref_name])
+    else:
+        seq_len = None
+
+    if seq_len is None:
+        input_maps = []
+        for name, tensor in inputs.items():
+            if tensor.ndim < 4:
+                tensor = tensor[None]
+            dim = tensor.shape[-2:]
+            up_fac = (ref_shape[0] / dim[0], ref_shape[1] / dim[1])
+            upsample = nn.Upsample(scale_factor=up_fac)
+            input_map = upsample(
+                tensor.isfinite().any(dim=1)[:, None].to(dtype=torch.float32)
+            )
+            input_maps.append(input_map > 0.0)
+        input_map = torch.cat(input_maps, 1)
+        return input_map
+
+    input_maps = [[] for _ in range(seq_len)]
+    for name, tensors in inputs.items():
+        print(name)
+        for step, tensor in enumerate(tensors):
+            if tensor.ndim < 4:
+                tensor = tensor[None]
+            dim = tensor.shape[-2:]
+            up_fac = (ref_shape[0] / dim[0], ref_shape[1] / dim[1])
+            upsample = nn.Upsample(scale_factor=up_fac)
+            input_map = upsample(
+                tensor.isfinite().any(dim=1)[:, None].to(dtype=torch.float32)
+            )
+            input_maps[step].append(input_map > 0.0)
+    input_maps = [torch.cat(input_map, 1) for input_map in input_maps]
+    return input_maps
+
+
 
 
 def get_input_age(

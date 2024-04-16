@@ -88,6 +88,14 @@ def test_get_input_map():
     input_map = get_input_map(inputs)
     assert (input_map[:, 0] == torch.isfinite(x_cpcir).any(1)).all()
 
+    inputs = {
+        "cpcir": [x_cpcir, x_cpcir],
+        "gmi": [x_gmi, x_gmi]
+    }
+    input_map = get_input_map(inputs)
+    assert isinstance(input_map, list)
+    assert (input_map[0][:, 0] == torch.isfinite(x_cpcir).any(1)).all()
+
 
 def test_get_input_age():
     """
