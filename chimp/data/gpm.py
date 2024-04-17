@@ -393,6 +393,75 @@ class GPMCMB(ReferenceDataset):
             recs += prod.get(TimeRange(start_time, end_time))
         return [rec.local_path for rec in recs]
 
+
+    def find_random_scene(
+            self,
+            path,
+            rng,
+            multiple=4,
+            scene_size=256,
+            valid_fraction=0.2,
+            **kwargs
+    ):
+        """
+        Finds a random crop in the GPM CMB data that is guaranteeed to have
+        valid observations.
+
+        Args:
+            path: The path of the reference data file.
+            rng: A numpy random generator instance to randomize the scene search.
+            multiple: Limits the scene position to coordinates that are multiples
+                of the given value.
+            valid_fraction: The minimum amount of valid samples in the
+                region.
+
+        Return:
+            A tuple ``(i_start, i_end, j_start, j_end)`` defining the position
+            of the random crop.
+        """
+        with xr.open_dataset(path) as data:
+            if "latitude" in data.dims:
+                n_rows = data.latitude.size
+                n_cols = data.longitude.size
+            else:
+                n_rows = data.y.size
+                n_cols = data.x.size
+
+            row_inds = data.row_inds_swath_center.data
+            col_inds = data.col_inds_swath_center.data
+
+            valid = (
+                (row_inds > scene_size // 2)
+                * (row_inds < n_rows - scene_size // 2)
+                * (col_inds > scene_size // 2)
+                * (col_inds < n_cols - scene_size // 2)
+            )
+
+            if valid.sum() == 0:
+                return None
+
+            row_inds = row_inds[valid]
+            col_inds = col_inds[valid]
+
+            ind = rng.choice(np.arange(valid.sum()))
+            row_c = row_inds[ind]
+            col_c = col_inds[ind]
+
+            i_start = int((row_c - scene_size // 2) // multiple * multiple)
+            i_end = int(i_start + scene_size)
+            j_start = int((col_c - scene_size // 2) // multiple * multiple)
+            j_end = int(j_start + scene_size)
+
+            if rng is not None:
+                offset = rng.integers(
+                    -min(j_start, scene_size // 4),
+                    min(n_cols - j_end, scene_size // 4)
+                )
+                j_start += offset
+                j_end += offset
+
+        return (i_start, i_end, j_start, j_end)
+
     def process_file(
             self,
             path: Path,
