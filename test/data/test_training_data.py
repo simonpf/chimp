@@ -17,6 +17,8 @@ from chimp.data.training_data import (
     SingleStepDataset,
     SingleStepPretrainDataset,
     SequenceDataset,
+    expand_times_and_files,
+    find_sequence_starts_and_ends
 )
 
 
@@ -36,14 +38,6 @@ def test_find_files_single_step(cpcir_data, mrms_surface_precip_data):
     )
     assert len(training_data) == 24
 
-    training_data = SingleStepDataset(
-        cpcir_data,
-        input_datasets=["cpcir"],
-        reference_datasets=["mrms"],
-        sample_rate=1,
-        time_step=np.timedelta64(60, "m")
-    )
-    assert len(training_data) == 12
 
     training_data = SingleStepDataset(
         cpcir_data,
@@ -121,6 +115,30 @@ def test_find_files_sequence(cpcir_data, mrms_surface_precip_data):
     )
     assert len(training_data) == 2
 
+    training_data = SequenceDataset(
+        cpcir_data,
+        input_datasets=["cpcir"],
+        reference_datasets=["mrms"],
+        sample_rate=2,
+        sequence_length=8,
+    )
+    assert len(training_data) == 4
+
+    training_data = SequenceDataset(
+        cpcir_data,
+        input_datasets=["cpcir"],
+        reference_datasets=["mrms"],
+        sample_rate=0.5,
+        sequence_length=8,
+    )
+    assert len(training_data) == 1
+
+    for x, y in training_data:
+        assert len(x["cpcir"]) == 8
+        assert len(y["surface_precip"]) == 8
+        for y_sp in y["surface_precip"]:
+            assert y_sp.isfinite().any()
+
 
 def test_load_sample_sequence(cpcir_data, mrms_surface_precip_data):
     """
@@ -169,7 +187,7 @@ def test_load_sample_forecast(cpcir_data, mrms_surface_precip_data):
         include_input_steps=False,
         forecast=4
     )
-    assert len(training_data) == 1
+    assert len(training_data) == 3
     x, y = training_data[0]
     assert len(x["cpcir"]) == 8
     assert len(y["surface_precip"]) == 4
@@ -232,3 +250,115 @@ def test_load_empty_scenes(cpcir_data, gmi_data, mrms_surface_precip_data):
     data_loader = DataLoader(training_data, batch_size=8)
     x, y = next(iter(data_loader))
     assert "cpcir" in x
+
+
+def test_expand_times_and_files():
+    """
+    Test expansion of times and file arrays.
+    """
+    times = np.array([
+        np.datetime64("2020-01-01T00:00:00"),
+        np.datetime64("2020-01-01T00:15:00"),
+        np.datetime64("2020-01-01T01:00:00"),
+    ])
+    reference_files = np.array([
+        ["file_1"],
+        ["file_2"],
+        ["file_3"],
+    ])
+    input_files = np.array([
+        ["file_1"],
+        [None],
+        ["file_3"],
+    ])
+
+    full = expand_times_and_files(
+        times,
+        input_files,
+        reference_files,
+    )
+    times_full, input_files_full, reference_files_full = full
+
+    assert times_full.shape[0] == 5
+    assert input_files_full.shape[0] == 5
+    assert reference_files_full.shape[0] == 5
+
+    assert reference_files_full[0, 0] == "file_1"
+    assert reference_files_full[1, 0] == "file_2"
+    assert reference_files_full[4, 0] == "file_3"
+
+
+def test_find_sequence_starts_and_ends():
+    """
+    Test calculation of sequence starts and ends and ensure that they match
+    expected values.
+    """
+    input_files = np.array([
+        ["file_1"],
+        [None],
+        ["file_2"],
+        [None],
+        [None],
+        ["file_3"],
+    ])
+
+    reference_files = input_files
+
+    starts, ends = find_sequence_starts_and_ends(
+        input_files,
+        reference_files,
+        2, 0, True
+    )
+    assert (starts == [0, 2, 4]).all()
+
+    starts, ends = find_sequence_starts_and_ends(
+        input_files,
+        reference_files,
+        2, 1, True
+    )
+    assert (starts ==  [0]).all()
+
+    starts, ends = find_sequence_starts_and_ends(
+        input_files,
+        reference_files,
+        2, 1, False
+    )
+    assert (starts ==  [0]).all()
+
+    # All files are available.
+    input_files = np.array([
+        ["file_1"],
+        ["file_2"],
+        ["file_3"],
+        ["file_4"],
+        ["file_5"],
+        ["file_6"],
+    ])
+
+    reference_files = input_files
+    starts, ends = find_sequence_starts_and_ends(
+        input_files,
+        reference_files,
+        2, 0, True
+    )
+    assert (starts ==  [0, 2, 4]).all()
+
+
+def test_load_sparse_data(cpcir_data, cmb_surface_precip_data):
+    """
+    Test that scene without valid reference data are handled correctly.
+    """
+    training_data = SequenceDataset(
+        cpcir_data,
+        reference_datasets=["cmb"],
+        input_datasets=["cpcir"],
+        sample_rate=1,
+        sequence_length=4,
+        forecast=4,
+        include_input_steps=True
+    )
+    assert len(training_data) == 2
+
+    for x, y in training_data:
+        assert len(x["cpcir"]) == 4
+        assert len(y["surface_precip"]) == 8
