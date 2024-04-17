@@ -122,7 +122,6 @@ class ReferenceDataset(DataSource):
         except Exception:
             return None
 
-
     def load_sample(
             self,
             path: Path,
@@ -157,6 +156,19 @@ class ReferenceDataset(DataSource):
             crop_size = (crop_size,) * self.n_dims
         crop_size = tuple((int(size / rel_scale) for size in crop_size))
         row_slice, col_slice = scale_slices(slices, rel_scale)
+
+        if path is None:
+            if isinstance(crop_size, tuple):
+                n_rows, n_cols = crop_size
+            else:
+                n_rows = crop_size
+                n_cols = crop_size
+            return {
+                target.name: MaskedTensor(
+                    torch.nan * torch.zeros((n_cols, n_rows)),
+                    mask = torch.ones((n_cols, n_rows), dtype=torch.bool)
+                ) for target in self.targets
+            }
 
         y = {}
         with xr.open_dataset(path) as data:

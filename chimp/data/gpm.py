@@ -32,6 +32,7 @@ from pansat.products.satellite.gpm import (
     l1c_gcomw1_amsr2,
     l2b_gpm_cmb,
     l2b_gpm_cmb_b,
+    l2b_gpm_cmb_c,
     l2a_gpm_dpr
 )
 from pyresample import AreaDefinition
@@ -352,7 +353,7 @@ class GPMCMB(ReferenceDataset):
             [RetrievalTarget("surface_precip")],
             quality_index=None
         )
-        self.products = [l2b_gpm_cmb, l2b_gpm_cmb_b]
+        self.products = [l2b_gpm_cmb, l2b_gpm_cmb_b, l2b_gpm_cmb_c]
         self.scale = 4
         self.radius_of_influence = 6e3
 
