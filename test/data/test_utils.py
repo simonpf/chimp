@@ -40,6 +40,6 @@ def test_round_time():
     rounded = round_time(datetime, step)
     assert rounded == ref_time
 
-    datetime = np.datetime64("2020-01-01T01:10:00", "s")
+    datetime = np.datetime64("2020-01-01T01:25:00", "s")
     rounded = round_time(datetime, step)
     assert rounded == ref_time

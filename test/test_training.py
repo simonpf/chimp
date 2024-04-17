@@ -15,8 +15,7 @@ from conftest import (
 
 from chimp import models
 from chimp.config import TrainingConfig
-from chimp.data import get_input, get_reference_dataset
-from chimp.models import compile_mrnn
+from chimp.data import get_input_dataset, get_reference_dataset
 from chimp.training import (
     train,
     find_most_recent_checkpoint
@@ -25,12 +24,6 @@ from chimp.training import (
 import torch
 from torch.utils.data import DataLoader
 
-TEST_DATA = os.environ.get("CHIMP_TEST_DATA", None)
-if TEST_DATA is not None:
-    TEST_DATA = Path(TEST_DATA)
-NEEDS_TEST_DATA = pytest.mark.skipif(
-    TEST_DATA is None, reason="Needs 'CCIC_TEST_DATA'."
-)
 
 def test_training(
         tmp_path,
@@ -44,13 +37,13 @@ def test_training(
     model_config = models.load_config("gremlin")
     model_config.input_configs = [
         models.InputConfig(
-            get_input("cpcir"),
+            get_input_dataset("cpcir"),
             stem_depth=1,
             stem_kernel_size=3,
             stem_downsampling=1
         ),
         models.InputConfig(
-            get_input("gmi"),
+            get_input_dataset("gmi"),
             stem_depth=1,
             stem_kernel_size=3,
             stem_downsampling=1
@@ -163,13 +156,13 @@ def test_training_multi_input(
     model_config = models.load_config("gremlin")
     model_config.input_configs = [
         models.InputConfig(
-            get_input("cpcir"),
+            get_input_dataset("cpcir"),
             stem_depth=1,
             stem_kernel_size=3,
             stem_downsampling=1
         ),
         models.InputConfig(
-            get_input("gmi"),
+            get_input_dataset("gmi"),
             stem_depth=1,
             stem_kernel_size=3,
             stem_downsampling=1
@@ -281,21 +274,21 @@ def test_training_masked_input(
     model_config = models.load_config("gremlin")
     model_config.input_configs = [
         models.InputConfig(
-            get_input("cpcir"),
+            get_input_dataset("cpcir"),
             stem_depth=1,
             stem_kernel_size=3,
             stem_downsampling=1,
             deep_supervision=True
         ),
         models.InputConfig(
-            get_input("gmi"),
+            get_input_dataset("gmi"),
             stem_depth=1,
             stem_kernel_size=3,
             stem_downsampling=1,
             deep_supervision=True
         ),
         models.InputConfig(
-            get_input("mhs"),
+            get_input_dataset("mhs"),
             stem_depth=1,
             stem_kernel_size=3,
             stem_downsampling=1,
@@ -435,13 +428,13 @@ def test_sequence_training(
     model_config = models.load_config("gremlin")
     model_config.input_configs = [
         models.InputConfig(
-            get_input("cpcir"),
+            get_input_dataset("cpcir"),
             stem_depth=1,
             stem_kernel_size=3,
             stem_downsampling=1
         ),
         models.InputConfig(
-            get_input("gmi"),
+            get_input_dataset("gmi"),
             stem_depth=1,
             stem_kernel_size=3,
             stem_downsampling=1

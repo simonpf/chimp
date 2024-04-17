@@ -174,6 +174,48 @@ def gmi_data(tmp_path):
 
     return tmp_path
 
+@pytest.fixture
+def cmb_surface_precip_data(tmp_path):
+    """
+    Initialize a temporary directory with random reference data files
+    of CMB input data.
+    """
+    data_path = tmp_path / "cmb"
+    data_path.mkdir()
+
+    times = np.arange(
+        np.datetime64("2020-01-01T00:00:00", "s"),
+        np.datetime64("2020-01-02T00:00:00", "s"),
+        np.timedelta64(90, "m"),
+    )
+
+    lons, lats = areas.CONUS_4.get_lonlats()
+    lons = lons[0]
+    lats = lats[..., 0]
+
+    for time in times:
+        sp = random_spectral_field((lats.size, lons.size), 10).astype(
+            "float32"
+        )
+        filename = get_output_filename("cmb", time.item(), np.timedelta64(30, "m"))
+        dataset = xr.Dataset(
+            {
+                "time": ((), time),
+                "surface_precip": (("y", "x"), sp),
+                "row_inds_swath_center": (
+                    ("center_indices",),
+                    np.linspace(0, lats.size - 1, 128).astype(np.int64)
+                ),
+                "col_inds_swath_center": (
+                    ("center_indices",),
+                    np.linspace(0, lons.size - 1, 128).astype(np.int64)
+                )
+            }
+        )
+        dataset.to_netcdf(data_path / filename)
+
+    return tmp_path
+
 
 @pytest.fixture
 def mhs_data(tmp_path):

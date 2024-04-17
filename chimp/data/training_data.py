@@ -21,6 +21,7 @@ from matplotlib.gridspec import GridSpec
 from matplotlib.animation import FuncAnimation
 import numpy as np
 from rich.progress import Progress
+from scipy import signal
 from scipy import fft
 from scipy import ndimage
 import torch
@@ -66,7 +67,8 @@ class SingleStepDataset(Dataset):
         augment: bool = True,
         time_step: Optional[np.timedelta64] = None,
         validation: bool = False,
-        quality_threshold: Union[float, List[float]] = 0.8
+        quality_threshold: Union[float, List[float]] = 0.8,
+        require_ref_data: bool = True
     ):
         """
         Args:
@@ -86,6 +88,8 @@ class SingleStepDataset(Dataset):
             validation: If 'True', repeated sampling will reproduce identical scenes.
             quality_threshold: Thresholds for the quality indices applied to limit
                 reference data pixels.
+            require_ref_data: If 'True' only samples with corresponding reference
+                data are considered.
         """
         self.path = Path(path)
 
@@ -122,8 +126,9 @@ class SingleStepDataset(Dataset):
             input_files = input_dataset.find_training_files(self.path)
             times = np.array(list(map(get_date, input_files)))
             for time, input_file in zip(times, input_files):
-                if time in sample_files:
-                    sample_files[time][n_reference_datasets + input_ind] = input_file
+                if time in sample_files or not require_ref_data:
+                    files = sample_files.setdefault(time, [None] * n_datasets)
+                    files[n_reference_datasets + input_ind] = input_file
 
         self.base_scale = min(
             [reference_dataset.scale for reference_dataset in self.reference_datasets]
@@ -138,6 +143,12 @@ class SingleStepDataset(Dataset):
         times = np.array(list(sample_files.keys()))
         samples = np.array(list(sample_files.values()))
         reference_files = samples[:, :n_reference_datasets]
+
+        inds = np.argsort(times)
+        times = times[inds]
+        samples = samples[inds]
+        reference_files = reference_files[inds]
+
         input_files = samples[:, n_reference_datasets:]
 
         if start_time is not None and end_time is not None:
@@ -146,19 +157,13 @@ class SingleStepDataset(Dataset):
             reference_files = reference_files[indices]
             input_files = input_files[indices]
 
-        if time_step is not None:
-            d_t_files = times[1] - times[0]
-            subsample = int(
-                time_step.astype("timedelta64[s]") /
-                d_t_files.astype("timedelta64[s]")
-            )
-            times = times[::subsample]
-            reference_files = reference_files[::subsample]
-            input_files = input_files[::subsample]
-
         self.times = times
         self.reference_files = reference_files
         self.input_files = input_files
+
+        if time_step is None:
+            time_step = np.min(np.diff(times))
+        self.time_step = time_step
 
         # Ensure that data is consistent
         assert len(self.times) == len(self.reference_files)
@@ -803,6 +808,120 @@ class SingleStepPretrainDataset(SingleStepDataset):
         return x, y
 
 
+def expand_times_and_files(
+        times: np.ndarray,
+        input_files: np.ndarray,
+        reference_files: np.ndarray,
+        time_step: Optional[np.timedelta64] = None
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Expand temporally sparse records of time stamps and corresponding input
+    and reference files to time-uniform intervals.
+
+    Args:
+        times: An array containing the sorted time stamps of available samples.
+        input_files: An array containing the input files corresponding to
+            the time steps in 'times'.
+        reference_files: An array containing the reference files corresponding
+            to the time steps in 'times'.
+        time_step: The temporal resolution of time steps in 'times'. Will be
+            determined as the minimum time difference between consecutive samples
+            in 'times'.
+
+    Return:
+        A tuple ``(times_full, input_files_full, reference_files_full)`` containing
+        the input arrays 'times', 'input_files', and 'reference_files' expanded
+        to temporally dense sampling.
+    """
+    if time_step is None:
+        time_step = np.diff(times).min()
+
+    start_time = times.min()
+    end_time = times.max()
+    times_full = np.arange(start_time, end_time + 0.5  * time_step, time_step)
+    n_steps = times_full.size
+
+    inds = (times - start_time) // time_step
+    input_files_full = np.zeros(
+        (n_steps,) + input_files.shape[1:],
+        dtype="object"
+    )
+    input_files_full[:] = None
+    input_files_full[inds] = input_files
+
+    reference_files_full = np.zeros(
+        (n_steps,) + reference_files.shape[1:],
+        dtype="object"
+    )
+    reference_files_full[:] = None
+    reference_files_full[inds] = reference_files
+
+    return times_full, input_files_full, reference_files_full
+
+
+def find_sequence_starts_and_ends(
+        input_files: np.ndarray,
+        reference_files: np.ndarray,
+        sequence_length: int,
+        forecast: int,
+        include_input_steps: bool,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Determine consecutive indices of the first and last input samples that have
+    valid reference data at the end of the sequence window and include all
+    reference samples at most once.
+
+    Args:
+        input_files: Array containing the input files for each time step.
+        reference_files: Array containing the reference files for each time
+            step.
+        sequence_length: The length of input sequences.
+        forecast: The number of forecast steps.
+        include_input_steps: Whether or not the input steps are included in the
+            reference data.
+    """
+
+    valid_inputs = np.any(input_files != None, -1).astype(np.float32)
+    k = np.ones(2 * sequence_length - 1)
+    k[sequence_length:] = 0.0
+    valid_inputs = signal.convolve(valid_inputs, k, mode="same", method="direct") > 0.0
+    valid_inputs= valid_inputs[:-(sequence_length + forecast - 1)]
+
+    valid_reference = np.any(reference_files != None, -1).astype(np.float32)
+    k = np.ones(2 * (sequence_length + forecast) - 1)
+    if include_input_steps:
+        k[sequence_length + forecast:] = 0.0
+    else:
+        k[forecast:] = 0.0
+    valid_reference = signal.convolve(
+        valid_reference,
+        k,
+        mode="same",
+        method="direct"
+    ) > 0.0
+    valid_reference = valid_reference[:-(sequence_length + forecast - 1)]
+
+    valid_inds = np.where(valid_inputs * valid_reference)[0]
+    starts = []
+    ends = []
+
+    while len(valid_inds) > 0:
+        curr_start = valid_inds[0]
+        starts.append(curr_start)
+
+        if include_input_steps:
+            seq_len = sequence_length + forecast
+        else:
+            seq_len = forecast
+
+        vref = valid_reference[curr_start: curr_start + seq_len]
+        wlen = np.where(vref)[0].max()
+        ends.append(curr_start + wlen)
+        valid_inds = valid_inds[valid_inds > curr_start + wlen]
+
+    return np.array(starts), np.array(ends)
+
+
 class SequenceDataset(SingleStepDataset):
     """
     Dataset class for temporal merging of satellite observations.
@@ -825,7 +944,6 @@ class SequenceDataset(SingleStepDataset):
         shrink_output: Optional[int] = None,
         validation: bool = False,
         time_step: Optional[np.timedelta64] = None,
-        require_input: bool = False,
         quality_threshold: float = 0.8,
     ):
         """
@@ -850,8 +968,6 @@ class SequenceDataset(SingleStepDataset):
                 crop calculated by dividing the input size by the given factor.
             validation: If 'True' sampling will reproduce identical scenes.
             time_step: Optional time step to sub-sample the input data.
-            require_input: Whether or not to require all time steps to have
-                input data from at least one input dataset.
             quality_threshold: Thresholds for the quality indices applied to limit
                 reference data pixels.
         """
@@ -863,9 +979,11 @@ class SequenceDataset(SingleStepDataset):
             scene_size=scene_size,
             start_time=start_time,
             end_time=end_time,
+            time_step=time_step,
             quality_threshold=quality_threshold,
             augment=augment,
             validation=validation,
+            require_ref_data=False
         )
 
         self.sequence_length = sequence_length
@@ -878,34 +996,38 @@ class SequenceDataset(SingleStepDataset):
         self.include_input_steps = include_input_steps
         self.shrink_output = shrink_output
 
-        # Find samples with a series of consecutive outputs.
-        times = self.times
-        deltas = times[self.total_length:] - times[:-self.total_length]
-        if time_step is None:
-            time_step = np.diff(times).min()
-        self.time_step = time_step
-
-        valid = deltas.astype("timedelta64[s]") <= (total_length * time_step)
-        if require_input:
-            has_input = (self.input_files != None).any(-1)
-            has_input_seq = np.zeros_like(deltas).astype(bool)
-            for i in range(self.total_length):
-                has_input_seq += has_input[i:-self.total_length + i]
-            valid *= has_input_seq
-
-        self.sequence_starts = np.where(valid)[0]
-        self.subsampling_rate = int(sequence_length / self.sample_rate)
+        full = expand_times_and_files(
+            self.times,
+            self.input_files,
+            self.reference_files,
+            time_step=time_step
+        )
+        self.times, self.input_files, self.reference_files = full
+        self.valid_ref = np.any(self.reference_files != None, -1)
+        seqs = find_sequence_starts_and_ends(
+            self.input_files,
+            self.reference_files,
+            self.sequence_length,
+            self.forecast,
+            self.include_input_steps
+        )
+        self.sequence_starts, self.sequence_ends = seqs
 
     def __len__(self):
         """Number of samples in an epoch."""
-        return len(self.sequence_starts) // self.subsampling_rate
+        return floor(len(self.sequence_starts) * self.sample_rate)
 
     def __getitem__(self, index):
         """Return training sample."""
-        index = index * self.subsampling_rate
+        if index > len(self):
+            raise IndexError(
+                "The training dataset is exhausted."
+            )
+
+        index = floor(index / self.sample_rate)
         offset = 0
         if self.augment and not self.validation:
-            offset = self.rng.integers(self.subsampling_rate)
+            offset = self.rng.integers(int(1.0 / ceil(self.sample_rate)))
             index = min(index + offset, len(self.sequence_starts) - 1)
 
 
@@ -929,9 +1051,16 @@ class SequenceDataset(SingleStepDataset):
 
         if not self.full:
             # Find valid input range for last sample in sequence
-            last_index = self.sequence_starts[index] + self.total_length - 1
+            start_index = self.sequence_starts[index]
+            ref_start = start_index
+            if not self.include_input_steps:
+                ref_start += self.sequence_length
+            ref_end = start_index + self.sequence_length + self.forecast
+
+            ref_offset = np.where(self.valid_ref[ref_start:ref_end])[0][-1]
+            ref_index = start_index + ref_offset
             slices = self.reference_datasets[0].find_random_scene(
-                self.reference_files[last_index][0],
+                self.reference_files[ref_index][0],
                 self.rng,
                 multiple=4,
                 scene_size=scene_size,
@@ -942,7 +1071,7 @@ class SequenceDataset(SingleStepDataset):
                     " Couldn't find a scene in reference file '%s' satisfying "
                     "the quality requirements. Falling back to another "
                     "radomly-chosen sample.",
-                    self.reference_files[last_index][0]
+                    self.reference_files[ref_index][0]
                 )
                 new_ind = self.rng.integers(0, len(self))
                 return self[new_ind]
@@ -953,6 +1082,15 @@ class SequenceDataset(SingleStepDataset):
         y = {}
 
         start_index = self.sequence_starts[index]
+        if self.augment and not self.validation:
+            start_index += self.rng.integers(
+                self.sequence_starts[index],
+                min(
+                    self.sequence_ends[index] + 1,
+                    self.reference_files.shape[0] - self.sequence_length - self.forecast
+                )
+            )
+
         for step in range(self.sequence_length):
             step_index = start_index + step
             if step < self.sequence_length:
@@ -978,7 +1116,8 @@ class SequenceDataset(SingleStepDataset):
                         y_i = self.load_reference_sample(
                             self.reference_files[step_index], slices, self.scene_size, rotate=ang, flip=flip
                         )
-                    except Exception:
+                    except Exception as exc:
+                        raise exc
                         LOGGER.warning(
                             "Encountered an error when loading reference data from files '%s'."
                             "Falling back to another radomly-chosen sample.",
