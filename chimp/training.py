@@ -342,7 +342,6 @@ class TrainingConfig(pr.training.TrainingConfigBase):
                 shrink_output=self.shrink_output,
                 augment=self.augment,
                 include_input_steps=self.include_input_steps,
-                require_input=self.require_input
             )
 
     def get_validation_dataset(self):
@@ -375,7 +374,6 @@ class TrainingConfig(pr.training.TrainingConfigBase):
                 augment=False,
                 validation=True,
                 include_input_steps=self.include_input_steps,
-                require_input=self.require_input
             )
 
     def get_callbacks(self, module: LightningRetrieval) -> List[callbacks.Callback]:

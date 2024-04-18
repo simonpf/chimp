@@ -1027,9 +1027,9 @@ class SequenceDataset(SingleStepDataset):
         index = floor(index / self.sample_rate)
         offset = 0
         if self.augment and not self.validation:
-            offset = self.rng.integers(int(1.0 / ceil(self.sample_rate)))
-            index = min(index + offset, len(self.sequence_starts) - 1)
-
+            if self.sample_rate < 1.0:
+                offset = self.rng.integers(int(1.0 / self.sample_rate))
+                index = min(index + offset, len(self.sequence_starts) - 1)
 
         # We load a larger window when input is rotated to avoid
         # missing values.
@@ -1049,6 +1049,16 @@ class SequenceDataset(SingleStepDataset):
             ang = None
             flip = False
 
+        start_index = self.sequence_starts[index]
+        if self.augment and not self.validation:
+            start_index = self.rng.integers(
+                self.sequence_starts[index],
+                min(
+                    self.sequence_ends[index] + 1,
+                    self.reference_files.shape[0] - self.sequence_length - self.forecast
+                )
+            )
+
         if not self.full:
             # Find valid input range for last sample in sequence
             start_index = self.sequence_starts[index]
@@ -1058,7 +1068,7 @@ class SequenceDataset(SingleStepDataset):
             ref_end = start_index + self.sequence_length + self.forecast
 
             ref_offset = np.where(self.valid_ref[ref_start:ref_end])[0][-1]
-            ref_index = start_index + ref_offset
+            ref_index = ref_start + ref_offset
             slices = self.reference_datasets[0].find_random_scene(
                 self.reference_files[ref_index][0],
                 self.rng,
@@ -1081,15 +1091,6 @@ class SequenceDataset(SingleStepDataset):
         x = {}
         y = {}
 
-        start_index = self.sequence_starts[index]
-        if self.augment and not self.validation:
-            start_index += self.rng.integers(
-                self.sequence_starts[index],
-                min(
-                    self.sequence_ends[index] + 1,
-                    self.reference_files.shape[0] - self.sequence_length - self.forecast
-                )
-            )
 
         for step in range(self.sequence_length):
             step_index = start_index + step

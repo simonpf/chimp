@@ -420,48 +420,51 @@ class GPMCMB(ReferenceDataset):
             A tuple ``(i_start, i_end, j_start, j_end)`` defining the position
             of the random crop.
         """
-        with xr.open_dataset(path) as data:
-            if "latitude" in data.dims:
-                n_rows = data.latitude.size
-                n_cols = data.longitude.size
-            else:
-                n_rows = data.y.size
-                n_cols = data.x.size
+        try:
+            with xr.open_dataset(path) as data:
+                if "latitude" in data.dims:
+                    n_rows = data.latitude.size
+                    n_cols = data.longitude.size
+                else:
+                    n_rows = data.y.size
+                    n_cols = data.x.size
 
-            row_inds = data.row_inds_swath_center.data
-            col_inds = data.col_inds_swath_center.data
+                row_inds = data.row_inds_swath_center.data
+                col_inds = data.col_inds_swath_center.data
 
-            valid = (
-                (row_inds > scene_size // 2)
-                * (row_inds < n_rows - scene_size // 2)
-                * (col_inds > scene_size // 2)
-                * (col_inds < n_cols - scene_size // 2)
-            )
-
-            if valid.sum() == 0:
-                return None
-
-            row_inds = row_inds[valid]
-            col_inds = col_inds[valid]
-
-            ind = rng.choice(np.arange(valid.sum()))
-            row_c = row_inds[ind]
-            col_c = col_inds[ind]
-
-            i_start = int((row_c - scene_size // 2) // multiple * multiple)
-            i_end = int(i_start + scene_size)
-            j_start = int((col_c - scene_size // 2) // multiple * multiple)
-            j_end = int(j_start + scene_size)
-
-            if rng is not None:
-                offset = rng.integers(
-                    -min(j_start, scene_size // 4),
-                    min(n_cols - j_end, scene_size // 4)
+                valid = (
+                    (row_inds > scene_size // 2)
+                    * (row_inds < n_rows - scene_size // 2)
+                    * (col_inds > scene_size // 2)
+                    * (col_inds < n_cols - scene_size // 2)
                 )
-                j_start += offset
-                j_end += offset
 
-        return (i_start, i_end, j_start, j_end)
+                if valid.sum() == 0:
+                    return None
+
+                row_inds = row_inds[valid]
+                col_inds = col_inds[valid]
+
+                ind = rng.choice(np.arange(valid.sum()))
+                row_c = row_inds[ind]
+                col_c = col_inds[ind]
+
+                i_start = int((row_c - scene_size // 2) // multiple * multiple)
+                i_end = int(i_start + scene_size)
+                j_start = int((col_c - scene_size // 2) // multiple * multiple)
+                j_end = int(j_start + scene_size)
+
+                if rng is not None:
+                    offset = rng.integers(
+                        -min(j_start, scene_size // 4),
+                        min(n_cols - j_end, scene_size // 4)
+                    )
+                    j_start += offset
+                    j_end += offset
+
+            return (i_start, i_end, j_start, j_end)
+        except OSError:
+            return None
 
     def process_file(
             self,

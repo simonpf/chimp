@@ -6,7 +6,7 @@ Implements functionality for testing, i.e. evaluating, trained CHIMP retrievals.
 """
 from copy import copy
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import click
 from pytorch_retrieve.architectures import load_model
@@ -18,10 +18,15 @@ from torch import nn
 from torch.utils.data import Dataset, DataLoader
 import xarray as xr
 
+from pytorch_retrieve.inference import to_rec
+
 
 from chimp.tiling import Tiler
 from chimp.data.input import get_input_map
-from chimp.data.training_data import SingleStepDataset
+from chimp.data.training_data import (
+    SingleStepDataset,
+    SequenceDataset
+)
 
 
 
@@ -56,7 +61,7 @@ def process_tile(
         model: nn.Module,
         inputs: Dict[str, torch.Tensor],
         targets: Dict[str, torch.Tensor],
-        input_map: torch.Tensor,
+        input_maps: Union[torch.Tensor, List[torch.Tensor]],
         slcs: Tuple[slice],
         metrics: Dict[str, List[ScalarMetric]],
         metrics_conditional: Dict[str, ScalarMetric],
@@ -71,7 +76,8 @@ def process_tile(
         inputs: A dictionary mapping input names to corresponding input
             tensors.
         targets: A dictionary mapping target names to corresponding outputs.
-        input_map: The input map specifying the input availability.
+        input_maps: The input map representing the input availability or a list of input maps
+            for each input time step.
         slcs: A tuple of slices to extract the valid domain.
         metrics: A dictionary mapping target names to corresponding metrics
             to compute.
@@ -86,46 +92,63 @@ def process_tile(
 
     with torch.no_grad():
 
-        inputs = {
-            name: tensor.to(device=device, dtype=dtype)
-            for name, tensor in inputs.items()
-        }
-        targets = {
-            name: tensor.to(device=device, dtype=dtype)
-            for name, tensor in targets.items()
-        }
+        inputs = to_rec(inputs, device=device, dtype=dtype)
+        targets = to_rec(targets, device=device, dtype=dtype)
+
+        has_ref_data = False
+        for name, target_k in targets.items():
+            if isinstance(target_k, list):
+                for targ in target_k:
+                    if not targ.mask.all():
+                        has_ref_data = True
+            else:
+                if not target_k.mask.all():
+                    has_ref_data = True
+        if not has_ref_data:
+            print("All empty, skippin'")
+            return None
+
+
         y_pred = model(inputs)
 
-        input_map = input_map.__getitem__((...,) + slcs)
+        for key, y_preds_k in y_pred.items():
 
-        for key, y_pred_k in y_pred.items():
+            if isinstance(y_preds_k, torch.Tensor):
+                y_preds_k = [y_preds_k]
+
             metrics_k = metrics[key]
             metrics_k_c = metrics_conditional[key]
 
-            target_k = targets[key]
-            if target_k.mask.all():
-                continue
+            targets_k = targets[key]
+            if isinstance(targets_k, torch.Tensor):
+                targets_k = [targets_k]
 
-            y_pred_k = y_pred_k.__getitem__((...,) + slcs)
-            target_k = target_k.__getitem__((...,) + slcs)
+            for y_pred_k, target_k, input_map in zip(y_preds_k, targets_k, input_maps):
 
-            y_pred_k_mean = y_pred_k.expected_value()
-            for metric in metrics_k:
-                metric = metric.to(device=device)
-                metric.update(y_pred_k_mean, target_k)
-
-            metrics_k_c = metrics_conditional.get(key, {})
-            for ind, metrics_cond in enumerate(metrics_k_c.values()):
-                target_k_c = target_k.detach().clone()
-                target_k_c.mask[~input_map[:, ind]] = True
-
-                if target_k_c.mask.all():
+                if target_k.mask.all():
+                    print("All empty")
                     continue
 
-                for metric in metrics_cond:
-                    metric = metric.to(device=device)
-                    metric.update(y_pred_k_mean, target_k_c)
+                y_pred_k = y_pred_k.__getitem__((...,) + slcs)
+                target_k = target_k.__getitem__((...,) + slcs)
+                input_map = input_map.__getitem__((...,) + slcs)
 
+                y_pred_k_mean = y_pred_k.expected_value()
+                for metric in metrics_k:
+                    metric = metric.to(device=device)
+                    metric.update(y_pred_k_mean, target_k)
+
+                metrics_k_c = metrics_conditional.get(key, {})
+                for ind, metrics_cond in enumerate(metrics_k_c.values()):
+                    target_k_c = target_k.detach().clone()
+                    target_k_c.mask[~input_map[:, ind]] = True
+
+                    if target_k_c.mask.all():
+                        continue
+
+                    for metric in metrics_cond:
+                        metric = metric.to(device=device)
+                        metric.update(y_pred_k_mean, target_k_c)
 
 def run_tests(
         model: nn.Module,
@@ -177,7 +200,11 @@ def run_tests(
                 for col_ind in range(tiler.N):
 
                     x, y = tiler.get_tile(row_ind, col_ind)
+                    x.pop("lead_time", None)
                     input_map = get_input_map(x)
+                    if "lead_time" in inpt:
+                        x["lead_time"] = inpt["lead_time"]
+
                     slcs = tiler.get_slices(row_ind, col_ind)
                     process_tile(
                         model, x, y, input_map, slcs, metrics, metrics_conditional,
@@ -209,6 +236,8 @@ def run_tests(
 @click.option("--dtype", type=str, default="bfloat16")
 @click.option("--tile_size", type=int, default=128)
 @click.option("--batch_size", type=int, default=32)
+@click.option("--sequence_length", type=int, default=None)
+@click.option("--forecast", type=int, default=0)
 @click.option("-v", "--verbose", count=True)
 def cli(
         model: Path,
@@ -220,7 +249,9 @@ def cli(
         dtype: str = "bfloat16",
         tile_size: int = 128,
         verbose: int = 0,
-        batch_size: int = 32
+        batch_size: int = 32,
+        sequence_length: Optional[int] = None,
+        forecast: int = 0
 ) -> int:
     """
     Process input files.
@@ -241,14 +272,27 @@ def cli(
         )
         return 1
 
-    test_data = SingleStepDataset(
-        test_data_path,
-        input_datasets=input_datasets,
-        reference_datasets=reference_datasets,
-        scene_size=-1,
-        augment=False,
-        validation=True
-    )
+    if sequence_length is None:
+        test_data = SingleStepDataset(
+            test_data_path,
+            input_datasets=input_datasets,
+            reference_datasets=reference_datasets,
+            scene_size=-1,
+            augment=False,
+            validation=True
+        )
+    else:
+        test_data = SequenceDataset(
+            test_data_path,
+            input_datasets=input_datasets,
+            reference_datasets=reference_datasets,
+            scene_size=-1,
+            augment=False,
+            validation=True,
+            sequence_length=sequence_length,
+            forecast=forecast,
+            include_input_steps=True
+        )
 
     metrics = {
         "surface_precip": [
