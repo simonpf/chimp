@@ -170,7 +170,6 @@ class GridSat(InputDataset):
                 data.time[0].data.astype(np.int64) % time_step.astype("timedelta64[ns]").astype(np.int64)
                 // np.timedelta64(3, "h").astype("timedelta64[ns]").astype(np.int64)
             )
-            print("TIME IND :: ", data.time[0], time_ind)
             output_data["obs"].data[:, :, time_ind] = data.obs.data[:, :, 0]
             output_data.to_netcdf(output_file, encoding=encoding)
 

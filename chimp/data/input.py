@@ -429,7 +429,6 @@ def get_input_map(
 
     input_maps = [[] for _ in range(seq_len)]
     for name, tensors in inputs.items():
-        print(name)
         for step, tensor in enumerate(tensors):
             if tensor.ndim < 4:
                 tensor = tensor[None]

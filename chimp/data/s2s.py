@@ -113,8 +113,6 @@ class S2SForecast(ReferenceDataset):
         end_time = round_time(data.time.data.max(), time_step)
         time = start_time
 
-        print("TIMES", start_time, end_time)
-
         while time < end_time:
 
             if not time in data.time:
