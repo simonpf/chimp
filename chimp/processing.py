@@ -7,7 +7,7 @@ Routines for the processing of retrievals and forecasts.
 from contextlib import contextmanager
 import logging
 from pathlib import Path
-from typing import List, Union
+from typing import Dict, List, Optional, Union
 
 import click
 import numpy as np
@@ -99,10 +99,11 @@ def empty_input(model, model_input):
 
 def retrieval_step(
         model,
-        model_input,
-        tile_size=256,
-        device="cuda",
-        float_type=torch.float32
+        model_input: Dict[str, torch.Tensor],
+        tile_size: int = 256,
+        spatial_overlap: Optional[int] = None,
+        device: str = "cuda",
+        float_type: torch.dtype = torch.float32
 ):
     """
     Run retrieval on given input.
@@ -111,6 +112,8 @@ def retrieval_step(
         model: The CHIMP model to perform the retrieval with.
         model_input: A dict containing the input for the given time step.
         tile_size: The size to use for the tiling.
+        spatial_overlap: The number of overlap between neighboring tiles. Defaults
+            1/4 of the tile size.
         sequence_length: Number of input steps expected by the model.
         forecast: The number of time steps to forecast.
 
@@ -128,10 +131,14 @@ def retrieval_step(
         lambda tensor: tensor.to(dtype=float_type, device=device),
         model_input
     )
-    tiler = Tiler(x, tile_size=tile_size, overlap=32)
+
+    if spatial_overlap is None:
+        spatial_overlap = tile_size // 4
+    tiler = Tiler(x, tile_size=tile_size, overlap=spatial_overlap)
 
     means = {}
 
+    device = torch.device(device)
     model = model.to(device=device, dtype=float_type).eval()
 
     quantile_outputs = {
@@ -147,7 +154,7 @@ def retrieval_step(
 
         with torch.no_grad():
             if device != "cpu":
-                with torch.autocast(device_type=device, dtype=float_type):
+                with torch.autocast(device_type="cuda", dtype=float_type):
                     y_pred = model(x_t)
                     for key, y_pred_k in y_pred.items():
                         for step, y_pred_k_s in enumerate(iter_tensors(y_pred_k)):
