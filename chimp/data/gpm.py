@@ -686,6 +686,20 @@ class GPMCMBAnd(GPMCMB):
             flip: Optional[bool] = None,
             quality_threshold: float = 0.8
     ) -> Dict[str, torch.Tensor]:
+        from pytorch_retrieve.tensors.masked_tensor import MaskedTensor
+
+        if path is None:
+            if isinstance(crop_size, tuple):
+                n_rows, n_cols = crop_size
+            else:
+                n_rows = crop_size
+                n_cols = crop_size
+            return {
+                target.name: MaskedTensor(
+                    torch.nan * torch.zeros((n_rows, n_cols)),
+                    mask = torch.ones((n_rows, n_cols), dtype=torch.bool)
+                ) for target in self.targets
+            }
 
         if not path.name.startswith("cmb"):
             other_targets = self.other.load_sample(
