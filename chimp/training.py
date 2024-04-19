@@ -401,6 +401,33 @@ class TrainingConfig(pr.training.TrainingConfigBase):
             cbs.append(callbacks.EarlyStopping(monitor="Learning rate", strict=True))
         return cbs
 
+    def get_inference_config(self) -> "InferenceConfig":
+        """
+        Get inference config matching this training configuration.
+        """
+        if self.sequence_length > 1:
+            input_loader = "chimp.data.input.InputLoader"
+        else:
+            input_loader = "chimp.data.input.SequenceInputLoader"
+        input_loader_args = {
+            "input_datasets": self.input_datasets,
+            "reference_datasets": self.reference_datasets,
+            "scene_size": self.scence_size,
+            "sequence_length": self.sequence_length,
+            "forecast": self.forecast,
+            "forecast_range": self.forecast_range,
+            "shrink_output": self.shrink_output,
+            "include_input_steps": self.include_input_steps
+        }
+        return InferenceConfig(
+            batch_size=self.batch_size,
+            tile_size=(self.scene_size, self.scene_size),
+            spatial_overlap=self.scene_size // 4,
+            temporal_overlap=0,
+            input_loader=input_loader,
+            input_loader_args=input_loader_args
+        )
+
 
 @click.option(
     "--model_path",

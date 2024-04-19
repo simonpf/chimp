@@ -136,10 +136,17 @@ def process_tile(
             if isinstance(targets_k, torch.Tensor):
                 targets_k = [targets_k]
 
+            if n_fc > 0:
+                y_preds_k_r = y_preds_k[:-n_fc]
+                target_k_r = targets_k[:-n_fc]
+            else:
+                y_preds_k_r = y_preds_k
+                targets_k_r = targets_k
+
             # Evaluate retrieval.
             for step, (y_pred_k, target_k, input_map) in enumerate(zip(
-                    y_preds_k[:-n_fc],
-                    targets_k[:-n_fc],
+                    y_preds_k_r,
+                    targets_k_r,
                     input_maps
             )):
                 if target_k.mask.all():
@@ -172,27 +179,28 @@ def process_tile(
                         metric.update(y_pred_k_mean, target_k_c)
 
             # Evaluate forecast
-            for step, (y_pred_k, target_k) in enumerate(zip(
-                    y_preds_k[-n_fc:],
-                    targets_k[-n_fc:],
-            )):
-                if target_k.mask.all():
-                    continue
+            if n_fc > 0:
+                for step, (y_pred_k, target_k) in enumerate(zip(
+                        y_preds_k[-n_fc:],
+                        targets_k[-n_fc:],
+                )):
+                    if target_k.mask.all():
+                        continue
 
-                y_pred_k = y_pred_k.__getitem__((...,) + slcs)
-                y_pred_k_mean = y_pred_k.expected_value()
-                target_k = target_k.__getitem__((...,) + slcs)
+                    y_pred_k = y_pred_k.__getitem__((...,) + slcs)
+                    y_pred_k_mean = y_pred_k.expected_value()
+                    target_k = target_k.__getitem__((...,) + slcs)
 
-                cond = {"step": step * torch.ones_like(target_k)}
+                    cond = {"step": step * torch.ones_like(target_k)}
 
-                for metric in metrics_forecast[key]:
-                    metric = metric.to(device=device)
-                    metric.update(y_pred_k_mean, target_k, conditional=cond)
+                    for metric in metrics_forecast[key]:
+                        metric = metric.to(device=device)
+                        metric.update(y_pred_k_mean, target_k, conditional=cond)
 
-                for metric in metrics_persistence[key]:
-                    metric = metric.to(device=device)
-                    y_persist = targets_k[-n_fc - 1].__getitem__((...,) + slcs)
-                    metric.update(y_persist, target_k, conditional=cond)
+                    for metric in metrics_persistence.get(key, []):
+                        metric = metric.to(device=device)
+                        y_persist = targets_k[-n_fc - 1].__getitem__((...,) + slcs)
+                        metric.update(y_persist, target_k, conditional=cond)
 
 
 def run_tests(
@@ -258,10 +266,15 @@ def run_tests(
                         mtrcs.CorrelationCoef(conditional={"step": test_dataset.forecast}),
                     ] for target in metrics
                 }
+            else:
+                metrics_persistence = {}
         else:
-            metrics_step = {}
             metrics_forecast = {}
             metrics_persistence = {}
+    else:
+        metrics_step = {}
+        metrics_forecast = {}
+        metrics_persistence = {}
 
 
     data_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
