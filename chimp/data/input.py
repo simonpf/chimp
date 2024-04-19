@@ -602,7 +602,7 @@ class InputLoader():
         self.sample_files = sample_files_filtered
         self.scene_sizes = scene_sizes
 
-        self.times = list(sample_files.keys())
+        self.times = np.array(list(sample_files.keys()))
         if time_step is None:
             times = np.array(list(sample_files.keys()))
             if len(times) <= 1:
@@ -665,20 +665,25 @@ class SequenceInputLoader(InputLoader):
             path: Path,
             input_datasets: List[str],
             sequence_length: int,
+            forecast: int = 0,
             start_time: Optional[np.datetime64] = None,
             end_time: Optional[np.datetime64] = None,
             time_step: Optional[np.timedelta64] = None,
+            temporal_overlap: Optional[int] = None
     ):
         """
         Args:
             path: The path pointing to the directory containing the inputs.
             input_datasets: A list of names of input datasets.
             sequence_length: The length of the input sequences.
+            forecast: The number of forecast steps to perform.
             start_time: An optional start time to limit the input samples loaded
                 by the loader.
             end_time: An optional end time to limit the input samples loaded
                 by the loader.
             time_step: The time step between consecutive inputs.
+            temporal_overlap: The amount overlapping time steps between
+                consectutive retrievals.
         """
         super().__init__(
             path=path,
@@ -688,6 +693,29 @@ class SequenceInputLoader(InputLoader):
             time_step=time_step
         )
         self.sequence_length = sequence_length
+        self.forecast = forecast
+        if temporal_overlap is None:
+            temporal_overlap = self.sequence_length // 2
+        if temporal_overlap >= sequence_length:
+            raise ValueError(
+                "Temporal overlap must not exceed the sequence length."
+            )
+        self.temporal_overlap = temporal_overlap
+
+    def __iter__(self):
+        offset = (self.sequence_length - 1 - self.temporal_overlap // 2) * self.time_step
+        curr_time = self.times.min() + offset
+
+        end_time = self.times.max()
+        while curr_time < end_time:
+            try:
+                yield curr_time, self.get_input(curr_time)
+            except RuntimeError:
+                LOGGER.warning(
+                    "Found no input for step %s.",
+                    curr_time
+                )
+            curr_time += (self.sequence_length - self.temporal_overlap) * self.time_step
 
     def get_input(self, time: np.datetime64) -> Dict[str, torch.Tensor]:
         """
@@ -699,7 +727,9 @@ class SequenceInputLoader(InputLoader):
         Return:
             A dictionary containing the input tensors from all input datasets.
         """
-        sequence_times = time + np.arange(self.sequence_length) * self.time_step
+        sequence_times = np.flip(
+            time - np.arange(self.sequence_length) * self.time_step
+        )
         sequence_times = sequence_times.astype(self.dtype)
 
         any_input = any([time in self.sample_files for time in sequence_times])
@@ -722,6 +752,11 @@ class SequenceInputLoader(InputLoader):
                     rng=self.rng
                 )
                 inputs.setdefault(input_dataset.input_name, []).append(x[None])
+
+        if self.forecast > 0:
+            lead_time = self.time_step * (np.arange(self.forecast) + 1)
+            minutes = lead_time.astype("timedelta64[m]").astype("int64")
+            inputs["lead_time"] = torch.tensor(minutes)[None]
 
         return inputs
 
