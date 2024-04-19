@@ -165,18 +165,18 @@ class ReferenceDataset(DataSource):
                 n_cols = crop_size
             return {
                 target.name: MaskedTensor(
-                    torch.nan * torch.zeros((n_cols, n_rows)),
-                    mask = torch.ones((n_cols, n_rows), dtype=torch.bool)
+                    torch.nan * torch.zeros((n_rows, n_cols)),
+                    mask = torch.ones((n_rows, n_cols), dtype=torch.bool)
                 ) for target in self.targets
             }
 
         y = {}
-        with xr.open_dataset(path) as data:
 
+        with xr.open_dataset(path) as data:
             if self.quality_index is not None:
                 qual = data[self.quality_index]
                 qual = qual.data[row_slice, col_slice]
-                invalid = qual < quality_threshold
+                invalid = ~(qual >= quality_threshold)
             else:
                 invalid = None
 
