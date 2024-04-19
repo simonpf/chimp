@@ -1118,7 +1118,6 @@ class SequenceDataset(SingleStepDataset):
                             self.reference_files[step_index], slices, self.scene_size, rotate=ang, flip=flip
                         )
                     except Exception as exc:
-                        raise exc
                         LOGGER.warning(
                             "Encountered an error when loading reference data from files '%s'."
                             "Falling back to another radomly-chosen sample.",
