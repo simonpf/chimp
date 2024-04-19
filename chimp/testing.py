@@ -65,6 +65,9 @@ def process_tile(
         slcs: Tuple[slice],
         metrics: Dict[str, List[ScalarMetric]],
         metrics_conditional: Dict[str, ScalarMetric],
+        metrics_step: Dict[str, ScalarMetric],
+        metrics_forecast: Dict[str, ScalarMetric],
+        metrics_persistence: Dict[str, ScalarMetric],
         device: str = "cuda",
         dtype: torch.dtype = torch.bfloat16
 ) -> None:
@@ -85,6 +88,12 @@ def process_tile(
             dicts mapping input names to corresponding metrics objects. These
             metrics will only be computed using samples at which the respective
             input is available.
+        metrics_step: A dictionary mapping output names to lists of ScalarMetrics
+            to calculate conditional on the retrieval step.
+        metrics_forecast: A dictionary mapping output names to lists of ScalarMetrics
+            to calculate conditional on the forecast step.
+        metrics_persistence: A dicitonary mapping output names to lists of ScalarMetrics
+            to calculate for the persistence forecast.
         device: The device on which to perform the testing.
         dtype: The dtype to use for the calculation.
     """
@@ -105,8 +114,12 @@ def process_tile(
                 if not target_k.mask.all():
                     has_ref_data = True
         if not has_ref_data:
-            print("All empty, skippin'")
             return None
+
+        if "lead_time" in inputs:
+            n_fc = inputs["lead_time"].shape[1]
+        else:
+            n_fc = 0
 
 
         y_pred = model(inputs)
@@ -123,10 +136,13 @@ def process_tile(
             if isinstance(targets_k, torch.Tensor):
                 targets_k = [targets_k]
 
-            for y_pred_k, target_k, input_map in zip(y_preds_k, targets_k, input_maps):
-
+            # Evaluate retrieval.
+            for step, (y_pred_k, target_k, input_map) in enumerate(zip(
+                    y_preds_k[:-n_fc],
+                    targets_k[:-n_fc],
+                    input_maps
+            )):
                 if target_k.mask.all():
-                    print("All empty")
                     continue
 
                 y_pred_k = y_pred_k.__getitem__((...,) + slcs)
@@ -137,6 +153,11 @@ def process_tile(
                 for metric in metrics_k:
                     metric = metric.to(device=device)
                     metric.update(y_pred_k_mean, target_k)
+
+                cond = {"step": step * torch.ones_like(target_k)}
+                for metric in metrics_step[key]:
+                    metric = metric.to(device=device)
+                    metric.update(y_pred_k_mean, target_k, conditional=cond)
 
                 metrics_k_c = metrics_conditional.get(key, {})
                 for ind, metrics_cond in enumerate(metrics_k_c.values()):
@@ -149,6 +170,30 @@ def process_tile(
                     for metric in metrics_cond:
                         metric = metric.to(device=device)
                         metric.update(y_pred_k_mean, target_k_c)
+
+            # Evaluate forecast
+            for step, (y_pred_k, target_k) in enumerate(zip(
+                    y_preds_k[-n_fc:],
+                    targets_k[-n_fc:],
+            )):
+                if target_k.mask.all():
+                    continue
+
+                y_pred_k = y_pred_k.__getitem__((...,) + slcs)
+                y_pred_k_mean = y_pred_k.expected_value()
+                target_k = target_k.__getitem__((...,) + slcs)
+
+                cond = {"step": step * torch.ones_like(target_k)}
+
+                for metric in metrics_forecast[key]:
+                    metric = metric.to(device=device)
+                    metric.update(y_pred_k_mean, target_k, conditional=cond)
+
+                for metric in metrics_persistence[key]:
+                    metric = metric.to(device=device)
+                    y_persist = targets_k[-n_fc - 1].__getitem__((...,) + slcs)
+                    metric.update(y_persist, target_k, conditional=cond)
+
 
 def run_tests(
         model: nn.Module,
@@ -186,14 +231,50 @@ def run_tests(
     else:
         metrics_conditional = {}
 
+    if isinstance(test_dataset, SequenceDataset):
+        if test_dataset.include_input_steps:
+            metrics_step = {
+                target: [
+                    mtrcs.Bias(conditional={"step": test_dataset.sequence_length}),
+                    mtrcs.MSE(conditional={"step": test_dataset.sequence_length}),
+                    mtrcs.CorrelationCoef(conditional={"step": test_dataset.sequence_length}),
+                ] for target in metrics
+            }
+        else:
+            metrics_step = {}
+        if test_dataset.forecast:
+            metrics_forecast = {
+                target: [
+                    mtrcs.Bias(conditional={"step": test_dataset.forecast}),
+                    mtrcs.MSE(conditional={"step": test_dataset.forecast}),
+                    mtrcs.CorrelationCoef(conditional={"step": test_dataset.forecast}),
+                ] for target in metrics
+            }
+            if test_dataset.include_input_steps:
+                metrics_persistence = {
+                    target: [
+                        mtrcs.Bias(conditional={"step": test_dataset.forecast}),
+                        mtrcs.MSE(conditional={"step": test_dataset.forecast}),
+                        mtrcs.CorrelationCoef(conditional={"step": test_dataset.forecast}),
+                    ] for target in metrics
+                }
+        else:
+            metrics_step = {}
+            metrics_forecast = {}
+            metrics_persistence = {}
+
+
     data_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
     with Progress() as progress:
         task = progress.add_task("Evaluating retrieval model: ", total=len(data_loader))
+
         for ind, (inpt, targets) in enumerate(data_loader):
 
             if tile_size is None:
                 tile_size = get_max_dims(inpt)
+
+            lead_time = inpt.pop("lead_time", None)
             tiler = Tiler((inpt, targets), tile_size=tile_size, overlap=0)
 
             for row_ind in range(tiler.M):
@@ -202,28 +283,53 @@ def run_tests(
                     x, y = tiler.get_tile(row_ind, col_ind)
                     x.pop("lead_time", None)
                     input_map = get_input_map(x)
-                    if "lead_time" in inpt:
-                        x["lead_time"] = inpt["lead_time"]
+                    if lead_time is not None:
+                        x["lead_time"] = lead_time
 
                     slcs = tiler.get_slices(row_ind, col_ind)
                     process_tile(
                         model, x, y, input_map, slcs, metrics, metrics_conditional,
-                        device=device, dtype=dtype
+                        metrics_step=metrics_step, metrics_forecast=metrics_forecast,
+                        metrics_persistence=metrics_persistence, device=device, dtype=dtype
                     )
             progress.update(task, advance=1)
 
-    results = {}
+    retrieval_results = {}
     for name, metrics in metrics.items():
         for metric in metrics:
             res_name = name + "_" + metric.name.lower()
-            results[res_name] = metric.compute().cpu().numpy()
+            retrieval_results[res_name] = metric.compute().cpu().numpy()
         metrics_c = metrics_conditional.get(name, {})
         for input_name, metrics in metrics_c.items():
             for metric in metrics:
                 res_name = name + "_" + metric.name.lower() + "_" + input_name
-                results[res_name] = metric.compute().cpu().numpy()
+                retrieval_results[res_name] = metric.compute().cpu().numpy()
+    for name, metrics in metrics_step.items():
+        for metric in metrics:
+            res_name = name + "_" + metric.name.lower() + "_step"
+            retrieval_results[res_name] = (("step",), metric.compute().cpu().numpy())
 
-    return xr.Dataset(results)
+    if len(retrieval_results) > 0:
+        retrieval_results = xr.Dataset(retrieval_results)
+    else:
+        retrieval_results = None
+
+    forecast_results = {}
+    for name, metrics in metrics_forecast.items():
+        for metric in metrics:
+            res_name = name + "_" + metric.name.lower()
+            forecast_results[res_name] = (("step",), metric.compute().cpu().numpy())
+    for name, metrics in metrics_persistence.items():
+        for metric in metrics:
+            res_name = name + "_" + metric.name.lower() + "_persistence"
+            forecast_results[res_name] = (("step",), metric.compute().cpu().numpy())
+
+    if len(forecast_results) > 0:
+        forecast_results = xr.Dataset(forecast_results)
+    else:
+        forecast_results = None
+
+    return retrieval_results, forecast_results
 
 
 
@@ -295,16 +401,16 @@ def cli(
         )
 
     metrics = {
-        "surface_precip": [
+        name: [
             mtrcs.Bias(),
             mtrcs.MSE(),
             mtrcs.CorrelationCoef()
-        ]
+        ] for name in model.to_config_dict()["output"].keys()
     }
 
     dtype = getattr(torch, dtype)
 
-    results = run_tests(
+    retrieval_results, forecast_results = run_tests(
         model,
         test_data,
         metrics=metrics,
@@ -315,4 +421,13 @@ def cli(
         batch_size=batch_size
     )
 
-    results.to_netcdf(output_filename)
+    if retrieval_results is not None:
+        if forecast_results is not None:
+            retrieval_results.to_netcdf(output_filename[:-3] + "_retrieval.nc")
+        else:
+            retrieval_results.to_netcdf(output_filename)
+    if forecast_results is not None:
+        if retrieval_results is not None:
+            forecast_results.to_netcdf(output_filename[:-3] + "_forecast.nc")
+        else:
+            forecast_results.to_netcdf(output_filename)
