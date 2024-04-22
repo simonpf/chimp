@@ -18,7 +18,7 @@ jobs:
         uses: conda-incubator/setup-miniconda@v2
         with:
           activate-environment: chimp
-          environment-file: etc/example-environment.yml
+          environment-file: chimp.yml
           auto-activate-base: false
       - name: Install dependencies
         run: |
