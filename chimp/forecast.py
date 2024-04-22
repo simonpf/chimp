@@ -50,11 +50,12 @@ def run_forecast(
             device = "cpu"
 
     time_step = np.timedelta64(model.time_step, "m")
-    input_start_time = initialization_time - time_step * input_steps
+    input_start_time = initialization_time - time_step
 
     input_data = data_loader.get_input(input_start_time)
     lead_time = torch.tensor([np.arange(1, forecast_steps + 1) * model.time_step])
     input_data["lead_time"] = lead_time
+    print(lead_time)
     input_data = {
         name: tensor_to(tensor, device) for name, tensor in input_data.items()
     }
