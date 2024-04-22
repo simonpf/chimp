@@ -268,12 +268,9 @@ def cli(
 
         curr_time = time
         drop_left = temporal_overlap // 2
-        drop_right = temporal_overlap - drop_left
 
         for step in range(n_retrieved):
             if step < drop_left:
-                continue
-            if step >= n_retrieved - drop_right:
                 continue
 
             curr_time = time - (n_retrieved - step - 1) * input_data.time_step
