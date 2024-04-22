@@ -4,10 +4,6 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  - pytorch
-  - torchvision
-  - torchaudio
-  - cpuonly
   - cfgrib
   - netcdf4
   - pyyaml
