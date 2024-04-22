@@ -703,7 +703,7 @@ class SequenceInputLoader(InputLoader):
         self.temporal_overlap = temporal_overlap
 
     def __iter__(self):
-        offset = (self.sequence_length - 1 - self.temporal_overlap // 2) * self.time_step
+        offset = (self.sequence_length - 1) * self.time_step
         curr_time = self.times.min() + offset
 
         end_time = self.times.max()

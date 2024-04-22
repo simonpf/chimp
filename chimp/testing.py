@@ -138,7 +138,7 @@ def process_tile(
 
             if n_fc > 0:
                 y_preds_k_r = y_preds_k[:-n_fc]
-                target_k_r = targets_k[:-n_fc]
+                targets_k_r = targets_k[:-n_fc]
             else:
                 y_preds_k_r = y_preds_k
                 targets_k_r = targets_k

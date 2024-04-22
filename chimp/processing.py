@@ -231,7 +231,7 @@ def cli(
         input_data = InputLoader(input_path, input_datasets)
     else:
         if temporal_overlap is None:
-            temporal_overlap = sequence_length // 2
+            temporal_overlap = sequence_length - 1
         input_data = SequenceInputLoader(
             input_path,
             input_datasets,
@@ -253,7 +253,7 @@ def cli(
     else:
         float_type = torch.bfloat16
 
-    for time, model_input in input_data:
+    for input_step, (time, model_input) in enumerate(input_data):
         LOGGER.info("Starting processing input @ %s", time)
         results = retrieval_step(
             model,
@@ -270,8 +270,6 @@ def cli(
         drop_left = temporal_overlap // 2
 
         for step in range(n_retrieved):
-            if step < drop_left:
-                continue
 
             curr_time = time - (n_retrieved - step - 1) * input_data.time_step
 
@@ -280,6 +278,10 @@ def cli(
             date = to_datetime(curr_time)
             date_str = date.strftime("%Y%m%d_%H_%M")
             output_file = output_path / f"chimp_{date_str}.nc"
+
+            if input_step > 0 and output_file.exists() and step < drop_left:
+                continue
+
             LOGGER.info("Writing retrieval results to %s", output_file)
             results_s.to_netcdf(output_path / f"chimp_{date_str}.nc")
 

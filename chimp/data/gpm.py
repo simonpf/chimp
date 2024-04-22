@@ -729,6 +729,7 @@ class GPMCMBAnd(GPMCMB):
             flip=flip,
             quality_threshold=quality_threshold
         )
+
         other_path = self.other_path(path)
         if other_path.exists():
             other_targets = self.other.load_sample(
