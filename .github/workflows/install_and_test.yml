@@ -13,8 +13,8 @@ jobs:
       matrix:
         python-version: ["3.9", "3.10"]
     steps:
-        - uses: actions/checkout@v3
-        - name: Setup
+      - uses: actions/checkout@v3
+      - name: Setup
         uses: conda-incubator/setup-miniconda@v2
         with:
                 miniforge-version: latest
@@ -23,12 +23,12 @@ jobs:
                 channels: conda-forge
                 show-channel-urls: true
                 use-only-tar-bz2: true
-        - name: Install dependencies
+      - name: Install dependencies
         run: |
             mamba install --quiet --yes --file chimp.yml
             mamba activate chimp
             pip install pytest pytest-cov
             pip install -e .
-        - name: Run tests with pytest
+      - name: Run tests with pytest
         run: |
             python -m pytest --cov=pytorch_retrieve tests/ --durations=0 -m "not slow"
