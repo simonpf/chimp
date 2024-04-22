@@ -14,7 +14,6 @@ from chimp.data.baltrad import BALTRAD
 
 BALTRAD_DATA = os.environ.get("BALTRAD_DATA_PATH", None)
 HAS_BALTRAD_DATA = BALTRAD_DATA is not None
-print("BD :: ", HAS_BALTRAD_DATA)
 NEEDS_BALTRAD_DATA = pytest.mark.skipif(not HAS_BALTRAD_DATA, reason="Needs BALTRAD data.")
 
 
