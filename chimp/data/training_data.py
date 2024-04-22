@@ -1055,7 +1055,7 @@ class SequenceDataset(SingleStepDataset):
                 self.sequence_starts[index],
                 min(
                     self.sequence_ends[index] + 1,
-                    self.reference_files.shape[0] - self.sequence_length - self.forecast
+                    self.reference_files.shape[0] - self.sequence_length - self.forecast + 1
                 )
             )
 
