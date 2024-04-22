@@ -1,0 +1,40 @@
+name: chimp
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - pytorch
+  - torchvision
+  - torchaudio
+  - cpuonly
+  - cfgrib
+  - netcdf4
+  - pyyaml
+  - pooch
+  - zarr
+  - dask
+  - pyorbital
+  - pyresample
+  - trollimage
+  - appdirs
+  - h5py
+  - donfig
+  - pillow
+  - numpy
+  - pyspectral
+  - trollsift
+  - xarray
+  - satpy
+  - shapely
+  - cartopy
+  - llvm-openmp
+  - ipywidgets
+  - lightning
+  - protobuf
+  - geopandas
+  - jupyter-book
+  - pip
+  - pip:
+    - "git+https://github.com/see-geo/pansat@refactoring"
+    - "git+https://github.com/simonpf/pytorch_retrieve"
