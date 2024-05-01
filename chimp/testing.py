@@ -22,7 +22,7 @@ from pytorch_retrieve.inference import to_rec
 
 
 from chimp.tiling import Tiler
-from chimp.data.input import get_input_map
+from chimp.data.input import get_input_map, get_input_age
 from chimp.data.training_data import (
     SingleStepDataset,
     SequenceDataset
@@ -62,6 +62,7 @@ def process_tile(
         inputs: Dict[str, torch.Tensor],
         targets: Dict[str, torch.Tensor],
         input_maps: Union[torch.Tensor, List[torch.Tensor]],
+        age_maps: Union[torch.Tensor, List[torch.Tensor]],
         slcs: Tuple[slice],
         metrics: Dict[str, List[ScalarMetric]],
         metrics_conditional: Dict[str, ScalarMetric],
@@ -81,6 +82,7 @@ def process_tile(
         targets: A dictionary mapping target names to corresponding outputs.
         input_maps: The input map representing the input availability or a list of input maps
             for each input time step.
+        age_maps: List of tensors containing the age maps for all retrieval input steps.
         slcs: A tuple of slices to extract the valid domain.
         metrics: A dictionary mapping target names to corresponding metrics
             to compute.
@@ -168,15 +170,20 @@ def process_tile(
 
                 metrics_k_c = metrics_conditional.get(key, {})
                 for ind, metrics_cond in enumerate(metrics_k_c.values()):
-                    target_k_c = target_k.detach().clone()
-                    target_k_c.mask[~input_map[:, ind]] = True
-
-                    if target_k_c.mask.all():
-                        continue
 
                     for metric in metrics_cond:
                         metric = metric.to(device=device)
-                        metric.update(y_pred_k_mean, target_k_c)
+                        if len(age_maps) > 1:
+                            age_map = age_maps[step][:, ind]
+                            target_k_c = target_k.detach().clone()
+                            target_k_c.mask[torch.isnan(age_map)] = True
+                            metric.update(y_pred_k_mean, target_k_c, conditional={"age": age_map})
+                        else:
+                            target_k_c = target_k.detach().clone()
+                            target_k_c.mask[~input_map[:, ind]] = True
+                            if target_k_c.mask.all():
+                                continue
+                            metric.update(y_pred_k_mean, target_k_c)
 
             # Evaluate forecast
             if n_fc > 0:
@@ -229,13 +236,34 @@ def run_tests(
         A the xarray.Dataset containing the calculated error metrics.
     """
     if conditional:
-        metrics_conditional = {
-            target: {
-                inpt.name: [copy(metric) for metric in metrics_t]
-                for inpt in test_dataset.input_datasets
+        sequence_length = 0
+        forecast = 0
+        if hasattr(test_dataset, "sequence_length"):
+            sequence_length = test_dataset.sequence_length
+        if hasattr(test_dataset, "forecast"):
+            forecast = test_dataset.forecast
+
+        if (sequence_length + forecast) > 0:
+            tot_steps = sequence_length
+            bins = (-tot_steps + 0.5, tot_steps - 0.5, 2 * tot_steps - 1)
+            metrics_conditional = {
+                target: {
+                    inpt.name: [
+                        metric.__class__(conditional={"age": bins}) for metric in metrics_t
+                    ]
+                    for inpt in test_dataset.input_datasets
+                }
+                for target, metrics_t in metrics.items()
             }
-            for target, metrics_t in metrics.items()
-        }
+        else:
+            metrics_conditional = {
+                target: {
+                    inpt.name: [copy(metric) for metric in metrics_t]
+                    for inpt in test_dataset.input_datasets
+                }
+                for target, metrics_t in metrics.items()
+            }
+
     else:
         metrics_conditional = {}
 
@@ -277,7 +305,11 @@ def run_tests(
         metrics_persistence = {}
 
 
-    data_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    data_loader = DataLoader(
+        test_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+    )
 
     with Progress() as progress:
         task = progress.add_task("Evaluating retrieval model: ", total=len(data_loader))
@@ -296,12 +328,13 @@ def run_tests(
                     x, y = tiler.get_tile(row_ind, col_ind)
                     x.pop("lead_time", None)
                     input_map = get_input_map(x)
+                    age_map = get_input_age(x)
                     if lead_time is not None:
                         x["lead_time"] = lead_time
 
                     slcs = tiler.get_slices(row_ind, col_ind)
                     process_tile(
-                        model, x, y, input_map, slcs, metrics, metrics_conditional,
+                        model, x, y, input_map, age_map, slcs, metrics, metrics_conditional,
                         metrics_step=metrics_step, metrics_forecast=metrics_forecast,
                         metrics_persistence=metrics_persistence, device=device, dtype=dtype
                     )
@@ -316,7 +349,9 @@ def run_tests(
         for input_name, metrics in metrics_c.items():
             for metric in metrics:
                 res_name = name + "_" + metric.name.lower() + "_" + input_name
-                retrieval_results[res_name] = metric.compute().cpu().numpy()
+                retrieval_results[res_name] = (("age",), metric.compute().cpu().numpy())
+                age_bins = metric.bins[0]
+            retrieval_results["age"] = 0.5 * (age_bins[1:] + age_bins[:-1])
     for name, metrics in metrics_step.items():
         for metric in metrics:
             res_name = name + "_" + metric.name.lower() + "_step"

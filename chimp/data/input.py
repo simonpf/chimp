@@ -449,7 +449,7 @@ def get_input_age(
         inputs: Dict[str, List[torch.Tensor]],
         bidirectional: bool = True,
         ref_shape: Optional[Tuple[int, int]] = None
-) -> torch.Tensor:
+) -> List[torch.Tensor]:
     """
     Calculate the input age for for sequence inputs.
 
