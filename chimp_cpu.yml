@@ -1,9 +1,13 @@
-name: chimp
+name: chimp_cpu
 channels:
   - pytorch
   - conda-forge
   - defaults
 dependencies:
+  - pytorch
+  - torchvision
+  - torchaudio
+  - cpuonly
   - cfgrib
   - netcdf4
   - pyyaml
