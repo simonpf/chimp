@@ -64,7 +64,7 @@ If this is your first time adding credentials to ``pansat``, ``pansat`` will ask
 You can run the following command to verify that the correct account has been added to pansat:
 
 ```
-panst account list
+pansat account list
 ```
 
 ## Synopsis
