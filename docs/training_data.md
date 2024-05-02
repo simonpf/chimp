@@ -7,12 +7,12 @@ line interface to extract training data from them.
 
 ## Data organization
 
-CHIMP organizes the input and reference data used for the retrieval training into separate different folders. Within each folder training samples are organized by sample time. In order to allow combining observations with slightly diffent observations time, the sample times are rounded to a given time step. For a retrieval using a time step of 15 minutes, for example, files for minutes 0, 15, 30, and 45 or every hour are create.
+CHIMP organizes the input and reference data used for the retrieval training into separate different folders. Within each folder training samples are organized by sample time. In order to allow combining observations with slightly diffent observations time, the sample times are rounded to a given time step. For a retrieval using a time step of 15 minutes, for example, files for minutes 0, 15, 30, and 45 of every hour are created.
 
-The example below shows the directory structure for training data for a retrieval
-trained to estimate precipitation from GOES observations based on reference data
-from ground-based precipitation radars provided by the
-Multi-Radar/Multi-Sensor System (MRMS).
+The example below shows the directory structure for a retrieval trained to
+estimate precipitation from GOES observations based on reference data from
+ground-based precipitation radars provided by the Multi-Radar/Multi-Sensor
+System (MRMS).
 
 ```
 ├── goes
@@ -35,12 +35,12 @@ Multi-Radar/Multi-Sensor System (MRMS).
 CHIMP uses the ``pansat`` package to perform cached downloads of the satellite and reference data from which the training data is derived. If not explicitly configured, ``pansat`` will download satellite data into the current working directory, which may not be ideal. This behavior can be changed by registering a data directory with ``pansat``. This can be done using:
 
 ```
-pansat registry add data_directory <name> <path>
+pansat catalog add data_directory <name> <path>
 ```
 
 To check that ``pansat`` has been set up successfully, run
 ```
-pansat registry list
+pansat catalog list
 ```
 and the newly added data directory should be listed in the output.
 
@@ -50,7 +50,7 @@ and the newly added data directory should be listed in the output.
 
 
 ``pansat`` needs a valid user name and password for accessing the NASA GES DISC servers.
-``pansat`` has built in functionality to manage credential for different data providers.
+``pansat`` has built-in functionality to manage credentials for different data providers.
 A username and password for the GES DISC server can be added using
 
 ```shell
@@ -64,7 +64,7 @@ If this is your first time adding credentials to ``pansat``, ``pansat`` will ask
 You can run the following command to verify that the correct account has been added to pansat:
 
 ```
-panst account list-accounts
+panst account list
 ```
 
 ## Synopsis
@@ -72,17 +72,17 @@ panst account list-accounts
 All training-data preparation tasks are performed using a single command, which takes the general form:
 
 ```
-chimp extract_data <dataset_name> <year> <month> <day_1 day_2> <output_path> --domain <domain_name> --time_step --n_processes N
+chimp extract_data <dataset_name> <year> <month> <day_1 day_2> <output_path> --domain <domain_name> --time_step <time_step> --n_processes N
 ```
 
 Where
-- ``dataset`` is the name of the dataset that the data should be extracted from,
-- ``year`` is an integer specifying the year for which to extract data,
-- ``month`` is an integer specifying the month for which to extract data or '?' to extract data for the full year,
-- ``day_1 day2`` is an optional list of days for which to extract data. If omitted, data for the full month will be extracted,
-- ``output_path`` is a path pointing to the directory to which to write the extracted training, validation or test samples,
-- ``domain`` specifies the name of a predefined spatial domain,
-- ``time_step`` is the retrieval time step in minutes,
+- ``<dataset_name>`` is the name of the dataset that the data should be extracted from,
+- ``<year>`` is an integer specifying the year for which to extract data,
+- ``<month>`` is an integer specifying the month for which to extract data or '?' to extract data for the full year,
+- ``<day_1 day2>`` is an optional list of days for which to extract data. If omitted, data for the full month will be extracted,
+- ``<output_path>`` is a path pointing to the directory to which to write the extracted training, validation or test samples,
+- ``<domain>`` specifies the name of a predefined spatial domain,
+- ``<time_step>`` is the retrieval time step in minutes,
 - ``N`` specifies the number of processes to use to extract the data.
 
 
