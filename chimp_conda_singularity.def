@@ -12,6 +12,8 @@ From: mambaorg/micromamba
 
 %post
 
+    apt update
+    apt install -y git
     micromamba env create -f /chimp.yml
     rm -rf n /chimp.yml
     echo ". /singularity_shell_init.sh" >> $SINGULARITY_ENVIRONMENT
