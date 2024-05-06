@@ -359,12 +359,13 @@ class SingleStepDataset(Dataset):
 
         try:
             if not self.full:
-                slices = self.reference_datasets[0].find_random_scene(
-                    self.reference_files[sample_index][0],
+                rd_ind = np.where(self.reference_files[sample_index])[0][0]
+                slices = self.reference_datasets[rd_ind].find_random_scene(
+                    self.reference_files[sample_index][rd_ind],
                     self.rng,
                     multiple=4,
                     scene_size=scene_size,
-                    quality_threshold=self.quality_threshold[0]
+                    quality_threshold=self.quality_threshold[rd_ind]
                 )
                 if slices is None:
                     LOGGER.warning(
@@ -1070,12 +1071,13 @@ class SequenceDataset(SingleStepDataset):
 
             ref_offset = np.where(self.valid_ref[ref_start:ref_end])[0][-1]
             ref_index = ref_start + ref_offset
-            slices = self.reference_datasets[0].find_random_scene(
-                self.reference_files[ref_index][0],
+            rd_ind = np.where(self.reference_files[ref_index])[0][0]
+            slices = self.reference_datasets[rd_ind].find_random_scene(
+                self.reference_files[ref_index][rd_ind],
                 self.rng,
                 multiple=4,
                 scene_size=scene_size,
-                quality_threshold=self.quality_threshold[0],
+                quality_threshold=self.quality_threshold[rd_ind],
             )
             if slices is None:
                 LOGGER.warning(

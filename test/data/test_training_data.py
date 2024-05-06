@@ -362,3 +362,38 @@ def test_load_sparse_data(cpcir_data, cmb_surface_precip_data):
     for x, y in training_data:
         assert len(x["cpcir"]) == 4
         assert len(y["surface_precip"]) == 8
+
+
+def test_load_multiple_reference_datasets(
+        cpcir_data,
+        mrms_reflectivity_data,
+        cmb_surface_precip_data
+):
+    """
+    Ensure that trainign data with multiple reference datasets contains the
+    combined output.
+    """
+    training_data = SingleStepDataset(
+        cpcir_data,
+        input_datasets=["cpcir"],
+        reference_datasets=["cmb", "mrms_reflectivity"],
+        sample_rate=1,
+    )
+    for x, y in training_data:
+        assert "surface_precip" in y
+        assert "reflectivity" in y
+
+    training_data = SequenceDataset(
+        cpcir_data,
+        input_datasets=["cpcir"],
+        reference_datasets=["cmb", "mrms_reflectivity"],
+        sample_rate=1,
+        sequence_length=4,
+        forecast=4,
+        include_input_steps=True
+    )
+    for x, y in training_data:
+        assert "surface_precip" in y
+        assert len(y["surface_precip"]) == 8
+        assert "reflectivity" in y
+        assert len(y["reflectivity"]) == 8
