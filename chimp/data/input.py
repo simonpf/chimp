@@ -608,7 +608,7 @@ class InputLoader():
             if len(times) <= 1:
                 time_step = None
             else:
-                time_step = np.diff(times).min()
+                time_step = np.diff(np.sort(times)).min()
         self.time_step = time_step
 
         self.rng = np.random.default_rng()
