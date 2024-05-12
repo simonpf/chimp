@@ -205,7 +205,7 @@ def test_load_sample_forecast(cpcir_data, mrms_surface_precip_data):
         forecast=4,
         include_input_steps=True
     )
-    assert len(training_data) == 1
+    assert len(training_data) == 2
     x, y = training_data[0]
     assert len(x["cpcir"]) == 8
     assert len(y["surface_precip"]) == 12
@@ -316,7 +316,7 @@ def test_find_sequence_starts_and_ends():
         reference_files,
         2, 1, True
     )
-    assert (starts ==  [0]).all()
+    assert (starts ==  [0, 2]).all()
 
     starts, ends = find_sequence_starts_and_ends(
         input_files,
@@ -357,8 +357,43 @@ def test_load_sparse_data(cpcir_data, cmb_surface_precip_data):
         forecast=4,
         include_input_steps=True
     )
-    assert len(training_data) == 2
+    assert len(training_data) == 3
 
     for x, y in training_data:
         assert len(x["cpcir"]) == 4
         assert len(y["surface_precip"]) == 8
+
+
+def test_load_multiple_reference_datasets(
+        cpcir_data,
+        mrms_reflectivity_data,
+        cmb_surface_precip_data
+):
+    """
+    Ensure that trainign data with multiple reference datasets contains the
+    combined output.
+    """
+    training_data = SingleStepDataset(
+        cpcir_data,
+        input_datasets=["cpcir"],
+        reference_datasets=["cmb", "mrms_reflectivity"],
+        sample_rate=1,
+    )
+    for x, y in training_data:
+        assert "surface_precip" in y
+        assert "reflectivity" in y
+
+    training_data = SequenceDataset(
+        cpcir_data,
+        input_datasets=["cpcir"],
+        reference_datasets=["cmb", "mrms_reflectivity"],
+        sample_rate=1,
+        sequence_length=4,
+        forecast=4,
+        include_input_steps=True
+    )
+    for x, y in training_data:
+        assert "surface_precip" in y
+        assert len(y["surface_precip"]) == 8
+        assert "reflectivity" in y
+        assert len(y["reflectivity"]) == 8

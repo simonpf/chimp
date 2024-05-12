@@ -359,12 +359,13 @@ class SingleStepDataset(Dataset):
 
         try:
             if not self.full:
-                slices = self.reference_datasets[0].find_random_scene(
-                    self.reference_files[sample_index][0],
+                rd_ind = np.where(self.reference_files[sample_index])[0][0]
+                slices = self.reference_datasets[rd_ind].find_random_scene(
+                    self.reference_files[sample_index][rd_ind],
                     self.rng,
                     multiple=4,
                     scene_size=scene_size,
-                    quality_threshold=self.quality_threshold[0]
+                    quality_threshold=self.quality_threshold[rd_ind]
                 )
                 if slices is None:
                     LOGGER.warning(
@@ -640,14 +641,19 @@ class SingleStepDataset(Dataset):
         norm = Normalize(0, n_chans)
         cmap = ScalarMappable(norm=norm, cmap="plasma")
 
-        for ch_ind in range(n_chans - 1):
+        lower = 0.0
+        for ch_ind in range(n_chans):
             color = cmap.to_rgba(ch_ind)
             ax.fill_between(
                 time_steps,
+                lower,
                 counts[ch_ind],
-                counts[ch_ind + 1],
                 facecolor=color
             )
+            lower = counts[ch_ind]
+
+        ax.set_xlim(time_steps[0], time_steps[-1])
+        ax.set_ylim(0, counts[ch_ind].max())
 
         ax.set_ylabel("# valid pixels")
         for label in ax.get_xticklabels():
@@ -656,8 +662,6 @@ class SingleStepDataset(Dataset):
         ax = fig.add_subplot(gs[0, 1])
         plt.colorbar(cmap, cax=ax, label="Channel #")
         ax.set_xlim(start_time, end_time)
-
-        plt.legend()
 
         return fig, ax
 
@@ -910,11 +914,11 @@ def find_sequence_starts_and_ends(
         starts.append(curr_start)
 
         if include_input_steps:
-            seq_len = sequence_length + forecast
+            tot_len = sequence_length
         else:
-            seq_len = forecast
+            tot_len = forecast
 
-        vref = valid_reference[curr_start: curr_start + seq_len]
+        vref = valid_reference[curr_start: curr_start + tot_len]
         wlen = np.where(vref)[0].max()
         ends.append(curr_start + wlen)
         valid_inds = valid_inds[valid_inds > curr_start + wlen]
@@ -1024,7 +1028,10 @@ class SequenceDataset(SingleStepDataset):
                 "The training dataset is exhausted."
             )
 
+
+        rem = index % self.sample_rate
         index = floor(index / self.sample_rate)
+
         offset = 0
         if self.augment and not self.validation:
             if self.sample_rate < 1.0:
@@ -1050,14 +1057,9 @@ class SequenceDataset(SingleStepDataset):
             flip = False
 
         start_index = self.sequence_starts[index]
-        if self.augment and not self.validation:
-            start_index = self.rng.integers(
-                self.sequence_starts[index],
-                min(
-                    self.sequence_ends[index] + 1,
-                    self.reference_files.shape[0] - self.sequence_length - self.forecast + 1
-                )
-            )
+        if self.sample_rate > 1:
+            max_len = self.sequence_ends[index] - self.sequence_starts[index]
+            start_index = self.sequence_starts[index] + floor(rem / (self.sample_rate - 1) * max_len)
 
         if not self.full:
             # Find valid input range for last sample in sequence
@@ -1069,12 +1071,13 @@ class SequenceDataset(SingleStepDataset):
 
             ref_offset = np.where(self.valid_ref[ref_start:ref_end])[0][-1]
             ref_index = ref_start + ref_offset
-            slices = self.reference_datasets[0].find_random_scene(
-                self.reference_files[ref_index][0],
+            rd_ind = np.where(self.reference_files[ref_index])[0][0]
+            slices = self.reference_datasets[rd_ind].find_random_scene(
+                self.reference_files[ref_index][rd_ind],
                 self.rng,
                 multiple=4,
                 scene_size=scene_size,
-                quality_threshold=self.quality_threshold[0],
+                quality_threshold=self.quality_threshold[rd_ind],
             )
             if slices is None:
                 LOGGER.warning(

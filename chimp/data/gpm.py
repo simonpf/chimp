@@ -14,7 +14,7 @@ from typing import Dict,  List, Optional, Tuple, Union
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
 import pansat
-from pansat import Geometry
+from pansat import Geometry, FileRecord
 from pansat.granule import merge_granules
 from pansat.time import TimeRange
 from pansat.products.satellite.gpm import (
@@ -48,7 +48,7 @@ from chimp.data.utils import records_to_paths
 from chimp.utils import get_date
 
 
-from chimp.data.utils import get_output_filename
+from chimp.data.utils import get_output_filename, records_to_paths
 
 
 LOGGER = logging.getLogger(__name__)
@@ -364,7 +364,7 @@ class GPMCMB(ReferenceDataset):
             time_step: np.timedelta64,
             roi: Optional[Geometry] = None,
             path: Optional[Path] = None
-    ) -> List[Path]:
+    ) -> List[FileRecord]:
         """
         Find input data files within a given file range from which to extract
         training data.
@@ -391,8 +391,8 @@ class GPMCMB(ReferenceDataset):
 
         recs = []
         for prod in self.products:
-            recs += prod.get(TimeRange(start_time, end_time))
-        return [rec.local_path for rec in recs]
+            recs += prod.find_files(TimeRange(start_time, end_time))
+        return recs
 
 
     def find_random_scene(
@@ -483,6 +483,7 @@ class GPMCMB(ReferenceDataset):
                the extracted training data.
            time_step: A timedelta object defining the retrieval time step.
         """
+        path = records_to_paths(path)
         output_folder = Path(output_folder) / self.name
         output_folder.mkdir(exist_ok=True)
 
@@ -512,12 +513,16 @@ class GPMCMB(ReferenceDataset):
             data_t = data[{"time": time_ind}]
 
             precip = data_t.surface_precip.data
+            invalid = precip < 0
+            precip[invalid] = np.nan
+
             if np.isfinite(precip).sum() < 100:
                 LOGGER.info(
                     "Less than 100 valid pixels in training sample @ %s.",
                     data_t.time.data
                 )
                 continue
+
 
             encoding = {
                 "surface_precip": {"dtype": "float32", "zlib": True},

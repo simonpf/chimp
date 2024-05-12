@@ -249,6 +249,13 @@ MRMS_PRECIP_RATE = MRMSData(
     "rqi"
 )
 
+MRMS_REFLECTIVITY = MRMSData(
+    "mrms_reflectivity",
+    4,
+    [RetrievalTarget("reflectivity")],
+    "rqi"
+)
+
 MRMS_PRECIP_RATE_AND_TYPE = MRMSData(
     "mrms_w_type",
     4,

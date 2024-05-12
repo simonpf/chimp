@@ -98,6 +98,47 @@ def mrms_surface_precip_data(tmp_path):
 
 
 @pytest.fixture
+def mrms_reflectivity_data(tmp_path):
+    """
+    Initialize a temporary directory with random training data files
+    of MRMS reflectivity data.
+    """
+    data_path = tmp_path / "mrms"
+    data_path.mkdir()
+
+    times = np.arange(
+        np.datetime64("2020-01-01T00:00:00", "s"),
+        np.datetime64("2020-01-01T12:00:00", "s"),
+        np.timedelta64(30, "m"),
+    )
+    lons, lats = areas.CONUS_4.get_lonlats()
+    lons = lons[0]
+    lats = lats[..., 0]
+
+    for time in times:
+        rqi = random_spectral_field((lats.size, lons.size), 10)
+        rqi += rqi.min()
+        med = np.median(rqi)
+        rqi = np.minimum(rqi, med) / med
+
+        refl = random_spectral_field((lats.size, lons.size), 10).astype("float32")
+
+        filename = get_output_filename("mrms", time, np.timedelta64(30, "m"))
+        dataset = xr.Dataset(
+            {
+                "latitude": (("latitude"), lats),
+                "longitude": (("longitude"), lons),
+                "reflectivity": (("latitude", "longitude"), refl),
+                "rqi": (("latitude", "longitude"), rqi),
+                "time": ((), time),
+            }
+        )
+        dataset.to_netcdf(data_path / filename)
+
+    return tmp_path
+
+
+@pytest.fixture
 def cpcir_data(tmp_path):
     """
     Initialize a temporary directory with random training data files
