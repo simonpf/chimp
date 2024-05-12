@@ -43,3 +43,15 @@ def test_process_file(tmp_path):
         tmp_path,
         np.timedelta64(15, "m")
     )
+
+    training_files = BALTRAD.find_training_files(tmp_path)
+    assert len(training_files) == 1
+    crop_size = NORDICS[4].shape
+    ref_data = BALTRAD.load_sample(
+        training_files[0],
+        crop_size=crop_size,
+        base_scale=4,
+        slices=(0, crop_size[0], 0, crop_size[1]),
+        rng=None
+    )
+    assert "reflectivity" in ref_data

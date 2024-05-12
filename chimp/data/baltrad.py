@@ -135,26 +135,26 @@ class BaltradData(FilenameRegexpMixin, Product):
         with File(rec.local_path, "r") as data:
 
             #
-            # DBZ
+            # Reflectivity
             #
 
-            dbz = np.array(data["dataset1/data3"]["data"][:])
+            refl = np.array(data["dataset1/data3"]["data"][:])
             gain = data["dataset1"]["data3"]["what"].attrs["gain"]
             offset = data["dataset1"]["data3"]["what"].attrs["offset"]
             no_data = data["dataset1"]["data3"]["what"].attrs["nodata"]
             undetect = data["dataset1"]["data3"]["what"].attrs["undetect"]
             qty = data["dataset1"]["data3"]["what"].attrs["quantity"].decode()
 
-            dbz = dbz.astype(np.float32)
-            dbz[dbz == no_data] = np.nan
-            dbz = dbz * gain + offset
-            dataset = xr.Dataset({"dbz": (("y", "x"), dbz)})
+            refl = refl.astype(np.float32)
+            refl[refl == no_data] = np.nan
+            refl = refl * gain + offset
+            dataset = xr.Dataset({"reflectivity": (("y", "x"), refl)})
 
-            dataset.dbz.attrs["scale_factor"] = gain
-            dataset.dbz.attrs["add_offset"] = offset
-            dataset.dbz.attrs["missing"] = no_data
-            dataset.dbz.attrs["undetect"] = undetect
-            dataset.dbz.attrs["quantity"] = qty
+            dataset.reflectivity.attrs["scale_factor"] = gain
+            dataset.reflectivity.attrs["add_offset"] = offset
+            dataset.reflectivity.attrs["missing"] = no_data
+            dataset.reflectivity.attrs["undetect"] = undetect
+            dataset.reflectivity.attrs["quantity"] = qty
 
             #
             # Quality index
@@ -202,7 +202,7 @@ class Baltrad(ReferenceDataset):
 
     def __init__(self):
         super().__init__(
-            "baltrad", scale=4, targets=[RetrievalTarget("dbz")], quality_index="qi"
+            "baltrad", scale=4, targets=[RetrievalTarget("reflectivity")], quality_index="qi"
         )
 
 
@@ -237,7 +237,12 @@ class Baltrad(ReferenceDataset):
             )
         path = Path(path)
         all_files = sorted(list(path.glob("**/*.h5")))
-        matching = [path for path in all_files if baltrad_product.matches(path)]
+        time_range = TimeRange(start_time, end_time)
+        matching = []
+        for baltrad_file in all_files:
+            if baltrad_product.matches(baltrad_file):
+                if baltrad_product.get_temporal_coverage(baltrad_file).covers(time_range):
+                    matching.append(baltrad_file)
         return matching
 
 
@@ -274,10 +279,10 @@ class Baltrad(ReferenceDataset):
             "baltrad", time, time_step
         )
         encoding = {
-            "dbz": {
-                "add_offset": data.dbz.attrs["add_offset"],
-                "scale_factor": data.dbz.attrs["scale_factor"],
-                "_FillValue": data.dbz.attrs["missing"],
+            "reflectivity": {
+                "add_offset": data.reflectivity.attrs["add_offset"],
+                "scale_factor": data.reflectivity.attrs["scale_factor"],
+                "_FillValue": data.reflectivity.attrs["missing"],
                 "zlib": True
             },
             "qi": {
