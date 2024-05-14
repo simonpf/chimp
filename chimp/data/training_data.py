@@ -888,7 +888,8 @@ def find_sequence_starts_and_ends(
     valid_inputs = np.any(input_files != None, -1).astype(np.float32)
     k = np.ones(2 * sequence_length - 1)
     k[sequence_length:] = 0.0
-    valid_inputs = signal.convolve(valid_inputs, k, mode="same", method="direct") > 0.0
+    thresh = k.sum() * 0.5
+    valid_inputs = signal.convolve(valid_inputs, k, mode="same", method="direct") >= thresh
     valid_inputs= valid_inputs[:-(sequence_length + forecast - 1)]
 
     valid_reference = np.any(reference_files != None, -1).astype(np.float32)
@@ -1012,7 +1013,7 @@ class SequenceDataset(SingleStepDataset):
             self.input_files,
             self.reference_files,
             self.sequence_length,
-            self.forecast,
+            self.forecast_range,
             self.include_input_steps
         )
         self.sequence_starts, self.sequence_ends = seqs
@@ -1094,6 +1095,7 @@ class SequenceDataset(SingleStepDataset):
         x = {}
         y = {}
 
+        any_ref_data = False
 
         for step in range(self.sequence_length):
             step_index = start_index + step
@@ -1136,6 +1138,8 @@ class SequenceDataset(SingleStepDataset):
                             ) for name, tensor in y_i.items()
                         }
                     for name, inpt in y_i.items():
+                        if torch.any(torch.isfinite(inpt)):
+                            any_ref_data = True
                         y.setdefault(name, []).append(inpt)
 
         if self.forecast == 0:
@@ -1162,11 +1166,24 @@ class SequenceDataset(SingleStepDataset):
                 return self[new_ind]
 
             for name, inpt in y_i.items():
+                if torch.any(torch.isfinite(inpt)):
+                    any_ref_data = True
                 y.setdefault(name, []).append(inpt)
 
             lead_time = self.time_step * (1 + step_index - start_index - self.sequence_length)
             minutes = lead_time.astype("int64") // 60
             x.setdefault("lead_time", []).append(minutes)
+
+        # If there's no reference data, return other sample.
+        if not any_ref_data:
+            LOGGER.warning(
+                "No valid reference data for sequence input starting at "
+                "%s. Falling back to another radomly-chosen sample.",
+                self.times[start_index]
+            )
+            new_ind = self.rng.integers(0, len(self))
+            return self[new_ind]
+
 
         x["lead_time"] = torch.tensor(x["lead_time"])
 
