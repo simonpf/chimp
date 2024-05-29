@@ -163,7 +163,7 @@ class SingleStepDataset(Dataset):
 
         if time_step is None:
             time_step = np.min(np.diff(times))
-        self.time_step = time_step
+        self.time_step = time_step.astype("timedelta64[s]")
 
         # Ensure that data is consistent
         assert len(self.times) == len(self.reference_files)
@@ -1171,7 +1171,7 @@ class SequenceDataset(SingleStepDataset):
                 y.setdefault(name, []).append(inpt)
 
             lead_time = self.time_step * (1 + step_index - start_index - self.sequence_length)
-            minutes = lead_time.astype("int64") // 60
+            minutes = lead_time.astype("timedelta64[s]").astype("int64") // 60
             x.setdefault("lead_time", []).append(minutes)
 
         # If there's no reference data, return other sample.
