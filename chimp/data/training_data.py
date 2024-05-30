@@ -1088,7 +1088,7 @@ class SequenceDataset(SingleStepDataset):
                     self.reference_files[ref_index][0]
                 )
                 new_ind = self.rng.integers(0, len(self))
-                return self[new_ind]
+                return SequenceDataset.__getitem__(self, new_ind)
         else:
             slices = (0, scene_size[0], 0, scene_size[1])
 
@@ -1112,7 +1112,7 @@ class SequenceDataset(SingleStepDataset):
                         self.input_files[step_index]
                     )
                     new_ind = self.rng.integers(0, len(self))
-                    return self[new_ind]
+                    return SequenceDataset.__getitem__(self, new_ind)
 
                 for name, inpt in x_i.items():
                     x.setdefault(name, []).append(inpt)
@@ -1129,7 +1129,7 @@ class SequenceDataset(SingleStepDataset):
                             self.reference_files[step_index]
                         )
                         new_ind = self.rng.integers(0, len(self))
-                        return self[new_ind]
+                        return SequenceDataset.__getitem__(self, new_ind)
 
                     if self.shrink_output:
                         y_i = {
@@ -1163,7 +1163,7 @@ class SequenceDataset(SingleStepDataset):
                     self.reference_files[step_index]
                 )
                 new_ind = self.rng.integers(0, len(self))
-                return self[new_ind]
+                return SequenceDataset.__getitem__(self, new_ind)
 
             for name, inpt in y_i.items():
                 if torch.any(torch.isfinite(inpt)):
@@ -1182,8 +1182,7 @@ class SequenceDataset(SingleStepDataset):
                 self.times[start_index]
             )
             new_ind = self.rng.integers(0, len(self))
-            return self[new_ind]
-
+            return SequenceDataset.__getitem__(self, new_ind)
 
         x["lead_time"] = torch.tensor(x["lead_time"])
 
