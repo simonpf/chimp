@@ -167,6 +167,9 @@ class MRMSData(ReferenceDataset):
                 time_n = round_time(time_c, time_step)
                 delta = abs(time_c - time_n)
 
+                if delta > time_step:
+                    continue
+
                 min_delta = matched_deltas.get(time_n, None)
                 if min_delta is None:
                     matched_recs[time_n] = rec

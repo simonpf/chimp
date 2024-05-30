@@ -18,7 +18,7 @@ def test_find_files_mrms():
     Ensure that MRMS files are found for a given time range.
     """
     start_time = np.datetime64("2023-01-01T00:00:00")
-    end_time = np.datetime64("2023-01-01T00:57:00")
+    end_time = np.datetime64("2023-01-01T00:56:00")
     time_step = np.timedelta64(15, "m")
     files = MRMS_PRECIP_RATE.find_files(
         start_time,
