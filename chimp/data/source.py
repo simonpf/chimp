@@ -143,7 +143,7 @@ class DataSource(ABC):
         return failed
 
 
-    def find_training_files(self, path: Path) -> List[Path]:
+    def find_training_files(self, path: Union[Path, List[Path]]) -> List[Path]:
         """
         Find training data files.
 
@@ -157,6 +157,8 @@ class DataSource(ABC):
         pattern = "*????????_??_??.nc"
         reference_files = sorted(
             list((path / self.name).glob(pattern))
+            if isinstance(path, Path) else
+            list(f for f in path if f in list(f.parent.glob(pattern)))
         )
         return reference_files
 
