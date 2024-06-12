@@ -91,7 +91,7 @@ class SingleStepDataset(Dataset):
             require_ref_data: If 'True' only samples with corresponding reference
                 data are considered.
         """
-        self.path = Path(path)
+        self.path = path
 
         self.input_datasets = np.array([
             get_input_dataset(input_dataset) for input_dataset in input_datasets
