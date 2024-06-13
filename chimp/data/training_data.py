@@ -56,7 +56,7 @@ class SingleStepDataset(Dataset):
     """
     def __init__(
         self,
-        path: Union[Path, List[Path]],
+        path: Path,
         input_datasets: List[Union[str, InputDataset]],
         reference_datasets: List[Union[str, ReferenceDataset]],
         sample_rate: float = 1.0,
@@ -71,7 +71,7 @@ class SingleStepDataset(Dataset):
     ):
         """
         Args:
-            path: The root directory or a list of files containing the training data.
+            path: The root directory containing the training data.
             input_datasets: List of the input datasets or their names from which
                 to load the retrieval input data.
             reference_datasets: List of the reference datasets or their names
@@ -90,7 +90,7 @@ class SingleStepDataset(Dataset):
             require_ref_data: If 'True' only samples with corresponding reference
                 data are considered.
         """
-        self.path = path
+        self.path = Path(path)
 
         self.input_datasets = np.array([
             get_input_dataset(input_dataset) for input_dataset in input_datasets
