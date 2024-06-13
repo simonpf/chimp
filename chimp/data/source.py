@@ -158,7 +158,7 @@ class DataSource(ABC):
         reference_files = sorted(
             list((path / self.name).glob(pattern))
             if isinstance(path, Path) else
-            list(f for f in path if f in list(f.parent.glob(pattern)))
+            list(f for f in path if f in list(f.parent.glob(self.name + pattern)))
         )
         return reference_files
 
