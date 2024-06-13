@@ -553,7 +553,8 @@ class InputLoader():
     ):
         """
         Args:
-            path: The path pointing to the directory containing the inputs.
+            path: The path pointing to the directory containing the inputs
+                or pathes to a set of files.
             input_datasets: A list of names of input datasets.
             start_time: An optional start time to limit the input samples loaded
                 by the loader.
@@ -661,7 +662,7 @@ class SequenceInputLoader(InputLoader):
     """
     def __init__(
             self,
-            path: Path,
+            path: Union[Path, List[Path]],
             input_datasets: List[str],
             sequence_length: int,
             forecast: int = 0,
@@ -672,7 +673,8 @@ class SequenceInputLoader(InputLoader):
     ):
         """
         Args:
-            path: The path pointing to the directory containing the inputs.
+            path: The path pointing to the directory containing the inputs
+                or pathes to a set of files.
             input_datasets: A list of names of input datasets.
             sequence_length: The length of the input sequences.
             forecast: The number of forecast steps to perform.
