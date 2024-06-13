@@ -3,7 +3,9 @@ Tests for the chimp.data.input module
 =====================================
 """
 import numpy as np
+import pytest
 import torch
+from pathlib import Path
 
 from chimp.data.gpm import GMI
 from chimp.data.input import (
@@ -38,12 +40,16 @@ def test_load_sample(gmi_data):
     assert x.shape == (13, 128, 128)
 
 
-def test_input_loader(gmi_data):
+@pytest.mark.parametrize("glob", (False, True))
+def test_input_loader(gmi_data: Path, glob: bool):
     """
     Test InputLoader for single-step input data.
     """
     input_loader = InputLoader(
-        gmi_data,
+        (
+            gmi_data if not glob else
+            list((gmi_data / "gmi").glob("*.nc"))
+        ),
         input_datasets=["gmi"],
     )
 
@@ -55,12 +61,22 @@ def test_input_loader(gmi_data):
     assert "gmi" in x
 
 
-def test_sequence_input_loader(cpcir_data, gmi_data):
+@pytest.mark.parametrize("glob", (False, True))
+def test_sequence_input_loader(
+    cpcir_data: Path,
+    gmi_data: Path,
+    glob: bool,
+):
     """
     Test InputLoader for single-step input data.
     """
     input_loader = SequenceInputLoader(
-        cpcir_data,
+        (
+            cpcir_data if not glob else (
+              list((cpcir_data / "cpcir").glob("*.nc"))
+              + list((gmi_data / "gmi").glob("*.nc"))
+            )
+        ),
         input_datasets=["cpcir", "gmi"],
         sequence_length=8
     )
