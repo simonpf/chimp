@@ -544,7 +544,7 @@ class InputLoader():
     """
     def __init__(
             self,
-            path: Path,
+            path: Union[Path, List[Path]],
             input_datasets: List[str],
             start_time: Optional[np.datetime64] = None,
             end_time: Optional[np.datetime64] = None,
@@ -563,7 +563,7 @@ class InputLoader():
                missin values.
             time_step: The time step between consecutive inputs.
         """
-        self.path = Path(path)
+        self.path = path
         self.input_datasets = [
             get_input_dataset(input_dataset) for input_dataset in input_datasets
         ]
