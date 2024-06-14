@@ -237,6 +237,7 @@ def get_reference_dataset(name: Union[str, ReferenceDataset]) -> ReferenceDatase
     from . import baltrad
     from . import mrms
     from . import daily_precip
+    from . import opera
     extensions.load()
 
     if isinstance(name, DataSource):

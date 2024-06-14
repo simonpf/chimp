@@ -43,6 +43,7 @@ class Opera(ReferenceDataset):
             "opera_" + self.target_name,
             scale=4,
             targets=[RetrievalTarget(target_name)],
+            quality_index="qi"
         )
 
     def find_files(
