@@ -1058,7 +1058,9 @@ class SequenceDataset(SingleStepDataset):
         start_index = self.sequence_starts[index]
         if self.sample_rate > 1:
             max_len = self.sequence_ends[index] - self.sequence_starts[index]
-            start_index = self.sequence_starts[index] + floor(rem / (self.sample_rate - 1) * max_len)
+            start_index = (
+                self.sequence_starts[index] + floor(rem / (self.sample_rate - 1) * max_len)
+            )
 
         if not self.full:
             # Find valid input range for last sample in sequence
@@ -1121,7 +1123,7 @@ class SequenceDataset(SingleStepDataset):
                             self.reference_files[step_index], slices, self.scene_size, rotate=ang, flip=flip
                         )
                     except Exception as exc:
-                        LOGGER.warning(
+                        LOGGER.exception(
                             "Encountered an error when loading reference data from files '%s'."
                             "Falling back to another radomly-chosen sample.",
                             self.reference_files[step_index]

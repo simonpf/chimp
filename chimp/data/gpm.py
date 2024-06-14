@@ -171,18 +171,18 @@ class GPML1CData(InputDataset):
         swath_data =  []
 
         for swath in range(1, self.n_swaths + 1):
+            new_names = {
+                f"scan_time": "time",
+            }
             if self.n_swaths > 1:
-                new_names = {
+                new_names.update({
                     f"latitude_s{swath}": "latitude",
                     f"longitude_s{swath}": "longitude",
                     f"tbs_s{swath}": "tbs",
                     f"incidence_angle_s{swath}": "incidence_angle",
-                    f"scan_time": "time",
                     f"channels_s{swath}": "channels",
-                }
-                data = input_data.rename(new_names)
-            else:
-                data = input_data
+                })
+            data = input_data.rename(new_names)
 
             vars = ["latitude", "longitude", "tbs", "incidence_angle", "time"]
             data = data[vars]
@@ -201,6 +201,8 @@ class GPML1CData(InputDataset):
             # Need to expand scan time to full dimensions.
             time, _ = xr.broadcast(data.time, data.longitude)
             data["time"] = time
+            tbs = data.tbs.data
+            tbs[tbs < 0] = np.nan
 
             data_s = resample_and_split(
                     data,
@@ -211,7 +213,7 @@ class GPML1CData(InputDataset):
                 )
 
             if data_s is None:
-                continue
+                return None
 
             if self.include_incidence_angle and data_s.incidence_angle.data.ndim == 2:
                 angs, _ = xr.broadcast_to(data_s.incidence_angle, data_s.tbs)
@@ -322,7 +324,7 @@ MHS_PRODUCTS = [
     l1c_metopb_mhs,
     l1c_metopc_mhs,
 ]
-MHS = GPML1CData("mhs", 8, MHS_PRODUCTS, None, 5, 64e3)
+MHS = GPML1CData("mhs", 8, MHS_PRODUCTS, 1, 5, 64e3)
 
 SSMIS_PRODUCTS = [
     l1c_f16_ssmis,
@@ -492,6 +494,9 @@ class GPMCMB(ReferenceDataset):
             "scan_time": "time",
             "estim_surf_precip_tot_rate": "surface_precip"
         })[["time", "surface_precip"]]
+
+        surface_precip = data.surface_precip.data
+        surface_precip[surface_precip < 0] = np.nan
 
         # Need to expand scan time to full dimensions.
         time, _ = xr.broadcast(data.time, data.longitude)
