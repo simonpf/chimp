@@ -38,7 +38,6 @@ from pytorch_retrieve.tensors.masked_tensor import MaskedTensor
 
 from chimp import data
 from chimp.definitions import MASK
-from chimp.utils import get_date
 from chimp.data import (
     get_input_dataset,
     get_reference_dataset,
@@ -110,8 +109,7 @@ class SingleStepDataset(Dataset):
 
         sample_files = {}
         for ref_ind, reference_dataset in enumerate(self.reference_datasets):
-            files = reference_dataset.find_training_files(self.path)
-            times = np.array(list(map(get_date, files)))
+            times, files = reference_dataset.find_training_files(self.path)
             for time, filename in zip(times, files):
                 files = sample_files.setdefault(time, ([None] * n_datasets))
                 files[ref_ind] = filename
@@ -122,9 +120,9 @@ class SingleStepDataset(Dataset):
                 f" reference datasets '{[ds.name for ds in self.reference_datasets]}'."
             )
 
+        ref_times = np.array(list(sample_files.keys()))
         for input_ind, input_dataset in enumerate(self.input_datasets):
-            input_files = input_dataset.find_training_files(self.path)
-            times = np.array(list(map(get_date, input_files)))
+            times, input_files = input_dataset.find_training_files(self.path, times=ref_times)
             for time, input_file in zip(times, input_files):
                 if time in sample_files or not require_ref_data:
                     files = sample_files.setdefault(time, [None] * n_datasets)

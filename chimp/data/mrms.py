@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 import logging
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from h5py import File
 import numpy as np
@@ -28,6 +28,7 @@ from pansat.time import to_datetime64
 import xarray as xr
 
 from chimp.areas import Area
+from chimp.utils import get_date
 from chimp.data.utils import get_output_filename, round_time, records_to_paths
 from chimp.data.reference import ReferenceDataset, RetrievalTarget
 
@@ -226,21 +227,28 @@ class MRMSData(ReferenceDataset):
         save_file(data, output_folder, filename)
 
 
-    def find_training_files(self, path: Path) -> List[Path]:
+    def find_training_files(
+            self,
+            path: Path,
+            times: Optional[np.ndarray] = None
+    )  -> Tuple[np.ndarray, List[Path]]:
         """
         Find MRMS training data files.
 
         Args:
             path: Path to the folder containing the training data.
+            times: Not used.
 
         Return:
-            A list of found reference data files.
+            A tuple ``(times, paths)`` containing the times for which training
+            files are available and the paths pointing to the corresponding file.
         """
         pattern = "*????????_??_??.nc"
         reference_files = sorted(
             list((path / "mrms").glob(pattern))
         )
-        return reference_files
+        times = np.array(list(map(get_date, reference_files)))
+        return times, reference_files
 
 
 

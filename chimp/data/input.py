@@ -18,7 +18,6 @@ import xarray as xr
 from pytorch_retrieve.tensors import MaskedTensor
 
 from chimp import extensions
-from chimp.utils import get_date
 from chimp.data.utils import scale_slices
 from chimp.data.source import DataSource
 
@@ -73,6 +72,7 @@ def get_input_dataset(name: Union[str, InputBase]) -> InputBase:
     from . import gridsat
     from . import ssmi
     from . import patmosx
+    from . import wxfm
     extensions.load()
 
     if isinstance(name, InputBase):
@@ -575,8 +575,7 @@ class InputLoader():
         scene_sizes = [None] * n_input_datasets
 
         for input_ind, input_dataset in enumerate(self.input_datasets):
-            input_files = input_dataset.find_training_files(self.path)
-            times = np.array(list(map(get_date, input_files)))
+            times, input_files = input_dataset.find_training_files(self.path)
 
             # Determine input size for all inputs.
             if len(input_files) > 0:

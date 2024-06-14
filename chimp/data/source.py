@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 import logging
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import List, Optional, Tuple, Union
 
 
 import numpy as np
@@ -24,6 +24,7 @@ from pansat.time import to_datetime64, to_timedelta64
 
 from chimp.areas import Area
 from chimp.data.utils import round_time
+from chimp.utils import get_date
 from chimp import extensions
 
 
@@ -143,22 +144,30 @@ class DataSource(ABC):
         return failed
 
 
-    def find_training_files(self, path: Path) -> List[Path]:
+    def find_training_files(
+            self,
+            path: Path,
+            times: Optional[np.ndarray] = None
+    ) -> Tuple[np.ndarray, List[Path]]:
         """
         Find training data files.
 
         Args:
             path: Path to the folder the training data for all input
                 and reference datasets.
+            times: Optional array containing valid reference data times for static
+                inputs.
 
         Return:
-            A list of found reference data files.
+            A tuple ``(times, paths)`` containing the times for which training
+            files are available and the paths pointing to the corresponding file.
         """
         pattern = "*????????_??_??.nc"
-        reference_files = sorted(
+        training_files = sorted(
             list((path / self.name).glob(pattern))
         )
-        return reference_files
+        times = np.array(list(map(get_date, training_files)))
+        return times, training_files
 
 
 def get_source(name: Union[str, DataSource]) -> DataSource:

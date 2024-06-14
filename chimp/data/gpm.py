@@ -304,7 +304,7 @@ ATMS_W_ANGLE = GPML1CData(
     input_name = "atms",
     include_incidence_angle=True
 )
-ATMS_W_ANGLE = GPML1CData(
+ATMS_2H = GPML1CData(
     "atms_2h",
     16,
     [l1c_noaa20_atms, l1c_npp_atms],
@@ -560,7 +560,11 @@ class GPMCMBAnd(GPMCMB):
         other_path = path.parent.parent / self.other.name / other_filename
         return other_path
 
-    def _find_training_files(self, path: Path, name: str):
+    def _find_training_files(
+            self,
+            path: Path,
+            name: str
+    ) -> Tuple[np.ndarray, List[Path]]:
         """
         Find training data files.
 
@@ -570,32 +574,45 @@ class GPMCMBAnd(GPMCMB):
             name: The name of the dataset.
 
         Return:
-            A list of found reference data files.
+            A tuple ``(times, files)`` specifying the timestamps and corresponding files
+            the have been found for this input.
         """
         pattern = "*????????_??_??.nc"
-        reference_files = sorted(
+        training_files = sorted(
             list((path / name).glob(pattern))
         )
-        return reference_files
+        times = np.array(list(map(get_date, training_files)))
+        return times, training_files
 
-    def find_training_files(self, path: Path) -> List[Path]:
+    def find_training_files(
+            self,
+            path: Path,
+            times: Optional[np.ndarray] = None
+    ) -> Tuple[np.ndarray, List[Path]]:
         """
         Find training data files.
 
         Args:
             path: Path to the folder the training data for all input
                 and reference datasets.
+            times: Optional array containing valid reference data times for static
+                inputs.
 
         Return:
-            A list of found reference data files.
+            A tuple ``(times, files)`` specifying the timestamps and corresponding files
+            the have been found for this input.
         """
-        cmb_files = self._find_training_files(path, "cmb")
-        other_files = self._find_training_files(path, self.other.name)
-        cmb_dates = set(map(get_date,cmb_files))
-        for other_file in other_files:
-            if get_date(other_file) not in cmb_dates:
-                cmb_files.append(other_file)
-        return sorted(cmb_files)
+        cmb_times, cmb_files = self._find_training_files(path, "cmb")
+        other_times, other_files = self._find_training_files(path, self.other.name)
+
+        files = {cmb_time: cmb_file for cmb_time, cmb_file in zip(cmb_times, cmb_files)}
+        other_files = {
+            other_time: other_file for other_time, other_file in zip(other_times, other_files)
+        }
+        for time, other_file in other_files.items():
+            if time not in files:
+                files[time] = other_file
+        return (np.array(list(files.keys())), list(files.values()))
 
 
     def find_random_scene(

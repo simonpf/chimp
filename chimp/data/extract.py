@@ -79,6 +79,7 @@ def cli(
     import chimp.data.baltrad
     import chimp.data.opera
     import chimp.data.s2s
+    import chimp.data.wxfm
 
     #
     # Check and load inputs.
