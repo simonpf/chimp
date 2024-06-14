@@ -93,7 +93,7 @@ class SEVIRIL1B(InputDataset):
                 from which to extract the observations.
             channel_configuration: A 'str' specifying the channel configuration.
         """
-        super().__init__(name, "seviri", 4, ["obs"])
+        super().__init__(name, name, 4, {"obs": CHANNEL_CONFIGURATIONS[channel_configuration]})
         self.pansat_product = pansat_product
         if not channel_configuration.upper() in CHANNEL_CONFIGURATIONS:
             raise RuntimeError(

@@ -196,7 +196,16 @@ class InputDataset(InputBase):
                     vars = [vars]
                 all_data = []
                 for vrbl in vars:
-                    x_s = data[vrbl][dict(zip(self.spatial_dims, slices))].data
+                    for param, params in vrbl.items():
+                        if param in data:
+                            x_s = data[param][dict(zip(self.spatial_dims, slices))].data
+                        else:
+                            x_s = np.dstack(
+                                [
+                                    data[p][dict(zip(self.spatial_dims, slices))].data
+                                    for p in params
+                                ]
+                            )
                     if np.issubdtype(x_s.dtype, np.timedelta64):
                         x_s = x_s.astype("timedelta64[m]").astype("float32")
                         x_s[x_s < -1e16] = np.nan
