@@ -5,12 +5,13 @@ chimp.data.wxfm
 This module provides input data for the NASA Weather and Climate Foundation
 Model (WxFM).
 """
+import logging
 from pathlib import Path
 from typing import List, Optional
 
 import numpy as np
 from pansat import FileRecord, Geometry, TimeRange
-from pansat.products.reanalysis.merra import MERRA2
+from pansat.products.reanalysis.merra import MERRA2, MERRA2Constant
 import xarray as xr
 
 from chimp.areas import Area
@@ -20,6 +21,9 @@ from chimp.data.utils import (
     records_to_paths,
     round_time
 )
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 LEVELS = [
@@ -99,6 +103,7 @@ DYNAMIC_PRODUCTS = [
     m2t1nxflx,
     m2t1nxrad
 ]
+
 
 
 class WxFMDynamicData(InputDataset):
@@ -181,13 +186,11 @@ class WxFMDynamicData(InputDataset):
 
         all_data = []
         for path in paths:
-            print(path)
             with xr.open_dataset(path) as data:
                 vars = [
                     var for var in VERTICAL_VARS + SURFACE_VARS if var in data.variables
                 ]
                 data = data[vars]
-                print(data)
                 if "lev" in data:
                     data = data.loc[{"lev": np.array(LEVELS)}]
                 all_data.append(data.load())
@@ -213,8 +216,7 @@ class WxFMDynamicData(InputDataset):
         start_time = round_time(data.time.min().data, time_step)
         end_time = round_time(data.time.max().data, time_step)
         time = start_time
-        while time < end_time:
-            print(time)
+        while time <= end_time:
             data_t = data.interp(time=time, method="nearest")
             filename = get_output_filename(
                 self.name, time, time_step
@@ -229,6 +231,16 @@ class WxFMDynamicData(InputDataset):
 
 WXFM_DYNAMIC = WxFMDynamicData()
 
+m2conxasm = MERRA2Constant(
+    collection="m2conxasm",
+)
+m2conxctm = MERRA2Constant(
+    collection="m2conxctm",
+)
+STATIC_PRODUCTS = [
+    m2conxasm,
+    m2conxctm
+]
 
 class WxFMStaticData(InputDataset):
     """
@@ -236,7 +248,7 @@ class WxFMStaticData(InputDataset):
     """
     def __init__(self):
         InputDataset.__init__(self, "wxfm_static", "wxfm_static", 64, "input", n_dim=2)
-        self.products = DYNAMIC_PRODUCTS
+        self.products = STATIC_PRODUCTS
 
 
     def find_files(
@@ -264,27 +276,10 @@ class WxFMStaticData(InputDataset):
             A list of locally available files to extract CHIMP training data from.
 
         """
-        time_range = TimeRange(start_time, end_time)
-        matches = {}
-        if path is not None:
-            path = Path(path)
-            all_files = sorted(list(path.glob("**/*.nc4")))
-            matching = []
-            for prod in self.products:
-                if not prod.matches(path): continue
-                time_range = prod.get_temporal_coverage(path)
-                start_time = time_range.start
-                if prod.get_temporal_coverage(path).covers(time_range):
-                    matches.setdefault(start_time, []).append(prod)
-        else:
-            for prod in self.products:
-                recs = prod.find_files(TimeRange(start_time, end_time))
-
-                for rec in recs:
-                    start_time = rec.temporal_coverage.start
-                    matches.setdefault(start_time, []).append(rec)
-
-        return list(matches.values())
+        recs = []
+        for prod in self.products:
+            recs += prod.find_files(TimeRange("2000-01-01"))
+        return [recs]
 
 
     def process_file(
@@ -329,24 +324,13 @@ class WxFMStaticData(InputDataset):
             lats = xr.DataArray(lats, dims=("y", "x"))
             data = data.interp(latitude=lats, longitude=lons)
 
-        start_time = round_time(data.time.min().data, time_step)
-        end_time = round_time(data.time.max().data, time_step)
-
         output_path = Path(output_folder) / "wxfm_static"
         output_path.mkdir(exist_ok=True, parents=True)
-
-        time = start_time
-        while time < end_time:
-            print(time)
-            data_t = data.interp(time=time, method="nearest")
-            filename = get_output_filename(
-                self.name, time, time_step
-            )
-            encoding = {
-                var: {"dtype": "float32", "zlib": True} for var in data_t.variables
-            }
-            data_t.to_netcdf(output_path / filename, encoding=encoding)
-            time += time_step
+        filename = self.name + ".nc"
+        encoding = {
+            var: {"dtype": "float32", "zlib": True} for var in data.variables
+        }
+        data.to_netcdf(output_path / filename, encoding=encoding)
 
 
 WXFM_STATIC = WxFMStaticData()

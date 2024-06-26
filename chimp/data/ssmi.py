@@ -30,7 +30,7 @@ from chimp.data.resample import split_time, resample_and_split
 LOGGER = logging.getLogger(__name__)
 
 
-LOGGER = logging.getLogger(__name__)
+
 
 
 def load_observations(path: Path) -> xr.Dataset:
