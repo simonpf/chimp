@@ -238,6 +238,7 @@ def get_reference_dataset(name: Union[str, ReferenceDataset]) -> ReferenceDatase
     from . import mrms
     from . import daily_precip
     from . import opera
+    from . import imerg
     extensions.load()
 
     if isinstance(name, DataSource):

@@ -1,6 +1,6 @@
 """
 chimp.data.gpm
-=============
+==============
 
 This module implements functions the handling of data from the
 GPM constellation.

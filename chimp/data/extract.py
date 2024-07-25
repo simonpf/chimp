@@ -72,6 +72,7 @@ def cli(
     import chimp.data.cpcir
     import chimp.data.mrms
     import chimp.data.gridsat
+    import chimp.data.imerg
     import chimp.data.patmosx
     import chimp.data.ssmi
     import chimp.data.seviri
