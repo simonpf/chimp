@@ -201,7 +201,7 @@ def retrieval_step(
 
 
 @click.argument("model")
-@click.option("-d", "--dataset", "input_datasets", multiple=True, required=True)
+@click.option("-i", "--inputs", "input_datasets", required=True)
 @click.argument("input_paths", nargs=-1)
 @click.argument("output_path")
 @click.option("--device", type=str, default="cuda")
@@ -246,6 +246,7 @@ def cli(
                 return 1
         input_path = inputs
 
+    input_datasets = input_datasets.split(",")
     if sequence_length < 2:
         input_data = InputLoader(input_path, input_datasets)
     else:

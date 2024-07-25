@@ -651,7 +651,7 @@ class InputLoader():
                 files[ind], self.scene_sizes[ind], input_dataset.scale, None,
                 None,
             )
-            inputs[input_dataset.input_name] = x
+            inputs[input_dataset.input_name] = x[None]
 
         return inputs
 
