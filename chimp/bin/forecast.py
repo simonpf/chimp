@@ -7,6 +7,7 @@ This sub-module implements the chimp CLI to run forecasts.
 """
 import logging
 from pathlib import Path
+from typing import List, Union
 
 
 LOGGER = logging.getLogger(__file__)
@@ -38,7 +39,8 @@ def add_parser(subparsers):
         "input",
         metavar="input",
         type=str,
-        help="Path to the test data.",
+        nargs="+",
+        help="Path to the test data or a set of files.",
     )
     parser.add_argument(
         "output",
@@ -106,10 +108,24 @@ def run(args):
         LOGGER.error("Provided model '%s' does not exist.", args.model)
         return 1
 
-    input_path = Path(args.input)
-    if not input_path.exists() or not input_path.is_dir():
-        LOGGER.error("Input '%s' does not exist or is not a directory.", args.input)
-        return 1
+    inputs = [Path(input) for input in args.input]
+    if len(inputs) == 1:
+        if inputs[0].exists() and inputs[0].is_file():
+            input_path: Union[Path, list[Path]] = inputs
+        elif inputs[0].exists() and inputs[0].is_dir():
+            input_path = inputs[0]
+        else:
+            LOGGER.error(
+                "Input '%s' does not exist or is not a file or directory.",
+                args.input,
+            )
+            return 1
+    else:
+        for input in inputs:
+            if not input.exists() or not input.is_file():
+                LOGGER.error("Input '%s' does not exist or is not a file.", input)
+                return 1
+        input_path = inputs
 
     output_path = Path(args.output)
     if not output_path.exists() or not output_path.is_dir():
