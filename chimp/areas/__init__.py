@@ -3,9 +3,7 @@
 chimp.areas
 ===========
 
-This module defines all the areas, i.e., regional domains over which data is extracted
-used for generating CHIMP training datasets.
-"""
+This module defines all the areas, i.e., regional domains over which data is extracted used for generating CHIMP training datasets. """
 from typing import Dict, Union
 from pathlib import Path
 
@@ -76,7 +74,7 @@ def get_area(name: str) -> Area:
     area = ALL_AREAS.get(name, None)
     if area is None:
         raise RuntimeError(
-            f"The area '{area}' isn't currently defined. Defined areas are '{list(ALL_AREAS.keys())}'."
+            f"The area '{name}' isn't currently defined. Defined areas are '{list(ALL_AREAS.keys())}'."
         )
     return area
 
@@ -203,5 +201,22 @@ GOES_EAST_CONUS = Area(
         4: GOES_EAST_4[:2000, 500:3500],
         8: GOES_EAST_8[:1000, 250:1750],
         16: GOES_EAST_16[:500, 125:875],
+    }
+)
+
+###############################################################################
+# GLOBAL
+###############################################################################
+
+GLOBAL_LATLON_4 = pyresample.load_area(Path(__file__).parent / "chimp_global_latlon_4.yml")
+GLOBAL_LATLON_8 = pyresample.load_area(Path(__file__).parent / "chimp_global_latlon_8.yml")
+GLOBAL_LATLON_16 = pyresample.load_area(Path(__file__).parent / "chimp_global_latlon_16.yml")
+
+GLOBAL_LATLON = Area(
+    name="global_latlon",
+    areas={
+        4: GLOBAL_LATLON_4,
+        8: GLOBAL_LATLON_8,
+        16: GLOBAL_LATLON_16,
     }
 )

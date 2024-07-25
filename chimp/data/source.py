@@ -146,7 +146,7 @@ class DataSource(ABC):
 
     def find_training_files(
             self,
-            path: Path,
+            path: Union[Path, List[Path]],
             times: Optional[np.ndarray] = None
     ) -> Tuple[np.ndarray, List[Path]]:
         """
@@ -165,6 +165,8 @@ class DataSource(ABC):
         pattern = "*????????_??_??.nc"
         training_files = sorted(
             list((path / self.name).glob(pattern))
+            if isinstance(path, Path) else
+            list(f for f in path if f in list(f.parent.glob(self.name + pattern)))
         )
         times = np.array(list(map(get_date, training_files)))
         return times, training_files

@@ -201,8 +201,8 @@ def retrieval_step(
 
 
 @click.argument("model")
-@click.argument("input_datasets", nargs=-1)
-@click.argument("input_path")
+@click.option("-i", "--inputs", "input_datasets", required=True)
+@click.argument("input_paths", nargs=-1)
 @click.argument("output_path")
 @click.option("--device", type=str, default="cuda")
 @click.option("--precision", type=str, default="single")
@@ -214,8 +214,8 @@ def retrieval_step(
 def cli(
         model: Path,
         input_datasets: List[str],
-        input_path: Path,
-        output_path: Path,
+        input_paths: List[str],
+        output_path: str,
         device: str = "cuda",
         precision: str = "single",
         tile_size: int = 128,
@@ -227,6 +227,26 @@ def cli(
     """
     Process input files.
     """
+    inputs = [Path(path) for path in input_paths]
+    if len(inputs) == 1:
+        if inputs[0].exists() and inputs[0].is_file():
+            input_path: Union[Path, List[Path]] = inputs
+        elif inputs[0].exists() and inputs[0].is_dir():
+            input_path = inputs[0]
+        else:
+            LOGGER.error(
+                "Input '%s' does not exist or is not a file or directory.",
+                input_path[0],
+            )
+            return 1
+    else:
+        for input in inputs:
+            if not input.exists() or not input.is_file():
+                LOGGER.error("Input '%s' does not exist or is not a file.", input)
+                return 1
+        input_path = inputs
+
+    input_datasets = input_datasets.split(",")
     if sequence_length < 2:
         input_data = InputLoader(input_path, input_datasets)
     else:

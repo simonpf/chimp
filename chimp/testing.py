@@ -134,6 +134,9 @@ def process_tile(
             metrics_k = metrics[key]
             metrics_k_c = metrics_conditional[key]
 
+            if key not in targets:
+                continue
+
             targets_k = targets[key]
             if isinstance(targets_k, torch.Tensor):
                 targets_k = [targets_k]
@@ -174,7 +177,7 @@ def process_tile(
                     for metric in metrics_cond:
                         metric = metric.to(device=device)
                         if len(age_maps) > 1:
-                            age_map = age_maps[step][:, ind]
+                            age_map = age_maps[step][:, ind].__getitem__((...,) + slcs)
                             target_k_c = target_k.detach().clone()
                             target_k_c.mask[torch.isnan(age_map)] = True
                             metric.update(y_pred_k_mean, target_k_c, conditional={"age": age_map})
@@ -320,7 +323,7 @@ def run_tests(
                 tile_size = get_max_dims(inpt)
 
             lead_time = inpt.pop("lead_time", None)
-            tiler = Tiler((inpt, targets), tile_size=tile_size, overlap=0)
+            tiler = Tiler((inpt, targets), tile_size=tile_size, overlap=tile_size // 4)
 
             for row_ind in range(tiler.M):
                 for col_ind in range(tiler.N):
@@ -445,7 +448,8 @@ def cli(
             validation=True,
             sequence_length=sequence_length,
             forecast=forecast,
-            include_input_steps=True
+            include_input_steps=True,
+            sample_rate=2
         )
 
     metrics = {
