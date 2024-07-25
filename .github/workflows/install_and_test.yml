@@ -27,4 +27,4 @@ jobs:
             pip install -e .
       - name: Run tests with pytest
         run: |
-            python -m pytest --cov=pytorch_retrieve test/data/ --durations=0 -m "not slow"
+            python -m pytest --cov=pytorch_retrieve test --durations=0 -m "not slow"

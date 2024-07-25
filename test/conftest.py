@@ -9,13 +9,6 @@ from chimp import areas
 from chimp.data import mrms
 from chimp.data import cpcir
 
-from chimp.config import (
-    InputConfig,
-    OutputConfig,
-    EncoderConfig,
-    DecoderConfig,
-    ModelConfig,
-)
 from chimp.data import get_input_dataset, get_reference_dataset
 from chimp.data.training_data import SingleStepDataset, SequenceDataset
 from chimp.data.utils import get_output_filename
@@ -89,7 +82,7 @@ def mrms_surface_precip_data(tmp_path):
                 "longitude": (("longitude"), lons),
                 "surface_precip": (("latitude", "longitude"), sp),
                 "rqi": (("latitude", "longitude"), rqi),
-                "time": ((), time),
+                "time": ((), time.astype("datetime64[ns]")),
             }
         )
         dataset.to_netcdf(data_path / filename)
@@ -130,7 +123,7 @@ def mrms_reflectivity_data(tmp_path):
                 "longitude": (("longitude"), lons),
                 "reflectivity": (("latitude", "longitude"), refl),
                 "rqi": (("latitude", "longitude"), rqi),
-                "time": ((), time),
+                "time": ((), time.astype("datetime64[ns]")),
             }
         )
         dataset.to_netcdf(data_path / filename)
@@ -164,7 +157,7 @@ def cpcir_data(tmp_path):
         filename = get_output_filename("cpcir", time.item(), np.timedelta64(30, "m"))
         dataset = xr.Dataset(
             {
-                "time": ((), time),
+                "time": ((), time.astype("datetime64[ns]")),
                 "tbs": (("y", "x", "channels"), tbs),
             }
         )
@@ -207,7 +200,7 @@ def gmi_data(tmp_path):
         filename = f"gmi_{year}{month:02}{day:02}_{hour:02}_{minute:02}.nc"
         dataset = xr.Dataset(
             {
-                "time": ((), time),
+                "time": ((), time.astype("datetime64[ns]")),
                 "tbs": (("y", "x", "channels"), tbs),
             }
         )
@@ -241,7 +234,7 @@ def cmb_surface_precip_data(tmp_path):
         filename = get_output_filename("cmb", time.item(), np.timedelta64(30, "m"))
         dataset = xr.Dataset(
             {
-                "time": ((), time),
+                "time": ((), time.astype("datetime64[ns]")),
                 "surface_precip": (("y", "x"), sp),
                 "row_inds_swath_center": (
                     ("center_indices",),
@@ -291,7 +284,7 @@ def mhs_data(tmp_path):
         filename = f"mhs_{year}{month:02}{day:02}_{hour:02}_{minute:02}.nc"
         dataset = xr.Dataset(
             {
-                "time": ((), time),
+                "time": ((), time.astype("datetime64[ns]")),
                 "tbs": (("channels", "y", "x"), tbs),
             }
         )
@@ -333,7 +326,7 @@ def ssmis_data(tmp_path):
         filename = f"ssmis_{year}{month:02}{day:02}_{hour:02}_{minute:02}.nc"
         dataset = xr.Dataset(
             {
-                "time": ((), time),
+                "time": ((), time.astype("datetime64[ns]")),
                 "tbs": (("channels", "y", "x"), tbs),
             }
         )
@@ -375,7 +368,7 @@ def amsr2_data(tmp_path):
         filename = f"amsr2_{year}{month:02}{day:02}_{hour:02}_{minute:02}.nc"
         dataset = xr.Dataset(
             {
-                "time": ((), time),
+                "time": ((), time.astype("datetime64[ns]")),
                 "tbs": (("channels", "y", "x"), tbs),
             }
         )
@@ -417,7 +410,7 @@ def atms_data(tmp_path):
         filename = f"atms_{year}{month:02}{day:02}_{hour:02}_{minute:02}.nc"
         dataset = xr.Dataset(
             {
-                "time": ((), time),
+                "time": ((), time.astype("datetime64[ns]")),
                 "tbs": (("channels", "y", "x"), tbs),
             }
         )
@@ -459,57 +452,13 @@ def _data(tmp_path):
         filename = f"amsr2_{year}{month:02}{day:02}_{hour:02}_{minute:02}.nc"
         dataset = xr.Dataset(
             {
-                "time": ((), time),
+                "time": ((), time.astype("datetime64[ns]")),
                 "tbs": (("channels", "y", "x"), tbs),
             }
         )
         dataset.to_netcdf(data_path / filename)
 
     return tmp_path
-
-
-@pytest.fixture
-def cpcir_gmi_mrnn():
-    """
-    Fixture providing a CHIMP retrieval model for CPCIR and GMI input.
-    """
-    input_configs = [
-        InputConfig(
-            get_input("cpcir"), stem_depth=1, stem_kernel_size=3, stem_downsampling=1
-        ),
-        InputConfig(
-            get_input("gmi"), stem_depth=2, stem_kernel_size=7, stem_downsampling=2
-        ),
-    ]
-    output_configs = [
-        OutputConfig(
-            get_reference_dataset("mrms"),
-            "surface_precip",
-            "quantile_loss",
-            quantiles=np.linspace(0, 1, 34)[1:-1],
-        ),
-    ]
-
-    encoder_config = EncoderConfig(
-        "convnet",
-        channels=[16, 32, 64, 128],
-        stage_depths=[2, 2, 4, 4],
-        downsampling_factors=[2, 2, 2],
-        combined=False,
-    )
-
-    decoder_config = DecoderConfig(
-        "convnet",
-        channels=[64, 32, 16],
-        stage_depths=[1, 1, 1],
-        upsampling_factors=[2, 2, 2],
-        skip_connections=True,
-    )
-    model_config = ModelConfig(
-        input_configs, output_configs, encoder_config, decoder_config
-    )
-    mrnn = compile_mrnn(model_config)
-    return mrnn
 
 
 @pytest.fixture
@@ -552,54 +501,3 @@ def training_data_seq(gmi_data, cpcir_data, mrms_surface_precip_data):
         forecast=0,
     )
     return dataset
-
-
-@pytest.fixture
-def cpcir_gmi_seq_mrnn():
-    """
-    Fixture providing a CHIMP temporally-merged retrieval model for CPCIR
-    and GMI input.
-    """
-    input_configs = [
-        InputConfig(
-            get_input("cpcir"), stem_depth=1, stem_kernel_size=3, stem_downsampling=1
-        ),
-        InputConfig(
-            get_input("gmi"), stem_depth=2, stem_kernel_size=7, stem_downsampling=2
-        ),
-    ]
-    output_configs = [
-        OutputConfig(
-            get_reference_dataset("mrms"),
-            "surface_precip",
-            "quantile_loss",
-            quantiles=np.linspace(0, 1, 34)[1:-1],
-        ),
-    ]
-
-    encoder_config = EncoderConfig(
-        "convnet",
-        channels=[16, 32, 64, 128],
-        stage_depths=[2, 2, 4, 4],
-        downsampling_factors=[2, 2, 2],
-        combined=False,
-        multi_scale=False,
-    )
-
-    decoder_config = DecoderConfig(
-        "convnet",
-        channels=[64, 32, 16],
-        stage_depths=[1, 1, 1],
-        upsampling_factors=[2, 2, 2],
-        skip_connections=True,
-    )
-    model_config = ModelConfig(
-        input_configs,
-        output_configs,
-        encoder_config,
-        decoder_config,
-        temporal_merging=True,
-    )
-    mrnn = compile_mrnn(model_config)
-    return mrnn
-

@@ -4,6 +4,7 @@ Test the extension of CHIMP with custom extension modules.
 import pytest
 
 
+from chimp import extensions
 from chimp.data import get_input_dataset, get_reference_dataset
 
 
@@ -33,8 +34,9 @@ def test_input_dataset_extension(monkeypatch, input_dataset_extension_module):
     to the list of available inputs.
     """
     monkeypatch.syspath_prepend(input_dataset_extension_module)
-    monkeypatch.setenv("CHIMP_EXTENSION_MODULES", "test_input.py")
+    monkeypatch.setenv("CHIMP_EXTENSION_MODULES", "test_input")
 
+    extensions.load()
     input_dataset = get_input_dataset("test_dataset")
     assert input_dataset is not None
 

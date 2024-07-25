@@ -18,7 +18,7 @@ LOGGER = logging.getLogger(__name__)
 def load() ->None:
     """
     Check for existence 'CHIMP_EXTENSION_MODULE' environment variable and
-    load variable defined within.
+    load all extension modules defined within.
     """
     ext_modules = os.environ.get("CHIMP_EXTENSION_MODULES", None)
     if ext_modules is not None:
