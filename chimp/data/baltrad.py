@@ -8,13 +8,14 @@ and load precipitation estimates from the BALTRAD radar network.
 from datetime import datetime, timedelta
 from pathlib import Path
 import re
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from h5py import File
 import numpy as np
 import pandas as pd
 from pyproj import Transformer
 from pyresample.geometry import AreaDefinition
+import torch
 import xarray as xr
 
 from pansat import FileRecord, TimeRange, Geometry
@@ -294,4 +295,48 @@ class Baltrad(ReferenceDataset):
         data_r.to_netcdf(output_folder / output_filename, encoding=encoding)
 
 
+class BaltradWPrecip(Baltrad):
+    """
+    Specialization of the BALTRAD reference data that also includes surface precipitation
+    estimates.
+    """
+    def __init__(self):
+        ReferenceDataset.__init__(
+            self,
+            "baltrad_w_precip",
+            scale=4,
+            targets=[RetrievalTarget("reflectivity")],
+            quality_index="qi"
+        )
+
+    def load_sample(
+            self,
+            path: Path,
+            crop_size: int,
+            base_scale,
+            slices: Tuple[int, int, int, int],
+            rng: np.random.Generator,
+            rotate: Optional[float] = None,
+            flip: Optional[bool] = None,
+            quality_threshold: float = 0.8
+    ) -> Dict[str, torch.Tensor]:
+        targets = super().load_sample(
+            path=path,
+            crop_size=crop_size,
+            base_scale=base_scale,
+            slices=slices,
+            rng=rng,
+            rotate=rotate,
+            flip=flip,
+            quality_threshold=quality_threshold
+        )
+        refl = targets["reflectivity"]
+        no_precip = refl <= -30
+        precip = (refl / 200) ** (1 / 1.6)
+        precip[no_precip] = 0.0
+        targets["surface_precip"] = refl
+        return targets
+
+
 BALTRAD = Baltrad()
+BALTRAD_W_PRECIP = BaltradWPrecip()
