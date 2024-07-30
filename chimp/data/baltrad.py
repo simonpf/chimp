@@ -8,7 +8,7 @@ and load precipitation estimates from the BALTRAD radar network.
 from datetime import datetime, timedelta
 from pathlib import Path
 import re
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 from h5py import File
 import numpy as np
@@ -25,6 +25,7 @@ from pansat.products import Product, FilenameRegexpMixin
 from pansat.time import to_datetime64
 
 from chimp.areas import Area
+from chimp.utils import get_date
 from chimp.data import ReferenceDataset
 from chimp.data.reference import RetrievalTarget
 from chimp.data.resample import resample_and_split
@@ -35,7 +36,9 @@ def _load_projection_info(path):
     """
     Loads the projection info from the Baltrad file.
     """
-    with File(path, "r") as data: projdef = data["where"].attrs["projdef"].decode() + " +units=m" size_x = data["where"].attrs["xsize"]
+    with File(path, "r") as data: 
+        projdef = data["where"].attrs["projdef"].decode() + " +units=m" 
+        size_x = data["where"].attrs["xsize"]
         size_y = data["where"].attrs["ysize"]
 
         latlon = "+proj=longlat +ellps=bessel +datum=WGS84 +units=m"
@@ -201,7 +204,7 @@ class Baltrad(ReferenceDataset):
 
     def __init__(self):
         super().__init__(
-            "baltrad", scale=4, targets=[RetrievalTarget("reflectivity")], quality_index="qi"
+            "baltrad", scale=4, targets=[RetrievalTarget("dbz")], quality_index="qi"
         )
 
 
@@ -303,7 +306,7 @@ class BaltradWPrecip(Baltrad):
             self,
             "baltrad_w_precip",
             scale=4,
-            targets=[RetrievalTarget("reflectivity")],
+            targets=[RetrievalTarget("dbz")],
             quality_index="qi"
         )
 
@@ -328,11 +331,12 @@ class BaltradWPrecip(Baltrad):
             flip=flip,
             quality_threshold=quality_threshold
         )
-        refl = targets["reflectivity"]
-        no_precip = refl <= -30
-        precip = (refl / 200) ** (1 / 1.6)
+        refl = targets["dbz"]
+        no_precip = refl <= -29.99
+        refl = 10 ** (refl / 10)
+        precip = (refl / 200.0) ** (1 / 1.6)
         precip[no_precip] = 0.0
-        targets["surface_precip"] = refl
+        targets["surface_precip"] = precip
         return targets
 
     def find_training_files(
