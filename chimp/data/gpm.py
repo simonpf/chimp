@@ -662,45 +662,53 @@ class GPMCMBAnd(GPMCMB):
         if isinstance(scene_size, (int, float)):
             scene_size = (int(scene_size),) * 2
 
-        with xr.open_dataset(path) as data:
+        try:
+            with xr.open_dataset(path) as data:
 
-            if self.quality_index is not None:
-                qi = data[self.quality_index].data
-            else:
-                qi = np.isfinite(data[self.targets[0].name].data)
+                if self.quality_index is not None:
+                    qi = data[self.quality_index].data
+                else:
+                    qi = np.isfinite(data[self.targets[0].name].data)
 
-            other_path = self.other_path(path)
-            if other_path.exists():
-                with xr.open_dataset(other_path) as other_data:
-                    if self.other.quality_index is not None:
-                        qi = np.maximum(qi, other_data[self.other.quality_index].data)
-                    else:
-                        qi = np.maximum(qi, np.isfinite(data[self.other.targets[0].name].data))
+                other_path = self.other_path(path)
+                if other_path.exists():
+                    with xr.open_dataset(other_path) as other_data:
+                        if self.other.quality_index is not None:
+                            qi = np.maximum(qi, other_data[self.other.quality_index].data)
+                        else:
+                            qi = np.maximum(qi, np.isfinite(data[self.other.targets[0].name].data))
 
-            found = False
-            count = 0
-            while not found:
-                if count > 20:
-                    return None
-                count += 1
-                n_rows, n_cols = qi.shape
-                i_start = rng.integers(0, (n_rows - scene_size[0]) // multiple)
-                i_end = i_start + scene_size[0] // multiple
-                j_start = rng.integers(0, (n_cols - scene_size[1]) // multiple)
-                j_end = j_start + scene_size[1] // multiple
+                found = False
+                count = 0
+                while not found:
+                    if count > 20:
+                        return None
+                    count += 1
+                    n_rows, n_cols = qi.shape
+                    i_start = rng.integers(0, (n_rows - scene_size[0]) // multiple)
+                    i_end = i_start + scene_size[0] // multiple
+                    j_start = rng.integers(0, (n_cols - scene_size[1]) // multiple)
+                    j_end = j_start + scene_size[1] // multiple
 
-                i_start = i_start * multiple
-                i_end = i_end * multiple
-                j_start = j_start * multiple
-                j_end = j_end * multiple
+                    i_start = i_start * multiple
+                    i_end = i_end * multiple
+                    j_start = j_start * multiple
+                    j_end = j_end * multiple
 
-                row_slice = slice(i_start, i_end)
-                col_slice = slice(j_start, j_end)
+                    row_slice = slice(i_start, i_end)
+                    col_slice = slice(j_start, j_end)
 
-                if (qi[row_slice, col_slice] > quality_threshold).mean() > valid_fraction:
-                    found = True
+                    if (qi[row_slice, col_slice] > quality_threshold).mean() > valid_fraction:
+                        found = True
 
-        return (i_start, i_end, j_start, j_end)
+            return (i_start, i_end, j_start, j_end)
+        except Exception:
+            LOGGER.warning(
+                "Finding a random scene from reference file '%s' failed.",
+                path
+            )
+            return None
+
 
     def load_sample(
             self,
@@ -774,7 +782,7 @@ class GPMCMBAnd(GPMCMB):
                     y_cmb = targets[name].base
                     y_other = other_targets[name]
                     mask = torch.isfinite(y_cmb)
-                    y_other[mask] = y_cmb[mask]
+                    y_other[mask] = y_cmb[mask].to(dtype=y_other.dtype)
                     targets[name] = y_other
 
         return targets
