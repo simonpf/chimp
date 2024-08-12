@@ -187,7 +187,7 @@ class SingleStepDataset(Dataset):
         if isinstance(quality_threshold, float):
             quality_threshold = [quality_threshold] * n_reference_datasets
         self.quality_threshold = np.array(quality_threshold)
-
+        self.w_id = 0
 
     def init_rng(self, w_id=0):
         """
@@ -198,16 +198,17 @@ class SingleStepDataset(Dataset):
         """
         self.w_id = w_id
         if self.validation:
-            seed = 1234
+            seed = 1234 + w_id
         else:
             seed = int.from_bytes(os.urandom(4), "big") + w_id
         self.rng = np.random.default_rng(seed)
 
-    def worker_init_fn(self, *args):
+    def worker_init_fn(self, w_id):
         """
         Pytorch retrieve interface.
         """
-        return self.init_rng(*args)
+        self.w_id = w_id
+        return self.init_rng(w_id=w_id)
 
     def load_reference_sample(
         self,
@@ -918,7 +919,7 @@ def find_sequence_starts_and_ends(
         else:
             tot_len = forecast
 
-        vref = valid_reference[curr_start: curr_start + tot_len]
+        vref = (valid_inputs * valid_reference)[curr_start: curr_start + tot_len]
         wlen = np.where(vref)[0].max()
         ends.append(curr_start + wlen)
         valid_inds = valid_inds[valid_inds > curr_start + wlen]
@@ -1045,9 +1046,9 @@ class SequenceDataset(SingleStepDataset):
         if self.augment:
             if not self.full:
                 scene_size = int(1.42 * self.scene_size)
-                rem = scene_size % self.max_scale
-                if rem != 0:
-                    scene_size += self.max_scale - rem
+                size_rem = scene_size % self.max_scale
+                if size_rem != 0:
+                    scene_size += self.max_scale - size_rem
                 ang = -180 + 360 * self.rng.random()
             else:
                 scene_size = self.scene_size
@@ -1080,13 +1081,17 @@ class SequenceDataset(SingleStepDataset):
             ref_offset = np.where(self.valid_ref[ref_start:ref_end])[0][-1]
             ref_index = ref_start + ref_offset
             rd_ind = np.where(self.reference_files[ref_index])[0][0]
-            slices = self.reference_datasets[rd_ind].find_random_scene(
-                self.reference_files[ref_index][rd_ind],
-                self.rng,
-                multiple=4,
-                scene_size=scene_size,
-                quality_threshold=self.quality_threshold[rd_ind],
-            )
+
+            try:
+                slices = self.reference_datasets[rd_ind].find_random_scene(
+                    self.reference_files[ref_index][rd_ind],
+                    self.rng,
+                    multiple=4,
+                    scene_size=scene_size,
+                    quality_threshold=self.quality_threshold[rd_ind],
+                )
+            except Exception:
+                slices = None
             if slices is None:
                 LOGGER.warning(
                     " Couldn't find a scene in reference file '%s' satisfying "

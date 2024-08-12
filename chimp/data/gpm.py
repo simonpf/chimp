@@ -191,7 +191,7 @@ class GPML1CData(InputDataset):
 
             drop = []
             for var in data.variables.keys():
-                for swath in range(1, self.n_swaths + 1):
+                for swath in range(1, n_swaths + 1):
                     if var.endswith(f"_s{swath}"):
                         drop.append(var)
             if not self.include_incidence_angle:

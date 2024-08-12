@@ -32,14 +32,14 @@ from chimp.data.training_data import (
 
 def get_max_dims(inputs: Dict[str, torch.Tensor]) -> Tuple[int]:
     """
-    Calculate maximum input dimensions.
+    Calculate maximum input size.
 
     Args:
-        inputs: A dictionary mapping input names to corresponding output
+        inputs: A dictionary mapping input names to corresponding input
             tensors.
 
     Return:
-        A tuple holding dimensions of the largest input.
+        A tuple holding shape of the largest input.
     """
     max_dim = None
     ref_name = None
@@ -55,6 +55,27 @@ def get_max_dims(inputs: Dict[str, torch.Tensor]) -> Tuple[int]:
 
     ref_shape = tuple(inputs[ref_name].shape[-2:])
     return ref_shape
+
+
+def invert_sequence(inpt: Dict[str, List[torch.Tensor]]):
+    """
+    Invert a sequence of inputs given as a dictionary containing lists of tensors
+    to a list containing dicts of tensors.
+
+    Args:
+        inpt: The retrieval input as loaded from a chimp.data.training_data.Sequence
+            dataset
+
+    Return:
+        A list containing the retrieval inputs for each input step.
+    """
+    n_steps = len(next(iter(inpt.values())))
+    inpt_steps = []
+    for ind in range(n_steps):
+        inpt_steps.append({
+            name: tensors[ind] for name, tensors in inpt.items()
+        })
+    return inpt_steps
 
 
 def process_tile(
@@ -73,7 +94,10 @@ def process_tile(
         dtype: torch.dtype = torch.bfloat16
 ) -> None:
     """
-    Process a single tile.
+    Evaluate predictions for a single tile.
+
+    This function propagates the given inputs through the models and tracks the retrieval
+    results using the given metrics.
 
     Args:
         model: The torch.nn.Module implementing the retrieval.
@@ -123,8 +147,22 @@ def process_tile(
         else:
             n_fc = 0
 
-
-        y_pred = model(inputs)
+        if model.inference_config is None:
+            seq_len = None
+        else:
+            seq_len = model.inference_config.input_loader_args.get(
+                    "sequence_length",
+                    None
+            )
+        seq_len = 8
+        if seq_len is None:
+            inputs = invert_sequence(inputs)
+            y_pred = {}
+            for inpt in inputs:
+                for name, tensor in model(inpt).items():
+                    y_pred.setdefault(name, []).append(tensor)
+        else:
+            y_pred = model(inputs)
 
         for key, y_preds_k in y_pred.items():
 
@@ -177,7 +215,7 @@ def process_tile(
                     for metric in metrics_cond:
                         metric = metric.to(device=device)
                         if len(age_maps) > 1:
-                            age_map = age_maps[step][:, ind].__getitem__((...,) + slcs)
+                            age_map = age_maps[step].__getitem__((..., ind) + slcs)
                             target_k_c = target_k.detach().clone()
                             target_k_c.mask[torch.isnan(age_map)] = True
                             metric.update(y_pred_k_mean, target_k_c, conditional={"age": age_map})
@@ -314,6 +352,8 @@ def run_tests(
         shuffle=False,
     )
 
+    print("LEN :: ", len(data_loader))
+
     with Progress() as progress:
         task = progress.add_task("Evaluating retrieval model: ", total=len(data_loader))
 
@@ -387,7 +427,7 @@ def run_tests(
 @click.argument("model")
 @click.argument("test_data_path")
 @click.argument("output_filename")
-@click.option("--input_datasets")
+@click.option("-i", "--inputs", "input_datasets", required=True)
 @click.option("--reference_datasets")
 @click.option("--device", type=str, default="cuda")
 @click.option("--dtype", type=str, default="bfloat16")
@@ -407,11 +447,12 @@ def cli(
         tile_size: int = 128,
         verbose: int = 0,
         batch_size: int = 32,
-        sequence_length: Optional[int] = None,
+        sequence_length: Optional[int] = 1,
         forecast: int = 0
 ) -> int:
     """
-    Process input files.
+    Evaluate model on test data located in TEST_DATA_PATH and write results to
+    OUTPUT_FILENAME.nc.
     """
     model = load_model(model).eval()
 
@@ -429,28 +470,18 @@ def cli(
         )
         return 1
 
-    if sequence_length is None:
-        test_data = SingleStepDataset(
-            test_data_path,
-            input_datasets=input_datasets,
-            reference_datasets=reference_datasets,
-            scene_size=-1,
-            augment=False,
-            validation=True
-        )
-    else:
-        test_data = SequenceDataset(
-            test_data_path,
-            input_datasets=input_datasets,
-            reference_datasets=reference_datasets,
-            scene_size=-1,
-            augment=False,
-            validation=True,
-            sequence_length=sequence_length,
-            forecast=forecast,
-            include_input_steps=True,
-            sample_rate=2
-        )
+    test_data = SequenceDataset(
+        test_data_path,
+        input_datasets=input_datasets,
+        reference_datasets=reference_datasets,
+        scene_size=-1,
+        augment=False,
+        validation=True,
+        sequence_length=sequence_length,
+        forecast=forecast,
+        include_input_steps=True,
+        sample_rate=1
+    )
 
     metrics = {
         name: [

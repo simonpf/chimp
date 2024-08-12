@@ -1,6 +1,6 @@
 """
 chimp.data.mrms
-==============
+===============
 
 This module implements the functionality to download and resample
 MRMS surface precipitation data to be used as reference data for
