@@ -196,6 +196,7 @@ class SingleStepDataset(Dataset):
         Args:
             w_id: The worker ID which of the worker process..
         """
+        self.w_id = w_id
         if self.validation:
             seed = 1234
         else:
@@ -1027,6 +1028,8 @@ class SequenceDataset(SingleStepDataset):
                 "The training dataset is exhausted."
             )
 
+        if self.validation:
+            self.init_rng(self.w_id + index)
 
         rem = index % self.sample_rate
         index = floor(index / self.sample_rate)
@@ -1055,16 +1058,20 @@ class SequenceDataset(SingleStepDataset):
             ang = None
             flip = False
 
-        start_index = self.sequence_starts[index]
-        if self.sample_rate > 1:
-            max_len = self.sequence_ends[index] - self.sequence_starts[index]
-            start_index = (
-                self.sequence_starts[index] + floor(rem / (self.sample_rate - 1) * max_len)
+        if self.augment:
+            start_index = self.rng.choice(
+                np.arange(
+                    self.sequence_starts[index],
+                    self.sequence_ends[index] + 1
+                )
             )
+        else:
+            start_index = self.sequence_starts[index]
+
+        print("SI :: ", start_index)
 
         if not self.full:
             # Find valid input range for last sample in sequence
-            start_index = self.sequence_starts[index]
             ref_start = start_index
             if not self.include_input_steps:
                 ref_start += self.sequence_length
@@ -1122,6 +1129,7 @@ class SequenceDataset(SingleStepDataset):
                         y_i = self.load_reference_sample(
                             self.reference_files[step_index], slices, self.scene_size, rotate=ang, flip=flip
                         )
+                        print("REF :: ", self.reference_files[step_index])
                     except Exception as exc:
                         LOGGER.exception(
                             "Encountered an error when loading reference data from files '%s'."
