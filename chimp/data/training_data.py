@@ -1069,8 +1069,6 @@ class SequenceDataset(SingleStepDataset):
         else:
             start_index = self.sequence_starts[index]
 
-        print("SI :: ", start_index)
-
         if not self.full:
             # Find valid input range for last sample in sequence
             ref_start = start_index
@@ -1134,7 +1132,6 @@ class SequenceDataset(SingleStepDataset):
                         y_i = self.load_reference_sample(
                             self.reference_files[step_index], slices, self.scene_size, rotate=ang, flip=flip
                         )
-                        print("REF :: ", self.reference_files[step_index])
                     except Exception as exc:
                         LOGGER.exception(
                             "Encountered an error when loading reference data from files '%s'."

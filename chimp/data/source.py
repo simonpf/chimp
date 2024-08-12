@@ -163,11 +163,30 @@ class DataSource(ABC):
             files are available and the paths pointing to the corresponding file.
         """
         pattern = "*????????_??_??.nc"
-        training_files = sorted(
-            list((path / self.name).glob(pattern))
-        )
-        times = np.array(list(map(get_date, training_files)))
-        return times, training_files
+        if isinstance(path, str):
+            paths = [Path(path)]
+        elif isinstance(path, Path):
+            paths = [path]
+        elif isinstance(path, list):
+            paths = path
+        else:
+            raise ValueError(
+                "Expected 'path' to be a 'Path' object pointing to a folder "
+                "or a list of 'Path' object pointing to input files. Got "
+                "%s.",
+                path
+            )
+
+        files = []
+        for path in paths:
+            if path.is_dir():
+                files += sorted(list((path / self.name).glob(pattern)))
+            else:
+                if path.match(pattern):
+                    files.append(path)
+
+        times = np.array(list(map(get_date, files)))
+        return times, files
 
 
 def get_source(name: Union[str, DataSource]) -> DataSource:
