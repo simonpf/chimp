@@ -236,7 +236,7 @@ def cli(
         else:
             LOGGER.error(
                 "Input '%s' does not exist or is not a file or directory.",
-                input_path[0],
+                input_paths[0],
             )
             return 1
     else:
