@@ -8,12 +8,13 @@ Defines the OPERA input data classes for loading precipitation and
 from datetime import datetime, timedelta
 from pathlib import Path
 import re
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple, Union
 
 from h5py import File
 import numpy as np
 import pandas as pd
 from pyproj import Transformer
+import torch
 import xarray as xr
 
 from pansat import TimeRange, Product
@@ -158,3 +159,78 @@ class Opera(ReferenceDataset):
 
 OPERA_REFLECTIVITY = Opera("reflectivity", reflectivity)
 OPERA_SURFACE_PRECIP = Opera("surface_precip", surface_precip)
+
+
+class OperaWPrecip(Opera):
+    """
+    Specialization of the OPERA reference data that also includes surface precipitation
+    estimates.
+    """
+    def __init__(self):
+        self.target_name = "reflectivity"
+        self.pansat_product = reflectivity
+        ReferenceDataset.__init__(
+            self,
+            "opera_w_precip",
+            scale=4,
+            targets=[RetrievalTarget("reflectivity")],
+        )
+
+    def load_sample(
+            self,
+            path: Path,
+            crop_size: int,
+            base_scale,
+            slices: Tuple[int, int, int, int],
+            rng: np.random.Generator,
+            rotate: Optional[float] = None,
+            flip: Optional[bool] = None,
+            quality_threshold: float = 0.8
+    ) -> Dict[str, torch.Tensor]:
+        targets = super().load_sample(
+            path=path,
+            crop_size=crop_size,
+            base_scale=base_scale,
+            slices=slices,
+            rng=rng,
+            rotate=rotate,
+            flip=flip,
+            quality_threshold=quality_threshold
+        )
+        refl = targets["reflectivity"]
+        no_precip = refl <= -29.99
+        refl = 10 ** (refl / 10)
+        precip = (refl / 200.0) ** (1 / 1.6)
+        precip[no_precip] = 0.0
+        targets["surface_precip_zr"] = precip
+        return targets
+
+    def find_training_files(
+            self,
+            path: Union[Path, List[Path]],
+            times: Optional[np.ndarray] = None
+    ) -> Tuple[np.ndarray, List[Path]]:
+        """
+        Find training data files.
+
+        Args:
+            path: Path to the folder the training data for all input
+                and reference datasets.
+            times: Optional array containing valid reference data times for static
+                inputs.
+
+        Return:
+            A tuple ``(times, paths)`` containing the times for which training
+            files are available and the paths pointing to the corresponding file.
+        """
+        pattern = "*????????_??_??.nc"
+        training_files = sorted(
+            list((path / "opera").glob(pattern))
+            if isinstance(path, Path) else
+            list(f for f in path if f in list(f.parent.glob("opera" + pattern)))
+        )
+        times = np.array(list(map(get_date, training_files)))
+        return times, training_files
+
+
+OPERA_W_PRECIP = OperaWPrecip()
