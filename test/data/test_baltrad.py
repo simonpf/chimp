@@ -44,7 +44,7 @@ def test_process_file(tmp_path):
         np.timedelta64(15, "m")
     )
 
-    training_files = BALTRAD.find_training_files(tmp_path)
+    _, training_files = BALTRAD.find_training_files(tmp_path)
     assert len(training_files) == 1
     crop_size = NORDICS[4].shape
     ref_data = BALTRAD.load_sample(
@@ -73,7 +73,7 @@ def test_baltrad_w_precip(tmp_path):
         np.timedelta64(15, "m")
     )
 
-    training_files = BALTRAD_W_PRECIP.find_training_files(tmp_path)
+    _, training_files = BALTRAD_W_PRECIP.find_training_files(tmp_path)
     assert len(training_files) == 1
     crop_size = NORDICS[4].shape
     ref_data = BALTRAD_W_PRECIP.load_sample(

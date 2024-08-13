@@ -204,7 +204,7 @@ class Baltrad(ReferenceDataset):
 
     def __init__(self):
         super().__init__(
-            "baltrad", scale=4, targets=[RetrievalTarget("dbz")], quality_index="qi"
+            "baltrad", scale=4, targets=[RetrievalTarget("reflectivity")], quality_index="qi"
         )
 
 
@@ -306,7 +306,7 @@ class BaltradWPrecip(Baltrad):
             self,
             "baltrad_w_precip",
             scale=4,
-            targets=[RetrievalTarget("dbz")],
+            targets=[RetrievalTarget("reflectivity")],
             quality_index="qi"
         )
 
@@ -331,7 +331,7 @@ class BaltradWPrecip(Baltrad):
             flip=flip,
             quality_threshold=quality_threshold
         )
-        refl = targets["dbz"]
+        refl = targets["reflectivity"]
         no_precip = refl <= -29.99
         refl = 10 ** (refl / 10)
         precip = (refl / 200.0) ** (1 / 1.6)
