@@ -336,7 +336,7 @@ class BaltradWPrecip(Baltrad):
         refl = 10 ** (refl / 10)
         precip = (refl / 200.0) ** (1 / 1.6)
         precip[no_precip] = 0.0
-        targets["surface_precip"] = precip
+        targets["surface_precip_zr"] = precip
         return targets
 
     def find_training_files(
