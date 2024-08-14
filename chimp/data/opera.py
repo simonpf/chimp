@@ -226,9 +226,9 @@ class OperaWPrecip(Opera):
         """
         pattern = "*????????_??_??.nc"
         training_files = sorted(
-            list((path / "opera").glob(pattern))
+            list((path / "opera_reflectivity").glob(pattern))
             if isinstance(path, Path) else
-            list(f for f in path if f in list(f.parent.glob("opera" + pattern)))
+            list(f for f in path if f in list(f.parent.glob("opera_reflectivity" + pattern)))
         )
         times = np.array(list(map(get_date, training_files)))
         return times, training_files

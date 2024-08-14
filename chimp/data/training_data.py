@@ -386,7 +386,7 @@ class SingleStepDataset(Dataset):
                 self.reference_files[sample_index], slices, self.scene_size, rotate=ang, flip=flip
             )
         except Exception:
-            LOGGER.exception(
+            LOGGER.warning(
                 f"Loading of training sample for '%s'"
                 "failed. Falling back to another radomly-chosen step.",
                 self.times[sample_index]
@@ -532,7 +532,7 @@ class SingleStepDataset(Dataset):
                         cts[t_ind] = torch.isfinite(data_t).sum()
 
                 except Exception:
-                    LOGGER.exception(
+                    LOGGER.warning(
                         "Encountered an error opening file %s.",
                         path
                     )
@@ -799,7 +799,7 @@ class SingleStepPretrainDataset(SingleStepDataset):
                 return self[new_ind]
 
         except Exception:
-            LOGGER.exception(
+            LOGGER.warning(
                 f"Loading of training sample for '%s'"
                 "failed. Falling back to another radomly-chosen step.",
                 self.times[scene_index]
@@ -1088,7 +1088,7 @@ class SequenceDataset(SingleStepDataset):
                     scene_size=scene_size,
                     quality_threshold=self.quality_threshold[rd_ind],
                 )
-            except Exception:
+            except Exception as exc:
                 slices = None
             if slices is None:
                 LOGGER.warning(
@@ -1133,7 +1133,7 @@ class SequenceDataset(SingleStepDataset):
                             self.reference_files[step_index], slices, self.scene_size, rotate=ang, flip=flip
                         )
                     except Exception as exc:
-                        LOGGER.exception(
+                        LOGGER.warning(
                             "Encountered an error when loading reference data from files '%s'."
                             "Falling back to another radomly-chosen sample.",
                             self.reference_files[step_index]
