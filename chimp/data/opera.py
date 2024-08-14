@@ -22,6 +22,7 @@ from pansat.geometry import Geometry
 from pansat.products.ground_based.opera import reflectivity, surface_precip
 
 from chimp.areas import Area
+from chimp.utils import get_date
 from chimp.data import ReferenceDataset
 from chimp.data.reference import RetrievalTarget
 from chimp.data.resample import resample_data
