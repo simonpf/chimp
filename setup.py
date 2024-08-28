@@ -28,6 +28,7 @@ setup(
         "pandas",
         "tensorboard",
         "dask",
+        "seaborn",
         "jupyter-book",
     ],
     packages=find_packages(),
@@ -39,5 +40,5 @@ setup(
         "console_scripts": ["chimp=chimp.cli:chimp"],
     },
     include_package_data=True,
-    package_data={"chimp": ["areas/*.yml"]},
+    package_data={"chimp": ["areas/*.yml", "files/*"]},
 )
