@@ -20,6 +20,7 @@ from pansat.time import TimeRange
 from pansat.products.satellite.gpm import (
     l1c_r_gpm_gmi,
     l1c_r_gpm_gmi_b,
+    l1c_metopa_mhs,
     l1c_metopb_mhs,
     l1c_metopc_mhs,
     l1c_noaa18_mhs,
@@ -29,6 +30,9 @@ from pansat.products.satellite.gpm import (
     l1c_f16_ssmis,
     l1c_f17_ssmis,
     l1c_f18_ssmis,
+    l1c_xcal2021v_f16_ssmis_v07b,
+    l1c_xcal2021v_f17_ssmis_v07b,
+    l1c_xcal2021v_f18_ssmis_v07b,
     l1c_gcomw1_amsr2,
     l2b_gpm_cmb,
     l2b_gpm_cmb_b,
@@ -191,7 +195,7 @@ class GPML1CData(InputDataset):
 
             drop = []
             for var in data.variables.keys():
-                for swath in range(1, n_swaths + 1):
+                for swath in range(1, self.n_swaths + 1):
                     if var.endswith(f"_s{swath}"):
                         drop.append(var)
             if not self.include_incidence_angle:
@@ -321,6 +325,7 @@ ATMS_2H = GPML1CData(
 MHS_PRODUCTS = [
     l1c_noaa18_mhs,
     l1c_noaa19_mhs,
+    l1c_metopa_mhs,
     l1c_metopb_mhs,
     l1c_metopc_mhs,
 ]
@@ -329,7 +334,10 @@ MHS = GPML1CData("mhs", 8, MHS_PRODUCTS, 1, 5, 64e3)
 SSMIS_PRODUCTS = [
     l1c_f16_ssmis,
     l1c_f17_ssmis,
-    l1c_f17_ssmis,
+    l1c_f18_ssmis,
+    l1c_xcal2021v_f16_ssmis_v07b,
+    l1c_xcal2021v_f17_ssmis_v07b,
+    l1c_xcal2021v_f18_ssmis_v07b,
 ]
 SSMIS = GPML1CData("ssmis", 8, SSMIS_PRODUCTS, 4, 11, 30e3)
 
