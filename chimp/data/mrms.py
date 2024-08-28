@@ -12,6 +12,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import List, Optional, Tuple
 
+from scipy.signal import convolve
 from h5py import File
 import numpy as np
 import pandas as pd
@@ -274,5 +275,72 @@ MRMS_PRECIP_RATE_AND_TYPE = MRMSData(
         RetrievalTarget("surface_precip", 1e-3),
         RetrievalTarget("precip_type", None),
     ],
+    "rqi"
+)
+
+
+class MRMSSmoothedData(MRMSData):
+    """
+    Represents reference data derived from MRMS ground-based radar measurements.
+    """
+
+    def process_file(
+        self,
+        path: Path,
+        domain: Area,
+        output_folder: Path,
+        time_step: np.timedelta64
+    ):
+        if not isinstance(path, list):
+            paths = [path]
+        else:
+            paths = path
+        paths = records_to_paths(paths)
+
+        output_folder = Path(output_folder) / self.name
+        output_folder.mkdir(exist_ok=True)
+
+        data = []
+        for path in paths:
+            product = [prod for prod in self.products if prod.matches(path)][0]
+            data.append(product.open(path))
+        data = xr.merge(data)
+        new_names = {
+            "precip_rate": "surface_precip",
+            "radar_quality_index": "rqi",
+            "precip_flag": "precip_type"
+        }
+        new_names = {
+            name: new_names[name] for name in data.variables if name in new_names
+        }
+        data = data.rename(new_names)
+
+        x = np.linspace(-7, 7, 15)
+        k = np.exp(np.log(0.5) * (x / 2.0) ** 2)
+        k, _ = np.meshgrid(k, k)
+        k = k / k.sum()
+
+        surface_precip = data.surface_precip.data.copy()
+        surface_precip[~(surface_precip >= 0.0)] = 0.0
+        sp_smoothed = convolve(surface_precip, k, mode="same", method="direct")
+        cts = convolve((surface_precip >= 0.0).astype(np.float32), k, mode="same")
+        surface_precip = sp_smoothed / cts
+        surface_precip[cts < 0] = np.nan
+        data.surface_precip.data[:] = surface_precip
+
+        data = resample_data(data, domain[4], radius_of_influence=4e3, new_dims=("y", "x"))
+        if "precip_type" in data:
+            precip_type = np.nan_to_num(data.precip_type.data, nan=-1, copy=True).astype(np.int8)
+            data["precip_type"] = (data.precip_type.dims, precip_type)
+        time_range = product.get_temporal_coverage(path)
+        time_c = time_range.start + 0.5 * (time_range.end - time_range.start)
+        filename = get_output_filename("mrms", time_c, time_step)
+        save_file(data, output_folder, filename)
+
+
+MRMS_PRECIP_RATE_SMOOTHED = MRMSSmoothedData(
+    "mrms_smoothed",
+    4,
+    [RetrievalTarget("surface_precip", 1e-3)],
     "rqi"
 )
