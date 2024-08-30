@@ -62,16 +62,16 @@ def find_most_recent_checkpoint(path: Path, model_name: str) -> Path:
 
     checkpoint_regexp = re.compile(rf"{model_name}(-v\d*)?.ckpt")
     versions = []
+    versioned_files = []
     for checkpoint_file in checkpoint_files:
         match = checkpoint_regexp.match(checkpoint_file.name)
         if match is None:
-            return None
-        if match.group(1) is None:
-            versions.append(-1)
-        else:
+            continue
+        if match.group(1) is not None:
             versions.append(int(match.group(1)[2:]))
+            versioned_files.append(checkpoint_file)
     ind = np.argmax(versions)
-    return checkpoint_files[ind]
+    return versioned_files[ind]
 
 
 

@@ -1068,6 +1068,10 @@ class SequenceDataset(SingleStepDataset):
             )
         else:
             start_index = self.sequence_starts[index]
+            if self.sample_rate > 1:
+                diff = self.sequence_ends[index] - self.sequence_starts[index] + 1
+                start_index += floor(rem * diff / self.sample_rate)
+
 
         if not self.full:
             # Find valid input range for last sample in sequence
