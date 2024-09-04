@@ -338,6 +338,30 @@ class MRMSSmoothedData(MRMSData):
         save_file(data, output_folder, filename)
 
 
+    def find_training_files(
+            self,
+            path: Path,
+            times: Optional[np.ndarray] = None
+    )  -> Tuple[np.ndarray, List[Path]]:
+        """
+        Find MRMS training data files.
+
+        Args:
+            path: Path to the folder containing the training data.
+            times: Not used.
+
+        Return:
+            A tuple ``(times, paths)`` containing the times for which training
+            files are available and the paths pointing to the corresponding file.
+        """
+        pattern = "*????????_??_??.nc"
+        reference_files = sorted(
+            list((path / "mrms_smoothed").glob(pattern))
+        )
+        times = np.array(list(map(get_date, reference_files)))
+        return times, reference_files
+
+
 MRMS_PRECIP_RATE_SMOOTHED = MRMSSmoothedData(
     "mrms_smoothed",
     4,
