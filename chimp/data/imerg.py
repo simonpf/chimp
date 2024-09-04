@@ -24,12 +24,12 @@ import xarray as xr
 
 from chimp.areas import Area
 from chimp.data.utils import round_time
-from chimp.data.reference import ReferenceDataset, RetrievalTarget
+from chimp.data.reference import BaselineDataset, RetrievalTarget
 from chimp.data.resample import resample_and_split
 from chimp.data.utils import records_to_paths, get_output_filename
 
 
-class IMERG(ReferenceDataset):
+class IMERG(BaselineDataset):
     """
     Represents retrieval reference data derived from GPM IMERG data.
     """

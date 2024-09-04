@@ -15,9 +15,8 @@ import xarray as xr
 
 from chimp import extensions
 from chimp.data.source import DataSource
+from chimp.data.input import InputBase
 from chimp.data.utils import scale_slices
-
-
 
 
 @dataclass
@@ -221,6 +220,21 @@ class ReferenceDataset(DataSource):
                 tensor = torch.tensor(y_t.copy())
                 y[target.name] = MaskedTensor(tensor, mask=mask)
         return y
+
+
+class BaselineDataset(ReferenceDataset):
+    """
+    A baseline dataset is a reference dataset that can be loaded as an
+    input dataset during testing and thus evaluated like a CHIMP retrieval.
+    """
+    def __init__(
+        self, name: str, scale: int, targets: list[RetrievalTarget], quality_index: Optional[str] = None
+    ):
+        ReferenceDataset.__init__(
+            self, name, scale, targets, quality_index,
+        )
+        InputBase.register_dataset(name, self)
+
 
 
 def get_reference_dataset(name: Union[str, ReferenceDataset]) -> ReferenceDataset:

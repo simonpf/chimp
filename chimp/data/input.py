@@ -41,6 +41,16 @@ class InputBase(DataSource):
         self.ALL_INPUT_DATASETS[dataset_name] = self
 
     @classmethod
+    def register_dataset(cls, name: str, dataset: DataSource) -> None:
+        """
+        Register a given dataset a input.
+
+        Args:
+            name: The name of the input dataset.
+        """
+        cls.ALL_INPUT_DATASETS[name] = dataset
+
+    @classmethod
     def get_input_dataset(cls, name: str) -> "InputBase":
         """
         Get an input object by its name.
