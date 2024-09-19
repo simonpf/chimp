@@ -188,12 +188,14 @@ def process_tile(
             else:
                 y_preds_k_r = y_preds_k
                 targets_k_r = targets_k
+            input_maps_r = input_maps
 
             if drop_steps is not None:
                 y_preds_k_r = y_preds_k_r[drop_steps:-drop_steps]
                 targets_k_r = targets_k_r[drop_steps:-drop_steps]
                 input_maps_r = input_maps[drop_steps:-drop_steps]
                 age_maps_r = age_maps[drop_steps:-drop_steps]
+
 
             # Evaluate retrieval.
             for step, (y_pred_k, target_k, input_map) in enumerate(zip(
