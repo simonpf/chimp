@@ -15,7 +15,6 @@ import numpy as np
 import pandas as pd
 from pyproj import Transformer
 from pyresample.geometry import AreaDefinition
-from pytorch_retrieve.tensors import MaskedTensor
 import torch
 import xarray as xr
 
@@ -338,7 +337,7 @@ class BaltradWPrecip(Baltrad):
         refl = 10 ** (refl / 10)
         precip = (refl / 200.0) ** (1 / 1.6)
         precip[no_precip] = 0.0
-        targets["surface_precip_zr"] = MaskedTensor(precip, mask=masked)
+        targets["surface_precip_zr"] = precip
         return targets
 
     def find_training_files(
