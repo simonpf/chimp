@@ -9,7 +9,7 @@ import pytest
 
 
 from chimp.areas import NORDICS
-from chimp.data.baltrad import BALTRAD, BALTRAD_W_PRECIP
+from chimp.data.baltrad import BALTRAD, BALTRAD_W_PRECIP, BALTRAD_PRECIP
 
 
 BALTRAD_DATA = os.environ.get("BALTRAD_DATA_PATH", None)
@@ -84,4 +84,33 @@ def test_baltrad_w_precip(tmp_path):
         rng=None
     )
     assert "reflectivity" in ref_data
+    assert "surface_precip_zr" in ref_data
+
+
+@NEEDS_BALTRAD_DATA
+def test_baltrad_precip(tmp_path):
+    files = BALTRAD_PRECIP.find_files(
+        "2019-01-01T00:00:00",
+        "2019-01-01T00:00:00",
+        np.timedelta64(15, "m"),
+        path=BALTRAD_DATA
+    )
+
+    BALTRAD.process_file(
+        files[0],
+        NORDICS,
+        tmp_path,
+        np.timedelta64(15, "m")
+    )
+
+    _, training_files = BALTRAD_PRECIP.find_training_files(tmp_path)
+    assert len(training_files) == 1
+    crop_size = NORDICS[4].shape
+    ref_data = BALTRAD_PRECIP.load_sample(
+        training_files[0],
+        crop_size=crop_size,
+        base_scale=4,
+        slices=(0, crop_size[0], 0, crop_size[1]),
+        rng=None
+    )
     assert "surface_precip_zr" in ref_data
