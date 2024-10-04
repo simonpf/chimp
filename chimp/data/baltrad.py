@@ -332,6 +332,7 @@ class BaltradWPrecip(Baltrad):
             quality_threshold=quality_threshold
         )
         refl = targets["reflectivity"]
+        masked = torch.isnan(refl)
         no_precip = refl <= -29.99
         refl = 10 ** (refl / 10)
         precip = (refl / 200.0) ** (1 / 1.6)
