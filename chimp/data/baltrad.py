@@ -1,6 +1,6 @@
 """
 chimp.data.baltrad
-=================
+==================
 
 Defines the Baltrad input data class that provides an interface to extract
 and load precipitation estimates from the BALTRAD radar network.
@@ -367,5 +367,77 @@ class BaltradWPrecip(Baltrad):
         return times, training_files
 
 
+class BaltradPrecip(Baltrad):
+    """
+    Specialization of the BALTRAD reference data that returns surface precipitation estimates instead
+    of radar reflectivity.
+    """
+    def __init__(self):
+        ReferenceDataset.__init__(
+            self,
+            "baltrad_precip",
+            scale=4,
+            targets=[RetrievalTarget("reflectivity")],
+            quality_index="qi"
+        )
+
+    def load_sample(
+            self,
+            path: Path,
+            crop_size: int,
+            base_scale,
+            slices: Tuple[int, int, int, int],
+            rng: np.random.Generator,
+            rotate: Optional[float] = None,
+            flip: Optional[bool] = None,
+            quality_threshold: float = 0.8
+    ) -> Dict[str, torch.Tensor]:
+        targets = super().load_sample(
+            path=path,
+            crop_size=crop_size,
+            base_scale=base_scale,
+            slices=slices,
+            rng=rng,
+            rotate=rotate,
+            flip=flip,
+            quality_threshold=quality_threshold
+        )
+        refl = targets.pop("reflectivity")
+        no_precip = refl <= -29.99
+        refl = 10 ** (refl / 10)
+        precip = (refl / 200.0) ** (1 / 1.6)
+        precip[no_precip] = 0.0
+        targets["surface_precipr"] = precip
+        return targets
+
+    def find_training_files(
+            self,
+            path: Union[Path, List[Path]],
+            times: Optional[np.ndarray] = None
+    ) -> Tuple[np.ndarray, List[Path]]:
+        """
+        Find training data files.
+
+        Args:
+            path: Path to the folder the training data for all input
+                and reference datasets.
+            times: Optional array containing valid reference data times for static
+                inputs.
+
+        Return:
+            A tuple ``(times, paths)`` containing the times for which training
+            files are available and the paths pointing to the corresponding file.
+        """
+        pattern = "*????????_??_??.nc"
+        training_files = sorted(
+            list((path / "baltrad").glob(pattern))
+            if isinstance(path, Path) else
+            list(f for f in path if f in list(f.parent.glob("baltrad" + pattern)))
+        )
+        times = np.array(list(map(get_date, training_files)))
+        return times, training_files
+
+
 BALTRAD = Baltrad()
 BALTRAD_W_PRECIP = BaltradWPrecip()
+BALTRAD_RECIP = BaltradPrecip()
