@@ -153,24 +153,13 @@ def retrieval_step(
             x_t["lead_time"] = lead_time
 
         with torch.no_grad():
-            if device != "cpu":
-                with torch.autocast(device_type="cuda", dtype=float_type):
-                    y_pred = model(x_t)
-                    for key, y_pred_k in y_pred.items():
-                        for step, y_pred_k_s in enumerate(iter_tensors(y_pred_k)):
-                            results_step = results.setdefault(step, {})
-                            y_mean_k_s = y_pred_k_s.expected_value()[0, 0]
-                            results_step[key + "_mean"] = y_mean_k_s.cpu().numpy()
-                            if key in quantile_outputs:
-                                results_step[key + "_cdf"] = y_pred_k_s.cpu().float().numpy()[0, :, 0]
-            else:
+            with torch.autocast(device_type=device.type, dtype=float_type):
                 y_pred = model(x_t)
                 for key, y_pred_k in y_pred.items():
                     for step, y_pred_k_s in enumerate(iter_tensors(y_pred_k)):
                         results_step = results.setdefault(step, {})
                         y_mean_k_s = y_pred_k_s.expected_value()[0, 0]
-                        results_step[key + "_mean"] = y_mean_k.cpu().float().numpy()
-
+                        results_step[key + "_mean"] = y_mean_k_s.cpu().numpy()
                         if key in quantile_outputs:
                             results_step[key + "_cdf"] = y_pred_k_s.cpu().float().numpy()[0, :, 0]
         return results
