@@ -1157,6 +1157,14 @@ class SequenceDataset(SingleStepDataset):
                         y.setdefault(name, []).append(inpt)
 
         if self.forecast == 0:
+            if not any_ref_data:
+                LOGGER.warning(
+                    "No valid reference data for sequence input starting at "
+                    "%s. Falling back to another radomly-chosen sample.",
+                    self.times[start_index]
+                )
+                new_ind = self.rng.integers(0, len(self))
+                return SequenceDataset.__getitem__(self, new_ind)
             return x, y
 
         forecast_steps = np.arange(0, self.forecast_range)
