@@ -102,6 +102,25 @@ NORDICS = Area(
     }
 )
 
+
+###############################################################################
+# Arctic
+###############################################################################
+
+ARCTIC_4 = pyresample.load_area(Path(__file__).parent / "chimp_arctic_4.yml")
+ARCTIC_8 = pyresample.load_area(Path(__file__).parent / "chimp_arctic_8.yml")
+ARCTIC_16 = pyresample.load_area(Path(__file__).parent / "chimp_arctic_16.yml")
+
+ARCTIC = Area(
+    name="arctic",
+    areas={
+        4: ARCTIC_4,
+        8: ARCTIC_8,
+        16: ARCTIC_16,
+    }
+)
+
+
 ###############################################################################
 # CONUS
 ###############################################################################

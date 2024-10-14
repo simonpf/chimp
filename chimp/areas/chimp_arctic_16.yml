@@ -1,0 +1,19 @@
+CHIMP_ARCTIC:
+  description: CHIMP region of interest centered on the North Pole
+  projection:
+    proj: stere
+    lat_0: 90
+    lat_ts: 70
+    lon_0: 0
+    x_0: 0
+    y_0: 0
+    datum: WGS84
+    no_defs: null
+    type: crs
+  shape:
+    height: 625
+    width: 625
+  area_extent:
+    lower_left_xy: [-5000000, -5000000]
+    upper_right_xy: [5000000, 5000000]
+    units: m
