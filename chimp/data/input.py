@@ -85,7 +85,7 @@ def get_input_dataset(name: Union[str, InputBase]) -> InputBase:
     from . import wxfm
     extensions.load()
 
-    if isinstance(name, InputBase):
+    if isinstance(name, DataSource):
         return name
     return InputBase.get_input_dataset(name)
 

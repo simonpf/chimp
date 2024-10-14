@@ -15,8 +15,9 @@ import xarray as xr
 
 from chimp import extensions
 from chimp.data.source import DataSource
-from chimp.data.input import InputBase
+from chimp.data.input import InputDataset
 from chimp.data.utils import scale_slices
+from chimp.utils import get_date
 
 
 @dataclass
@@ -222,6 +223,74 @@ class ReferenceDataset(DataSource):
         return y
 
 
+class BaselineInput(InputDataset):
+    """
+    Dummy class to identify inputs that are results from baseline models.
+    """
+    def __init__(
+        self,
+        dataset_name: str,
+        input_name: str,
+        scale: int,
+        variables: Union[str, List[str]],
+        n_dim: int = 2,
+        spatial_dims: Tuple[str, str] = ("y", "x"),
+    ):
+        self.base_name = dataset_name
+        super().__init__(
+            dataset_name + "_" + input_name,
+            input_name,
+            scale,
+            variables=variables,
+            n_dim=n_dim,
+            spatial_dims=spatial_dims
+        )
+
+    def find_training_files(
+            self,
+            path: Union[Path, List[Path]],
+            times: Optional[np.ndarray] = None
+    ) -> Tuple[np.ndarray, List[Path]]:
+        """
+        Find training data files.
+
+        Args:
+            path: Path to the folder the training data for all input
+                and reference datasets.
+            times: Optional array containing valid reference data times for static
+                inputs.
+
+        Return:
+            A tuple ``(times, paths)`` containing the times for which training
+            files are available and the paths pointing to the corresponding file.
+        """
+        pattern = "*????????_??_??.nc"
+        if isinstance(path, str):
+            paths = [Path(path)]
+        elif isinstance(path, Path):
+            paths = [path]
+        elif isinstance(path, list):
+            paths = path
+        else:
+            raise ValueError(
+                "Expected 'path' to be a 'Path' object pointing to a folder "
+                "or a list of 'Path' object pointing to input files. Got "
+                "%s.",
+                path
+            )
+
+        files = []
+        for path in paths:
+            if path.is_dir():
+                files += sorted(list((path / self.base_name).glob(pattern)))
+            else:
+                if path.match(pattern):
+                    files.append(path)
+
+        times = np.array(list(map(get_date, files)))
+        return times, files
+
+
 class BaselineDataset(ReferenceDataset):
     """
     A baseline dataset is a reference dataset that can be loaded as an
@@ -233,8 +302,18 @@ class BaselineDataset(ReferenceDataset):
         ReferenceDataset.__init__(
             self, name, scale, targets, quality_index,
         )
-        InputBase.register_dataset(name, self)
-
+        inputs = []
+        for targ in targets:
+            inputs.append(
+                BaselineInput(
+                    name,
+                    targ.name,
+                    scale=scale,
+                    variables=[targ.name],
+                    n_dim=1
+                ))
+            inputs[-1].n_channels = 1
+        self.inputs = inputs
 
 
 def get_reference_dataset(name: Union[str, ReferenceDataset]) -> ReferenceDataset:
@@ -264,3 +343,16 @@ def get_reference_dataset(name: Union[str, ReferenceDataset]) -> ReferenceDatase
         f"The reference data '{name}' is currently not available. Available "
         f" reference datasets are {list(ALL_REFERENCE_DATA.keys())}."
     )
+
+
+def get_reference_datasets(reference_list: List[Union[str, ReferenceDataset]]) -> List[ReferenceDataset]:
+    """
+    Parse reference datasets.
+
+    Args:
+        reference_list: List containing names of reference datasets.
+
+    Return:
+        A new list containing only 'chimp.data.reference.ReferenceData' objects.
+    """
+    return [get_reference_dataset(ref) for ref in reference_list]

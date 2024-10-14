@@ -6,12 +6,14 @@ Implements functionality for testing, i.e. evaluating, trained CHIMP retrievals.
 """
 from copy import copy
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import click
 from pytorch_retrieve.architectures import load_model
 from pytorch_retrieve import metrics as mtrcs
+from pytorch_retrieve.config import InferenceConfig
 from pytorch_retrieve.metrics import ScalarMetric
+from pytorch_retrieve.tensors import MeanTensor, MaskedTensor
 from rich.progress import Progress
 import torch
 from torch import nn
@@ -22,11 +24,60 @@ from pytorch_retrieve.inference import to_rec
 
 
 from chimp.tiling import Tiler
-from chimp.data.input import get_input_map, get_input_age
+from chimp.data.reference import (
+    BaselineInput,
+    get_reference_datasets
+)
+from chimp.data.input import (
+    get_input_map,
+    get_input_age,
+    InputDataset,
+    get_input_datasets
+)
+
 from chimp.data.training_data import (
     SingleStepDataset,
     SequenceDataset
 )
+
+
+class BaselineModel(nn.Module):
+    """
+    Dummy PyTorch module representing a baseline dataset, which is loaded as
+    input.
+    """
+    def __init__(self, baselines: list[BaselineInput]):
+        """
+        Args:
+            baselines: List of the baseline datasets to test.
+        """
+        super().__init__()
+        targets = [bline.input_name for bline in baselines]
+        self.targets = targets
+
+    def forward(self, x: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        """
+        Forward baseline results.
+        """
+        if isinstance(next(iter(x.values())), list):
+            return {targ: [MeanTensor(x_i) for x_i in x[targ]] for targ in self.targets}
+        return {targ: MeanTensor(x[targ]) for targ in self.targets}
+
+    @property
+    def inference_config(self) -> InferenceConfig:
+        return InferenceConfig(
+            input_loader_args={"sequence_length": 1}
+        )
+
+    def to_config_dict(self) -> Dict[str, Any]:
+        """
+        Return a dummy config dict containing the names of the targets of the
+        baseline datasets.
+        """
+        return {
+            "output": {targ: {} for targ in self.targets}
+        }
+
 
 
 
@@ -213,6 +264,14 @@ def process_tile(
                 input_map = input_map.__getitem__((...,) + slcs)
 
                 y_pred_k_mean = y_pred_k.expected_value()
+                mask = torch.isnan(y_pred_k_mean)
+                print("ANY NAN :: ", mask.any(), mask.all())
+
+                if isinstance(target_k, MaskedTensor):
+                    target_k = MaskedTensor(target_k.base, mask=target_k.mask | mask.squeeze())
+                else:
+                    target_k = MaskedTensor(target_k, mask.squeeze())
+
                 for metric in metrics_k:
                     metric = metric.to(device=device)
                     metric.update(y_pred_k_mean, target_k)
@@ -489,14 +548,6 @@ def cli(
     Evaluate model on test data located in TEST_DATA_PATH and write results to
     OUTPUT_FILENAME.nc.
     """
-    model = load_model(model).eval()
-
-    input_datasets = [name.strip() for name in  input_datasets.split(",")]
-    if len(input_datasets) < 1:
-        LOGGER.error(
-            "Must specify at least one input dataset using the '--input_datasets' option."
-        )
-        return 1
 
     reference_datasets = [name.strip() for name in  reference_datasets.split(",")]
     if len(reference_datasets) < 1:
@@ -504,6 +555,23 @@ def cli(
             "Must specify at least one reference dataset using the '--reference_datasets' option."
         )
         return 1
+    reference_datasets = get_reference_datasets(reference_datasets)
+
+    input_datasets = [name.strip() for name in  input_datasets.split(",")]
+    if len(input_datasets) < 1:
+        LOGGER.error(
+            "Must specify at least one input dataset using the '--input_datasets' option."
+        )
+        return 1
+    input_datasets = get_input_datasets(input_datasets)
+
+    if model == "baseline":
+        baselines = [
+            inpt for inpt in input_datasets if isinstance(inpt, BaselineInput)
+        ]
+        model = BaselineModel(baselines)
+    else:
+        model = load_model(model).eval()
 
     if drop_steps is None:
         sample_rate = 1
@@ -522,6 +590,7 @@ def cli(
         include_input_steps=True,
         sample_rate=sample_rate
     )
+    print("INPT :: ", test_data.input_files)
 
     metrics = {
         name: [
