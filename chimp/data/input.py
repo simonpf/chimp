@@ -718,7 +718,7 @@ class SequenceInputLoader(InputLoader):
         curr_time = self.times.min() + offset
 
         end_time = self.times.max()
-        while curr_time < end_time:
+        while curr_time <= end_time:
             try:
                 yield curr_time, self.get_input(curr_time)
             except RuntimeError:
