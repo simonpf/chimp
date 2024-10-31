@@ -366,14 +366,32 @@ class SingleStepDataset(Dataset):
 
         try:
             if not self.full:
-                rd_ind = np.where(self.reference_files[sample_index])[0][0]
-                slices = self.reference_datasets[rd_ind].find_random_scene(
-                    self.reference_files[sample_index][rd_ind],
-                    self.rng,
-                    multiple=4,
-                    scene_size=scene_size,
-                    quality_threshold=self.quality_threshold[rd_ind],
-                )
+                all_ref_dense = all([getattr(ref_ds, "dense", False) for ref_ds in self.reference_datasets])
+                if all_ref_dense:
+                    if all(self.input_files[sample_index] == None):
+                        return self[self.rng.integers(0, len(self))]
+                    ref_ind = np.where(self.input_files[sample_index])[0][0]
+                    sample_ref = self.input_datasets[ref_ind]
+                    sample_file = self.input_files[sample_index][ref_ind]
+                    quality_threshold = None
+                    slices = sample_ref.find_random_scene(
+                        sample_file,
+                        self.rng,
+                        multiple=4,
+                        scene_size=scene_size,
+                    )
+                else:
+                    ref_ind = np.where(self.reference_files[sample_index])[0][0]
+                    sample_ref = self.reference_datasets[ref_ind]
+                    sample_file = self.reference_files[sample_index][ref_ind]
+                    quality_threshold = self.quality_threshold[ref_ind]
+                    slices = sample_ref.find_random_scene(
+                        sample_file,
+                        self.rng,
+                        multiple=4,
+                        scene_size=scene_size,
+                        quality_threshold=quality_threshold
+                    )
                 if slices is None:
                     LOGGER.warning(
                         " Couldn't find a scene in reference file '%s' satisfying "
@@ -400,7 +418,26 @@ class SingleStepDataset(Dataset):
                 rotate=ang,
                 flip=flip,
             )
-        except Exception:
+
+            any_valid_input = any(torch.isfinite(tensor).any() for tensor in x.values())
+            if not any_valid_input:
+                LOGGER.info(
+                    "No valid input data in input files %s. Falling back to another randomly chosen "
+                    "training sample.",
+                    self.input_files[sample_index]
+                )
+                return self[self.rng.integers(0, len(self))]
+            any_valid_ref = any(torch.isfinite(tensor).any() for tensor in y.values())
+            if not any_valid_ref:
+                LOGGER.info(
+                    "No valid reference data in reference files %s. Falling back to another randomly chosen "
+                    "training sample.",
+                    self.reference_files[sample_index]
+
+                )
+                return self[self.rng.integers(0, len(self))]
+
+        except Exception as exc:
             LOGGER.warning(
                 f"Loading of training sample for '%s'"
                 "failed. Falling back to another radomly-chosen step.",
@@ -912,7 +949,7 @@ def find_sequence_starts_and_ends(
     valid_inputs = (
         signal.convolve(valid_inputs, k, mode="same", method="direct") >= thresh
     )
-    valid_inputs = valid_inputs[: -(sequence_length + forecast - 1)]
+    valid_inputs = valid_inputs[: valid_inputs.size - (sequence_length + forecast - 1)]
 
     valid_reference = np.any(reference_files != None, -1).astype(np.float32)
     k = np.ones(2 * (sequence_length + forecast) - 1)
@@ -923,7 +960,7 @@ def find_sequence_starts_and_ends(
     valid_reference = (
         signal.convolve(valid_reference, k, mode="same", method="direct") > 0.0
     )
-    valid_reference = valid_reference[: -(sequence_length + forecast - 1)]
+    valid_reference = valid_reference[:valid_reference.size - (sequence_length + forecast - 1)]
 
     valid_inds = np.where(valid_inputs * valid_reference)[0]
     starts = []

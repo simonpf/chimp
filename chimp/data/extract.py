@@ -81,6 +81,9 @@ def cli(
     import chimp.data.opera
     import chimp.data.s2s
     import chimp.data.wxfm
+    import chimp.data.avhrr
+    import chimp.data.era5
+    import chimp.data.cloudsat
 
     #
     # Check and load inputs.

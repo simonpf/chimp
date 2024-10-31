@@ -225,7 +225,7 @@ def resample_and_split(
 
         data_t = xr.Dataset({
             name: (("samples",) + da.dims[2:], da.data[mask])
-            for name, da in data_t.variables.items() if da.ndim > 1
+            for name, da in data_t.variables.items()
         })
         if "latitude" not in data_t:
             data_t["latitude"] = (("samples",), lats[spatial_mask])

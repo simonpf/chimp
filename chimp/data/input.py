@@ -83,6 +83,7 @@ def get_input_dataset(name: Union[str, InputBase]) -> InputBase:
     from . import ssmi
     from . import patmosx
     from . import wxfm
+    from . import avhrr
     extensions.load()
 
     if isinstance(name, DataSource):
@@ -311,9 +312,9 @@ class InputDataset(InputBase):
                 n_rows = data.y.size
                 n_cols = data.x.size
 
-            if "center_indices" in data.dims:
-                row_inds = data.row_inds_swath_center.data
-                col_inds = data.col_inds_swath_center.data
+            if "valid_pixels" in data.dims:
+                row_inds = data.valid_pixel_rows.data
+                col_inds = data.valid_pixel_cols.data
 
                 valid = (
                     (row_inds > scene_size // 2)
@@ -331,6 +332,17 @@ class InputDataset(InputBase):
                 ind = rng.choice(np.arange(valid.sum()))
                 row_c = row_inds[ind]
                 col_c = col_inds[ind]
+
+                scene_offset = getattr(self, "scene_offset", None)
+                if scene_offset:
+                    row_c = rng.integers(
+                        max(scene_size // 2, row_c - scene_offset),
+                        min(n_rows - scene_size // 2, row_c + scene_offset)
+                    )
+                    col_c = rng.integers(
+                        max(scene_size // 2, col_c - scene_offset),
+                        min(n_cols - scene_size // 2, col_c + scene_offset)
+                    )
 
                 i_start = int((row_c - scene_size // 2) // multiple * multiple)
                 i_end = int(i_start + scene_size)
