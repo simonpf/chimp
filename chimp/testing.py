@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import click
+import numpy as np
 from pytorch_retrieve.architectures import load_model
 from pytorch_retrieve import metrics as mtrcs
 from pytorch_retrieve.config import InferenceConfig
@@ -202,7 +203,7 @@ def process_tile(
             n_fc = 0
 
         if model.inference_config is None:
-            seq_len = 8
+            seq_len = None
         else:
             seq_len = model.inference_config.input_loader_args.get(
                     "sequence_length",
@@ -265,7 +266,6 @@ def process_tile(
 
                 y_pred_k_mean = y_pred_k.expected_value()
                 mask = torch.isnan(y_pred_k_mean)
-                print("ANY NAN :: ", mask.any(), mask.all())
 
                 if isinstance(target_k, MaskedTensor):
                     target_k = MaskedTensor(target_k.base, mask=target_k.mask | mask.squeeze())
@@ -364,7 +364,7 @@ def run_tests(
         if hasattr(test_dataset, "forecast"):
             forecast = test_dataset.forecast
 
-        if (sequence_length + forecast) > 0:
+        if (sequence_length + forecast) > 1:
             tot_steps = sequence_length
             bins = (-tot_steps + 0.5, tot_steps - 0.5, 2 * tot_steps - 1)
             metrics_conditional = {
@@ -481,14 +481,22 @@ def run_tests(
         metrics_c = metrics_conditional.get(name, {})
         for input_name, metrics in metrics_c.items():
             for metric in metrics:
+                metric_res = metric.compute().cpu().numpy()
                 res_name = name + "_" + metric.name.lower() + "_" + input_name
-                retrieval_results[res_name] = (("age",), metric.compute().cpu().numpy())
-                age_bins = metric.bins[0]
-            retrieval_results["age"] = 0.5 * (age_bins[1:] + age_bins[:-1])
+                if isinstance(metric_res, np.ndarray) and metric_res.ndim > 0:
+                    retrieval_results[res_name] = (("age",), metric_res)
+                    age_bins = metric.bins[0]
+                    retrieval_results["age"] = 0.5 * (age_bins[1:] + age_bins[:-1])
+                else:
+                    retrieval_results[res_name] = metric_res
     for name, metrics in metrics_step.items():
         for metric in metrics:
+            metric_res = metric.compute().cpu().numpy()
             res_name = name + "_" + metric.name.lower() + "_step"
-            retrieval_results[res_name] = (("step",), metric.compute().cpu().numpy())
+            if isinstance(metric_res, np.ndarray) and metric_res.ndim > 0:
+                retrieval_results[res_name] = (("step",), metric_res)
+            else:
+                retrieval_results[res_name] = metric_res
 
     if len(retrieval_results) > 0:
         retrieval_results = xr.Dataset(retrieval_results)
@@ -590,7 +598,6 @@ def cli(
         include_input_steps=True,
         sample_rate=sample_rate
     )
-    print("INPT :: ", test_data.input_files)
 
     metrics = {
         name: [
