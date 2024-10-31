@@ -144,7 +144,7 @@ def process_tile(
         metrics_forecast: Dict[str, ScalarMetric],
         metrics_persistence: Dict[str, ScalarMetric],
         device: str = "cuda",
-        dtype: torch.dtype = torch.bfloat16,
+        dtype: torch.dtype = torch.float16,
 ) -> None:
     """
     Evaluate predictions for a single tile.
@@ -528,10 +528,10 @@ def run_tests(
 @click.option("-i", "--inputs", "input_datasets", required=True)
 @click.option("--reference_datasets")
 @click.option("--device", type=str, default="cuda")
-@click.option("--dtype", type=str, default="bfloat16")
+@click.option("--dtype", type=str, default="float16")
 @click.option("--tile_size", type=int, default=128)
 @click.option("--batch_size", type=int, default=32)
-@click.option("--sequence_length", type=int, default=None)
+@click.option("--sequence_length", type=int, default=1)
 @click.option("--forecast", type=int, default=0)
 @click.option("-v", "--verbose", count=True)
 @click.option("--drop", type=str, default=None)
@@ -543,7 +543,7 @@ def cli(
         input_datasets: str,
         reference_datasets: str,
         device: str = "cuda",
-        dtype: str = "bfloat16",
+        dtype: str = "float16",
         tile_size: int = 128,
         verbose: int = 0,
         batch_size: int = 32,
