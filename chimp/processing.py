@@ -238,6 +238,7 @@ def cli(
     input_datasets = input_datasets.split(",")
     if sequence_length < 2:
         input_data = InputLoader(input_path, input_datasets)
+        temporal_overlap = 0
     else:
         if temporal_overlap is None:
             temporal_overlap = sequence_length - 1
@@ -291,6 +292,7 @@ def cli(
             if input_step > 0 and output_file.exists() and step < drop_left:
                 continue
 
+            results_s.attrs["sequence_step"] = step + 1
             LOGGER.info("Writing retrieval results to %s", output_file)
             results_s.to_netcdf(output_path / f"chimp_{date_str}.nc")
 
