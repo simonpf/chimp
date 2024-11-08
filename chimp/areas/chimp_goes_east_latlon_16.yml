@@ -1,0 +1,13 @@
+chim_goes_east_latlon:
+  description: CPCIR grid
+  projection:
+    proj: longlat
+    datum: WGS84
+    no_defs: null
+    type: crs
+  shape:
+    height: 750
+    width: 750
+  area_extent:
+    lower_left_xy: [-130.0, -60]
+    upper_right_xy: [-10.0, 60]
