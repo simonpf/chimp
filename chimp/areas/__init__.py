@@ -230,9 +230,9 @@ GOES_EAST_LATLON_16 = pyresample.load_area(Path(__file__).parent / "chimp_goes_e
 GOES_EAST_LATLON = Area(
     name="goes_east_latlon",
     areas={
-        4: GOES_EAST_4,
-        8: GOES_EAST_8,
-        16: GOES_EAST_16,
+        4: GOES_EAST_LATLON_4,
+        8: GOES_EAST_LATLON_8,
+        16: GOES_EAST_LATLON_16,
     }
 )
 

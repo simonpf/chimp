@@ -271,6 +271,7 @@ class GOES(InputDataset):
             output_folder: Path,
             time_step: np.timedelta64
     ):
+        import dask
         path = records_to_paths(path)
         output_folder = Path(output_folder) / self.name
         output_folder.mkdir(exist_ok=True)
@@ -285,9 +286,11 @@ class GOES(InputDataset):
         time_range = products[0].get_temporal_coverage(paths[0])
 
         channel_names = [f"C{prod.channel:02}" for prod in products]
-        scene.load(channel_names, generate=False)
-        scene = scene.resample(domain[self.scale])
-        data = scene.to_xarray_dataset().compute()
+
+        with dask.config.set({"array.chunk-size": "32MiB"}):
+            scene.load(channel_names, generate=False)
+            scene = scene.resample(domain[self.scale])
+            data = scene.to_xarray_dataset().compute()
 
         obs_refl = []
         obs_therm = []
