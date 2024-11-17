@@ -281,67 +281,69 @@ class GOES(InputDataset):
         else:
             paths = path
 
-        scene = Scene([str(path) for path in paths], reader="abi_l1b")
-        products = [[prod for prod in self.products if prod.matches(pth)][0] for pth in paths]
-        time_range = products[0].get_temporal_coverage(paths[0])
+        for path in paths:
 
-        channel_names = [f"C{prod.channel:02}" for prod in products]
+            scene = Scene([str(path)], reader="abi_l1b")
+            products = [prod for prod in self.products if prod.matches(path)]
+            time_range = products[0].get_temporal_coverage(path)
 
-        with dask.config.set({"array.chunk-size": "32MiB"}):
-            scene.load(channel_names, generate=False)
-            scene = scene.resample(domain[self.scale])
-            data = scene.to_xarray_dataset().compute()
+            channel_names = [f"C{prod.channel:02}" for prod in products]
 
-        obs_refl = []
-        obs_therm = []
+            with dask.config.set({"array.chunk-size": "32MiB"}):
+                scene.load(channel_names, generate=False)
+                scene = scene.resample(domain[self.scale])
+                data = scene.to_xarray_dataset().compute()
 
-        time_c = time_range.start + 0.5 * (time_range.end - time_range.start)
-        filename = get_output_filename(
-            self.name, time_c, time_step
-        )
-        output_file = output_folder / filename
+            obs_refl = []
+            obs_therm = []
 
-        if output_file.exists():
-            dataset = xr.load_dataset(output_file)
-        else:
-            obs_refl = np.nan * np.zeros(domain[self.scale].shape + (6,), dtype=np.float32)
-            obs_therm = np.nan * np.zeros(domain[self.scale].shape + (10,), dtype=np.float32)
-            dataset = xr.Dataset({
-                "refls": (("y", "x", "channels_refl"), obs_refl),
-                "tbs": (("y", "x", "channels_therm"), obs_therm)
-            })
+            time_c = time_range.start + 0.5 * (time_range.end - time_range.start)
+            filename = get_output_filename(
+                self.name, time_c, time_step
+            )
+            output_file = output_folder / filename
 
-        for name in channel_names:
-            channel = int(name[-2:])
-            if channel <= 6:
-                dataset["refls"].data[..., channel - 1] = data[name]
+            if output_file.exists():
+                dataset = xr.load_dataset(output_file)
             else:
-                dataset["tbs"].data[..., channel - 1 - 6] = data[name]
+                obs_refl = np.nan * np.zeros(domain[self.scale].shape + (6,), dtype=np.float32)
+                obs_therm = np.nan * np.zeros(domain[self.scale].shape + (10,), dtype=np.float32)
+                dataset = xr.Dataset({
+                    "refls": (("y", "x", "channels_refl"), obs_refl),
+                    "tbs": (("y", "x", "channels_therm"), obs_therm)
+                })
 
-        dataset = dataset.copy()
-        output_filename = Path(output_folder) / filename
-        if "input_files" in dataset.attrs:
-            dataset.attrs["input_files"] += "\n".join([path.name for path in paths])
-        else:
-            dataset.attrs["input_files"] = "\n".join([path.name for path in paths])
+            for name in channel_names:
+                channel = int(name[-2:])
+                if channel <= 6:
+                    dataset["refls"].data[..., channel - 1] = data[name]
+                else:
+                    dataset["tbs"].data[..., channel - 1 - 6] = data[name]
 
-        encoding = {}
-        dataset["refls"].data[:] = np.minimum(dataset["refls"].data, 127)
-        encoding["refls"] = {
-            "dtype": "uint8",
-            "_FillValue": 255,
-            "scale_factor": 0.5,
-            "zlib": True
-        }
-        dataset["tbs"].data[:] = np.clip(dataset["tbs"].data, 195, 323)
-        encoding["tbs"] = {
-            "dtype": "uint8",
-            "scale_factor": 0.5,
-            "add_offset": 195,
-            "_FillValue": 255,
-            "zlib": True
-        }
-        dataset.to_netcdf(output_filename, encoding=encoding)
+            dataset = dataset.copy()
+            output_filename = Path(output_folder) / filename
+            if "input_files" in dataset.attrs:
+                dataset.attrs["input_files"] += "\n".join([path.name for path in paths])
+            else:
+                dataset.attrs["input_files"] = "\n".join([path.name for path in paths])
+
+            encoding = {}
+            dataset["refls"].data[:] = np.minimum(dataset["refls"].data, 127)
+            encoding["refls"] = {
+                "dtype": "uint8",
+                "_FillValue": 255,
+                "scale_factor": 0.5,
+                "zlib": True
+            }
+            dataset["tbs"].data[:] = np.clip(dataset["tbs"].data, 195, 323)
+            encoding["tbs"] = {
+                "dtype": "uint8",
+                "scale_factor": 0.5,
+                "add_offset": 195,
+                "_FillValue": 255,
+                "zlib": True
+            }
+            dataset.to_netcdf(output_filename, encoding=encoding)
 
 
 GOES_16 = GOES("16", "ALL", GOES16L1BRadiances)
