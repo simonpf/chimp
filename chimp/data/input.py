@@ -182,7 +182,7 @@ class InputDataset(InputBase):
         rel_scale = self.scale / base_scale
 
         if isinstance(crop_size, int):
-            crop_size = (crop_size,) * self.n_dims
+            crop_size = (crop_size,) * self.n_dim
         crop_size = tuple((int(size / rel_scale) for size in crop_size))
 
         if input_file is not None:
