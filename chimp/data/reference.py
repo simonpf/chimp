@@ -153,7 +153,7 @@ class ReferenceDataset(DataSource):
         from pytorch_retrieve.tensors.masked_tensor import MaskedTensor
         rel_scale = self.scale / base_scale
         if isinstance(crop_size, int):
-            crop_size = (crop_size,) * self.n_dims
+            crop_size = (crop_size,) * self.n_dim
         crop_size = tuple((int(size / rel_scale) for size in crop_size))
         row_slice, col_slice = scale_slices(slices, rel_scale)
 
