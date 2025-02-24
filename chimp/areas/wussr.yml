@@ -1,0 +1,20 @@
+WUSSR:
+  description: WUSSR
+  projection:
+    proj: aea
+    lat_0: 40.0
+    lon_0: -113.5
+    lat_1: 34.0
+    lat_2: 46.0
+    x_0: 0.0
+    y_0: 0.0
+    datum: WGS84
+    no_defs: null
+    type: crs
+  shape:
+    height: 397
+    width: 390
+  area_extent:
+    lower_left_xy: [-1101962.28552015, -929160.321734714]
+    upper_right_xy: [845858.830205474, 1055749.1118945]
+    units: m 

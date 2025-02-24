@@ -220,3 +220,28 @@ GLOBAL_LATLON = Area(
         16: GLOBAL_LATLON_16,
     }
 )
+
+###############################################################################
+# CPCIR QUASI-GLOBAL
+###############################################################################
+
+CPCIR_4 = pyresample.load_area(Path(__file__).parent / "chimp_cpcir_4.yml")
+CPCIR_8 = pyresample.load_area(Path(__file__).parent / "chimp_cpcir_8.yml")
+
+CPCIR = Area(
+    name="cpcir",
+    areas={
+        4: CPCIR_4,
+        8: CPCIR_8,
+    }
+)
+
+
+###############################################################################
+# WUSSR
+###############################################################################
+
+WUSSR = Area(
+    name="wussr",
+    areas= pyresample.load_area(Path(__file__).parent / "wussr.yml")
+)

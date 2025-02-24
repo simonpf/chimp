@@ -81,6 +81,7 @@ def cli(
     import chimp.data.opera
     import chimp.data.s2s
     import chimp.data.wxfm
+    import chimp.data.dem
 
     #
     # Check and load inputs.
