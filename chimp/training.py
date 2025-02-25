@@ -115,6 +115,7 @@ class TrainingConfig(pr.training.TrainingConfigBase):
     accumulate_grad_batches: Optional[int] = None
     n_data_loader_workers: int = 12
     load_weights: Optional[str] = None
+    debug: bool = False
 
     @classmethod
     def parse(cls, name, config_dict: Dict[str, object]):

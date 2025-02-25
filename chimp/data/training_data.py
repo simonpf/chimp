@@ -1009,7 +1009,6 @@ class SequenceDataset(SingleStepDataset):
             validation=validation,
             require_ref_data=False,
         )
-
         self.sequence_length = sequence_length
         self.forecast = forecast
         if forecast_range is None:
@@ -1090,11 +1089,11 @@ class SequenceDataset(SingleStepDataset):
                 ref_start += self.sequence_length
             ref_end = start_index + self.sequence_length + self.forecast
 
-            ref_offset = np.where(self.valid_ref[ref_start:ref_end])[0][-1]
-            ref_index = ref_start + ref_offset
-            rd_ind = np.where(self.reference_files[ref_index])[0][0]
-
+            ref_index = None
             try:
+                ref_offset = np.where(self.valid_ref[ref_start:ref_end])[0][-1]
+                ref_index = ref_start + ref_offset
+                rd_ind = np.where(self.reference_files[ref_index])[0][0]
                 slices = self.reference_datasets[rd_ind].find_random_scene(
                     self.reference_files[ref_index][rd_ind],
                     self.rng,
@@ -1106,10 +1105,12 @@ class SequenceDataset(SingleStepDataset):
                 slices = None
             if slices is None:
                 LOGGER.warning(
-                    " Couldn't find a scene in reference file '%s' satisfying "
+                    " Couldn't find a scene in reference file(s) '%s' satisfying "
                     "the quality requirements. Falling back to another "
                     "radomly-chosen sample.",
-                    self.reference_files[ref_index][0],
+                    self.reference_files[ref_start:ref_end]
+                    if ref_index is None
+                    else self.reference_files[ref_index][0]
                 )
                 new_ind = self.rng.integers(0, len(self))
                 return SequenceDataset.__getitem__(self, new_ind)
