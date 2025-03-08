@@ -7,7 +7,7 @@ cpcir_area:
     type: crs
   shape:
     height: 1649
-    width: 4958
+    width: 4948
   area_extent:
     lower_left_xy: [-180.0, -60]
     upper_right_xy: [180, 60]
