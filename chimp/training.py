@@ -116,6 +116,7 @@ class TrainingConfig(pr.training.TrainingConfigBase):
     n_data_loader_workers: int = 12
     load_weights: Optional[str] = None
     persistent_workers: bool = False
+    debug: bool = False
 
     @classmethod
     def parse(cls, name, config_dict: Dict[str, object]):
