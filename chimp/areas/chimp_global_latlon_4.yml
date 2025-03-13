@@ -1,5 +1,5 @@
 cpcir_area:
-  description: CPCIR grid
+  description: Global 0.05 grid
   projection:
     proj: longlat
     datum: WGS84
