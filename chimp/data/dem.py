@@ -17,10 +17,10 @@ import xarray as xr
 
 
 from chimp.areas import Area
-from chimp.data.input import InputDataset
+from chimp.data.input import StaticInputDataset
 
 
-class NOAAGlobe(InputDataset):
+class NOAAGlobe(StaticInputDataset):
     """
     Interface for downloading and loading the NOAA GLOBE digital elevation model.
     """
@@ -32,7 +32,7 @@ class NOAAGlobe(InputDataset):
             targets: A list of the retrieval targets provided by the dataset.
             quality_index: Name of the field hodling the quality index.
         """
-        InputDataset.__init__(self, "dem", "elevation", 4, ["elevation"], n_dim=2)
+        StaticInputDataset.__init__(self, "dem", "elevation", 4, ["elevation"], n_dim=2)
         self.n_channels = 1
 
 

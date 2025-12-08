@@ -299,10 +299,10 @@ class GPML1CData(InputDataset):
 
 
 GMI = GPML1CData("gmi", 4, [l1c_r_gpm_gmi, l1c_r_gpm_gmi_b], 2, 13, 15e3)
-ATMS = GPML1CData("atms", 16, [l1c_noaa20_atms, l1c_npp_atms], 4, 9, 64e3)
+ATMS = GPML1CData("atms", 4, [l1c_noaa20_atms, l1c_npp_atms], 4, 9, 64e3)
 ATMS_W_ANGLE = GPML1CData(
     "atms_w_angle",
-    16,
+    4,
     [l1c_noaa20_atms, l1c_npp_atms],
     4,
     9,
@@ -312,7 +312,7 @@ ATMS_W_ANGLE = GPML1CData(
 )
 ATMS_2H = GPML1CData(
     "atms_2h",
-    16,
+    4,
     [l1c_noaa20_atms, l1c_npp_atms],
     4,
     9,
@@ -329,7 +329,7 @@ MHS_PRODUCTS = [
     l1c_metopb_mhs,
     l1c_metopc_mhs,
 ]
-MHS = GPML1CData("mhs", 8, MHS_PRODUCTS, 1, 5, 64e3)
+MHS = GPML1CData("mhs", 4, MHS_PRODUCTS, 1, 5, 64e3)
 
 SSMIS_PRODUCTS = [
     l1c_f16_ssmis,
@@ -339,7 +339,7 @@ SSMIS_PRODUCTS = [
     l1c_xcal2021v_f17_ssmis_v07b,
     l1c_xcal2021v_f18_ssmis_v07b,
 ]
-SSMIS = GPML1CData("ssmis", 8, SSMIS_PRODUCTS, 4, 11, 30e3)
+SSMIS = GPML1CData("ssmis", 4, SSMIS_PRODUCTS, 4, 11, 30e3)
 
 AMSR2 = GPML1CData("amsr2", 4, [l1c_gcomw1_amsr2], 6, 12, 30e3)
 

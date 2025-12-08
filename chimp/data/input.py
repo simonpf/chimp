@@ -83,6 +83,8 @@ def get_input_dataset(name: Union[str, InputBase]) -> InputBase:
     from . import ssmi
     from . import patmosx
     from . import wxfm
+    from . import dem
+
     extensions.load()
 
     if isinstance(name, DataSource):
@@ -185,9 +187,9 @@ class InputDataset(InputBase):
             crop_size = (crop_size,) * self.n_dim
         crop_size = tuple((int(size / rel_scale) for size in crop_size))
 
-        if input_file is not None:
+        if input_file != "None":
             try:
-                data = xr.open_dataset(input_file)
+                data = xr.open_dataset(input_file, decode_timedelta=False)
                 data.close()
             except OSError:
                 LOGGER.warning(
@@ -197,10 +199,10 @@ class InputDataset(InputBase):
                 input_file = None
 
 
-        if input_file is not None:
+        if input_file != "None":
             slices = scale_slices(slices, rel_scale)
 
-            with xr.open_dataset(input_file) as data:
+            with xr.open_dataset(input_file, decode_timedelta=False) as data:
                 vars = self.variables
                 if not isinstance(vars, list):
                     vars = [vars]
@@ -379,6 +381,15 @@ class InputDataset(InputBase):
                         found = True
 
         return (i_start, i_end, j_start, j_end)
+
+
+class StaticInputDataset(InputDataset):
+    """
+    Class to identify static input data.
+    """
+    pass
+
+
 
 def get_input_map(
         inputs: Dict[str, torch.Tensor],
@@ -585,16 +596,17 @@ class InputLoader():
         sample_files = {}
         scene_sizes = [None] * n_input_datasets
 
-        for input_ind, input_dataset in enumerate(self.input_datasets):
-            times, input_files = input_dataset.find_training_files(self.path)
 
+        for input_ind, input_dataset in enumerate(self.input_datasets):
+            if isinstance(input_dataset, StaticInputDataset):
+                continue
+            times, input_files = input_dataset.find_training_files(self.path)
             # Determine input size for all inputs.
             if len(input_files) > 0:
-                with xr.open_dataset(input_files[0]) as scene:
+                with xr.open_dataset(input_files[0], decode_timedelta=False) as scene:
                     scene_sizes[input_ind] = [
                         scene[dim].size for dim in input_dataset.spatial_dims
                     ]
-
             for time, input_file in zip(times, input_files):
                 files = sample_files.setdefault(time, ([None] * n_input_datasets))
                 files[input_ind] = input_file
@@ -607,7 +619,7 @@ class InputLoader():
             if end_time is not None:
                 if time > end_time:
                     continue
-            sample_files_filtered[time] = files
+            sample_files_filtered[time] = [str(fle) for fle in files]
 
         self.sample_files = sample_files_filtered
 
@@ -621,6 +633,19 @@ class InputLoader():
             else:
                 time_step = np.diff(np.sort(times)).min()
         self.time_step = time_step
+
+        # Determine static input files
+        for input_ind, input_dataset in enumerate(self.input_datasets):
+            if not isinstance(input_dataset, StaticInputDataset):
+                continue
+            times, input_files = input_dataset.find_training_files(self.path, self.times)
+            with xr.open_dataset(input_files[0], decode_timedelta=False) as scene:
+                scene_sizes[input_ind] = [
+                    scene[dim].size for dim in input_dataset.spatial_dims
+                ]
+            for time, input_file in zip(times, input_files):
+                self.sample_files[time][input_ind] = input_file
+
 
         self.rng = np.random.default_rng()
         self.dtype = times[0].dtype

@@ -6,11 +6,13 @@ Defines
 
 """
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 
 import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec
 from matplotlib.ticker import FixedLocator
 from matplotlib.patches import Rectangle
+import numpy as np
 import pandas as pd
 import seaborn as sns
 
@@ -150,3 +152,27 @@ def scale_bar(
             verticalalignment='center',
             color=textcolor
     )
+
+
+
+def plot_sequence(
+        sequences: Dict[str, List[np.ndarray]],
+        ax_width: int = 4
+):
+    seq_len = len(next(iter(sequences.values())))
+    n_seqs = len(sequences)
+
+    fig = plt.figure(figsize=(ax_width * seq_len, n_seqs * ax_width))
+    gs = GridSpec(n_seqs, seq_len + 1, width_ratios = [0.2] + [1.0] * seq_len)
+
+    for seq_ind, (seq_name, seq_data) in enumerate(sequences.items()):
+
+        ax = fig.add_subplot(gs[seq_ind, 0])
+        ax.set_axis_off()
+        ax.text(0, 0, s=seq_name, ha="center", va="center")
+        ax.set_ylim(-2, 2)
+
+        for smpl_ind, res in enumerate(seq_data):
+            ax = fig.add_subplot(gs[seq_ind, smpl_ind + 1])
+            m = ax.pcolormesh(res)
+            plt.colorbar(m, ax=ax)
