@@ -30,11 +30,12 @@ import pytorch_retrieve as pr
 from pytorch_retrieve import metrics
 from pytorch_retrieve.lightning import LightningRetrieval
 from pytorch_retrieve.training import run_training
+from pytorch_retrieve.utils import InterleaveDatasets
 from torch.utils.data import DataLoader
 
 from chimp import extensions
 from chimp.data.training_data import (
-    SingleStepDataset, SingleStepPretrainDataset, SequenceDataset
+    SingleStepDataset, SingleStepPretrainDataset, SequenceDataset, SparseSequenceDataset
 )
 
 
@@ -87,6 +88,7 @@ class TrainingConfig(pr.training.TrainingConfigBase):
     reference_datasets: List[str]
     sample_rate: int
     sequence_length: int
+    input_range: np.timedelta64
     forecast: int
     forecast_range: Optional[int]
     shrink_output: Optional[int]
@@ -108,6 +110,9 @@ class TrainingConfig(pr.training.TrainingConfigBase):
     include_input_steps: bool = False
     require_input: bool = False
     pretraining: bool = False
+    sparse: bool = False
+    freeze: Optional[List[str]] = None
+    unfreeze: Optional[List[str]] = None
 
     log_every_n_steps: Optional[int] = None
     gradient_clip_val: Optional[float] = None
@@ -152,6 +157,10 @@ class TrainingConfig(pr.training.TrainingConfigBase):
         sequence_length = get_config_attr(
             "sequence_length", int, config_dict, f"training stage '{name}'", 1
         )
+        input_range = get_config_attr(
+            "input_range", int, config_dict, f"training stage '{name}'", 1
+        )
+        input_range = np.timedelta64(input_range, "m")
         forecast = get_config_attr(
             "forecast", int, config_dict, f"training stage '{name}'", 0
         )
@@ -177,9 +186,6 @@ class TrainingConfig(pr.training.TrainingConfigBase):
         training_dataset = get_config_attr(
             "training_dataset", str, config_dict, f"training stage '{name}'"
         )
-        training_dataset_args = get_config_attr(
-            "training_dataset_args", dict, config_dict, f"training stage '{name}'"
-        )
         validation_dataset = get_config_attr(
             "validation_dataset",
             str,
@@ -187,11 +193,6 @@ class TrainingConfig(pr.training.TrainingConfigBase):
             f"training stage '{name}'",
             training_dataset,
         )
-        validation_dataset_args = get_config_attr(
-            "validation_dataset_args", dict, config_dict, f"training stage '{name}'", ""
-        )
-        if validation_dataset_args == "":
-            validation_dataset_args = None
 
         n_epochs = get_config_attr(
             "n_epochs", int, config_dict, f"training stage '{name}'"
@@ -246,6 +247,9 @@ class TrainingConfig(pr.training.TrainingConfigBase):
         pretraining = get_config_attr(
             "pretraining", bool, config_dict, f"training stage '{name}'", False
         )
+        sparse = get_config_attr(
+            "sparse", bool, config_dict, f"training stage '{name}'", False
+        )
 
         log_every_n_steps = config_dict.get("log_every_n_steps", -1)
         if log_every_n_steps < 0:
@@ -269,6 +273,12 @@ class TrainingConfig(pr.training.TrainingConfigBase):
         load_weights = get_config_attr(
             "load_weights", str, config_dict, f"training stage {name}", None
         )
+        freeze = get_config_attr(
+            "freeze", list, config_dict, f"training stage {name}", []
+        )
+        unfreeze = get_config_attr(
+            "unfreeze", list, config_dict, f"training stage {name}", []
+        )
 
         return TrainingConfig(
             training_data_path=training_data_path,
@@ -277,6 +287,7 @@ class TrainingConfig(pr.training.TrainingConfigBase):
             reference_datasets=reference_datasets,
             sample_rate=sample_rate,
             sequence_length=sequence_length,
+            input_range=input_range,
             forecast=forecast,
             forecast_range=forecast_range,
             shrink_output=shrink_output,
@@ -298,12 +309,15 @@ class TrainingConfig(pr.training.TrainingConfigBase):
             include_input_steps=include_input_steps,
             require_input=require_input,
             pretraining=pretraining,
+            sparse=sparse,
             log_every_n_steps=log_every_n_steps,
             gradient_clip_val=gradient_clip_val,
             gradient_clip_algorithm=gradient_clip_algorithm,
             accumulate_grad_batches=accumulate_grad_batches,
             n_data_loader_workers=n_data_loader_workers,
             load_weights=load_weights,
+            freeze=freeze,
+            unfreeze=unfreeze,
         )
 
     def get_training_dataset(
@@ -323,6 +337,19 @@ class TrainingConfig(pr.training.TrainingConfigBase):
                     scene_size=self.scene_size,
                 )
             else:
+                ref_datasets = self.reference_datasets
+                if len(ref_datasets) > 1:
+                    return InterleaveDatasets([
+                        SingleStepDataset(
+                            self.training_data_path,
+                            input_datasets=self.input_datasets,
+                            reference_datasets=[ref_dataset],
+                            sample_rate=self.sample_rate,
+                            augment=self.augment,
+                            scene_size=self.scene_size,
+                        ) for ref_dataset in ref_datasets
+                    ])
+
                 return SingleStepDataset(
                     self.training_data_path,
                     input_datasets=self.input_datasets,
@@ -332,51 +359,128 @@ class TrainingConfig(pr.training.TrainingConfigBase):
                     scene_size=self.scene_size,
                 )
         else:
-            return SequenceDataset(
-                self.training_data_path,
-                input_datasets=self.input_datasets,
-                reference_datasets=self.reference_datasets,
-                sample_rate=self.sample_rate,
-                scene_size=self.scene_size,
-                sequence_length=self.sequence_length,
-                forecast=self.forecast,
-                forecast_range=self.forecast_range,
-                shrink_output=self.shrink_output,
-                augment=self.augment,
-                include_input_steps=self.include_input_steps,
-            )
+            ref_datasets = self.reference_datasets
+            if self.sparse:
+                dataset_class = SparseSequenceDataset
+                args = {
+                    "path": self.training_data_path,
+                    "input_datasets": self.input_datasets,
+                    "reference_datasets": self.reference_datasets,
+                    "sample_rate": self.sample_rate,
+                    "scene_size": self.scene_size,
+                    "input_range": self.input_range,
+                    "input_length": self.sequence_length,
+                    "forecast_range": np.timedelta64(self.forecast_range, "m"),
+                    "retrieve_input": self.include_input_steps,
+                    "shrink_output": self.shrink_output,
+                    "augment": self.augment,
+                }
+            else:
+                dataset_class = SequenceDataset
+                args = {
+                    "path": self.training_data_path,
+                    "input_datasets": self.input_datasets,
+                    "reference_datasets": self.reference_datasets,
+                    "sample_rate": self.sample_rate,
+                    "scene_size": self.scene_size,
+                    "sequence_length": self.sequence_length,
+                    "forecast": self.forecast,
+                    "forecast_range": self.forecast_range,
+                    "shrink_output": self.shrink_output,
+                    "augment": self.augment,
+                    "include_input_steps": self.include_input_steps,
+                }
 
-    def get_validation_dataset(self):
+            if len(ref_datasets) > 1:
+                datasets = []
+                for ref_dataset in ref_datasets:
+                    args["reference_datasets"] = [ref_dataset]
+                    datasets.append(dataset_class(**args))
+                return InterleaveDatasets(datasets)
+            return dataset_class(**args)
+
+    def get_validation_dataset(
+        self,
+    ) -> object:
         """
-        Instantiates the appropriate validation dataset.
+        Instantiates the appropriate training dataset.
         """
-        if self.validation_data_path is None:
-            return None
         if self.sequence_length == 1:
-            return SingleStepDataset(
-                self.validation_data_path,
-                input_datasets=self.input_datasets,
-                reference_datasets=self.reference_datasets,
-                sample_rate=self.sample_rate,
-                augment=False,
-                scene_size=self.scene_size,
-                validation=True,
-            )
+            if self.pretraining:
+                return SingleStepPretrainDataset(
+                    self.validation_data_path,
+                    input_datasets=self.input_datasets,
+                    reference_datasets=self.reference_datasets,
+                    sample_rate=self.sample_rate,
+                    augment=False,
+                    scene_size=self.scene_size,
+                    validation=True
+                )
+            else:
+                ref_datasets = self.reference_datasets
+                if len(ref_datasets) > 1:
+                    return InterleaveDatasets([
+                        SingleStepDataset(
+                            self.validation_data_path,
+                            input_datasets=self.input_datasets,
+                            reference_datasets=[ref_dataset],
+                            sample_rate=self.sample_rate,
+                            augment=False,
+                            scene_size=self.scene_size,
+                        ) for ref_dataset in ref_datasets
+                    ])
+
+                return SingleStepDataset(
+                    self.validation_data_path,
+                    input_datasets=self.input_datasets,
+                    reference_datasets=self.reference_datasets,
+                    sample_rate=self.sample_rate,
+                    augment=False,
+                    scene_size=self.scene_size,
+                    validation=True
+                )
         else:
-            return SequenceDataset(
-                self.validation_data_path,
-                input_datasets=self.input_datasets,
-                reference_datasets=self.reference_datasets,
-                sample_rate=self.sample_rate,
-                scene_size=self.scene_size,
-                sequence_length=self.sequence_length,
-                forecast=self.forecast,
-                forecast_range=self.forecast_range,
-                shrink_output=self.shrink_output,
-                augment=False,
-                validation=True,
-                include_input_steps=self.include_input_steps,
-            )
+            ref_datasets = self.reference_datasets
+            if self.sparse:
+                dataset_class = SparseSequenceDataset
+                args = {
+                    "path": self.validation_data_path,
+                    "input_datasets": self.input_datasets,
+                    "reference_datasets": self.reference_datasets,
+                    "sample_rate": self.sample_rate,
+                    "scene_size": self.scene_size,
+                    "input_range": self.input_range,
+                    "input_length": self.sequence_length,
+                    "forecast_range": np.timedelta64(self.forecast_range, "m"),
+                    "retrieve_input": self.include_input_steps,
+                    "shrink_output": self.shrink_output,
+                    "augment": False,
+                    "validation": True
+                }
+            else:
+                dataset_class = SequenceDataset
+                args = {
+                    "path": self.validation_data_path,
+                    "input_datasets": self.input_datasets,
+                    "reference_datasets": self.reference_datasets,
+                    "sample_rate": self.sample_rate,
+                    "scene_size": self.scene_size,
+                    "sequence_length": self.sequence_length,
+                    "forecast": self.forecast,
+                    "forecast_range": self.forecast_range,
+                    "shrink_output": self.shrink_output,
+                    "augment": False,
+                    "include_input_steps": self.include_input_steps,
+                    "validation": True
+                }
+
+            if len(ref_datasets) > 1:
+                datasets = []
+                for ref_dataset in ref_datasets:
+                    args["reference_datasets"] = [ref_dataset]
+                    datasets.append(dataset_class(**args))
+                return InterleaveDatasets(datasets)
+            return dataset_class(**args)
 
     def get_callbacks(self, module: LightningRetrieval) -> List[callbacks.Callback]:
         """
