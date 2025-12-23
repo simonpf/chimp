@@ -8,6 +8,7 @@ input data and sequence data.
 
 from dataclasses import dataclass
 from datetime import datetime
+from functools import cache, cached_property
 import logging
 from math import floor, ceil
 import os
@@ -137,7 +138,7 @@ class SingleStepDataset(Dataset):
         self.base_scale = min(
             [reference_dataset.scale for reference_dataset in self.reference_datasets]
         )
-        self.max_scale = 0
+        self.max_scale = 1
         self.scales = {}
         for input_dataset in self.input_datasets:
             scale = input_dataset.scale / self.base_scale
@@ -321,16 +322,44 @@ class SingleStepDataset(Dataset):
         x = {}
         for input_ind, input_dataset in enumerate(self.input_datasets):
             input_file = files[input_ind]
-            x_s = input_dataset.load_sample(
-                input_file,
-                scene_size,
-                self.base_scale,
-                slices,
-                self.rng,
-                rotate=rotate,
-                flip=flip,
-            )
+            if input_dataset.stack is None:
+                x_s = input_dataset.load_sample(
+                    input_file,
+                    scene_size,
+                    self.base_scale,
+                    slices,
+                    self.rng,
+                    rotate=rotate,
+                    flip=flip,
+                )
+                x[input_dataset.input_name] = x_s
+            else:
+
+                input_files = input_dataset.get_files_to_stack(
+                    input_file,
+                    input_dataset.stack,
+                    input_dataset.stacking_mode,
+                    self.time_step
+                )
+                if self.augment:
+                    input_files = [
+                        input_file if input_dataset.stack_drop < self.rng.random() else "None"
+                        for input_file in input_files[:-1]
+                    ] + input_files[-1:]
+
+                x_s = torch.cat([
+                    input_dataset.load_sample(
+                        input_file,
+                        scene_size,
+                        self.base_scale,
+                        slices,
+                        self.rng,
+                        rotate=rotate,
+                        flip=flip)
+                     for input_file in input_files
+                ])
             x[input_dataset.input_name] = x_s
+
         return x
 
     def __len__(self):
@@ -1060,9 +1089,7 @@ class SequenceDataset(SingleStepDataset):
         if self.augment:
             if not self.full:
                 scene_size = int(1.42 * self.scene_size)
-                size_rem = scene_size % self.max_scale
-                if size_rem != 0:
-                    scene_size += self.max_scale - size_rem
+                size_rem = scene_size // self.max_scale * self.max_scale
                 ang = -180 + 360 * self.rng.random()
             else:
                 scene_size = self.scene_size
@@ -1090,7 +1117,15 @@ class SequenceDataset(SingleStepDataset):
                 ref_start += self.sequence_length
             ref_end = start_index + self.sequence_length + self.forecast
 
-            ref_index = None
+            ref_offset = np.where(self.valid_ref[ref_start:ref_end])[0]
+            if len(ref_offset) == 0:
+                new_ind = self.rng.integers(0, len(self))
+                return SequenceDataset.__getitem__(self, new_ind)
+
+            ref_offset = self.rng.choice(ref_offset)
+            ref_index = ref_start + ref_offset
+            rd_ind = np.where(self.reference_files[ref_index])[0][0]
+
             try:
                 ref_offset = np.where(self.valid_ref[ref_start:ref_end])[0][-1]
                 ref_index = ref_start + ref_offset
@@ -1098,22 +1133,23 @@ class SequenceDataset(SingleStepDataset):
                 slices = self.reference_datasets[rd_ind].find_random_scene(
                     self.reference_files[ref_index][rd_ind],
                     self.rng,
-                    multiple=4,
+                    multiple=self.max_scale,
                     scene_size=scene_size,
                     quality_threshold=self.quality_threshold[rd_ind],
                 )
             except Exception as exc:
                 slices = None
             if slices is None:
+                new_ind = index
+                while new_ind == index:
+                    new_ind = self.rng.integers(0, len(self))
                 LOGGER.warning(
-                    " Couldn't find a scene in reference file(s) '%s' satisfying "
-                    "the quality requirements. Falling back to another "
+                    " Couldn't find a scene in reference file '%s' for reference dataset %s "
+                    " satisfying the quality requirements. Falling back to another "
                     "radomly-chosen sample.",
-                    self.reference_files[ref_start:ref_end]
-                    if ref_index is None
-                    else self.reference_files[ref_index][0]
+                    self.reference_files[ref_index][rd_ind],
+                    self.reference_datasets[rd_ind].name,
                 )
-                new_ind = self.rng.integers(0, len(self))
                 return SequenceDataset.__getitem__(self, new_ind)
         else:
             slices = (0, scene_size[0], 0, scene_size[1])
@@ -1156,7 +1192,7 @@ class SequenceDataset(SingleStepDataset):
                             flip=flip,
                         )
                     except Exception as exc:
-                        LOGGER.warning(
+                        LOGGER.exception(
                             "Encountered an error when loading reference data from files '%s'."
                             "Falling back to another radomly-chosen sample.",
                             self.reference_files[step_index],
@@ -1184,7 +1220,9 @@ class SequenceDataset(SingleStepDataset):
                     "%s. Falling back to another radomly-chosen sample.",
                     self.times[start_index]
                 )
-                new_ind = self.rng.integers(0, len(self))
+                new_ind = index
+                while new_ind == index:
+                    new_ind = self.rng.integers(0, len(self))
                 return SequenceDataset.__getitem__(self, new_ind)
 
             return x, y
@@ -1238,3 +1276,474 @@ class SequenceDataset(SingleStepDataset):
 
 
         return x, y
+
+
+class SparseSequenceDataset(SingleStepDataset):
+    """
+    Dataset to load sequence input data for sparse reference datasets.
+    """
+    def __init__(
+        self,
+        path: Path,
+        input_datasets: List[str],
+        reference_datasets: List[str],
+        sample_rate: float = 1.0,
+        scene_size: int = 256,
+        input_range: np.timedelta64 = np.timedelta64(2, "h"),
+        input_length: int = 16,
+        forecast_range: Optional[np.timedelta64] = None,
+        retrieve_input: bool = True,
+        start_time: np.datetime64 = None,
+        end_time: np.datetime64 = None,
+        augment: bool = True,
+        shrink_output: Optional[int] = None,
+        validation: bool = False,
+        quality_threshold: float = 0.8,
+    ):
+        """
+        Args:
+            path: The path to the training data.
+            input_datasets: List of input datasets or their names from which to load
+                 the input data.
+            reference_datasets: List of reference datasets or their names from which
+                 to load the reference data.
+            sample_rate: Optional sub-sampling rate to apply to the dataset.
+            scene_size: The size of the input data.
+            input_range: A numpy.timedelta64 object definign the maximum time range of inputs.
+            input_length: The length of input sequences.
+            forecast_range: The time range up to which forecast estimates into the future.
+            retrieve_input: Whether training samples with reference values in the input range should be considered.
+            start_time: Optional start time to limit the samples.
+            end_time: Optional end time to limit the available samples.
+            augment: Whether to apply random transformations to the training
+                inputs.
+            shrink_output: If given, the reference data scenes will contain
+                only the center crop the total scene with the size of the
+                crop calculated by dividing the input size by the given factor.
+            validation: If 'True' sampling will reproduce identical scenes.
+            quality_threshold: Thresholds for the quality indices applied to limit
+                reference data pixels.
+        """
+        self.path = Path(path)
+        self.input_datasets = np.array(
+            [get_input_dataset(input_dataset) for input_dataset in input_datasets]
+        )
+        self.reference_datasets = np.array(
+            [
+                get_reference_dataset(reference_dataset)
+                for reference_dataset in reference_datasets
+            ]
+        )
+        self.sample_rate = sample_rate
+        self.input_range = input_range
+        self.input_length = input_length
+        self.forecast_range = forecast_range
+        self.retrieve_input = retrieve_input
+        self.start_time = start_time
+        self.end_time = end_time
+        self.augment = augment
+
+        # Determine scales
+        self.base_scale = min(
+            [reference_dataset.scale for reference_dataset in self.reference_datasets]
+        )
+        self.max_scale = 0
+        self.scales = {}
+        for input_dataset in self.input_datasets:
+            scale = input_dataset.scale / self.base_scale
+            self.scales[input_dataset.name] = scale
+            self.max_scale = max(self.max_scale, scale)
+
+        self.full = False
+        if scene_size < 0:
+            ref_dataset = np.argmin(
+                [
+                    reference_dataset.scale
+                    for reference_dataset in self.reference_datasets
+                ]
+            )
+            _, files = self.get_times_and_files(ref_dataset)
+            ref_file = files[0]
+            with xr.open_dataset(ref_file) as ref_data:
+                scene_size = tuple(ref_data.sizes.values())[:2]
+            self.full = True
+
+        self.scene_size = scene_size
+        self.validation = validation
+        if self.validation:
+            self.augment = False
+        self.init_rng()
+
+
+        if isinstance(quality_threshold, float):
+            quality_threshold = [quality_threshold] * len(reference_datasets)
+        self.quality_threshold = np.array(quality_threshold)
+        self.w_id = 0
+
+    @cache
+    def get_times_and_files(self, dataset: [InputDataset, ReferenceDataset]) -> np.ndarray:
+        """
+        Get available input time for a given input dataset.
+        """
+        times, files = dataset.find_training_files(self.path, times=None)
+        files = np.array([str(path) for path in files])
+        mask = np.ones_like(times, dtype=bool)
+        if self.start_time is not None:
+            mask = self.start_time <= times
+        if self.end_time is not None:
+            mask *= times <= self.end_time
+        times = times[mask]
+        files = files[mask]
+        return times, files
+
+    @cache
+    def get_files_in_range(
+            self,
+            dataset: [InputDataset, ReferenceDataset],
+            start_time: np.datetime64,
+            end_time: np.datetime64
+    ) -> np.ndarray:
+        """
+        Get available input time for a given input dataset.
+        """
+        times, files = self.get_times_and_files(dataset)
+        if len(times) == 0:
+            return np.zeros(0)
+        mask = (start_time <= times) * (times <= end_time)
+        times = times[mask]
+        files = files[mask]
+        return files
+
+    @cached_property
+    def reference_times_and_files(self) -> np.ndarray:
+        """
+        Get available input time for a given input dataset.
+        """
+        ref_dataset = self.reference_datasets[0]
+        return self.get_times_and_files(ref_dataset)
+
+
+    def get_scene_parameters(self) -> Tuple[int, float, bool]:
+        """
+        Determines scene size and random augmentation parameters.
+        """
+        if self.augment:
+            if not self.full:
+                scene_size = int(1.42 * self.scene_size)
+                rem = scene_size % self.max_scale
+                if rem != 0:
+                    scene_size += self.max_scale - rem
+                ang = -180 + 360 * self.rng.random()
+            else:
+                scene_size = self.scene_size
+                ang = None
+            flip = self.rng.random() > 0.5
+        else:
+            scene_size = self.scene_size
+            ang = None
+            flip = False
+        return scene_size, ang, flip
+
+
+    def __len__(self):
+        """Number of samples in an epoch."""
+        ref_dataset = self.reference_datasets[0]
+        times, files = self.reference_times_and_files
+        return floor(self.sample_rate * len(times))
+
+    def __getitem__(self, index: int) -> Dict[str, torch.Tensor]:
+        """Return training sample."""
+        ref_times, ref_files = self.reference_times_and_files
+
+        if self.validation:
+            self.rng = np.random.default_rng(seed=index)
+
+        rem = floor(1.0 / self.sample_rate)
+        lower = floor(index / self.sample_rate)
+        upper = min(floor((index + 1) / self.sample_rate), len(ref_times))
+        if not self.validation and lower < upper:
+            index = self.rng.integers(lower, upper)
+        else:
+            index = lower
+
+        ref_time = ref_times[index]
+        ref_file = ref_files[index]
+
+        # Determine scene and augmentation parameters
+        scene_size, ang, flip = self.get_scene_parameters()
+
+        # Determine reference data region
+        if not self.full:
+            ref_dataset = self.reference_datasets[0]
+            try:
+                slices = ref_dataset.find_random_scene(
+                    ref_file,
+                    self.rng,
+                    multiple=max(int(self.max_scale), 1),
+                    scene_size=scene_size,
+                    quality_threshold=self.quality_threshold[0]
+                )
+            except Exception:
+                slices = None
+
+            if slices is None:
+                LOGGER.warning(
+                    " Couldn't find a scene in reference file '%s' satisfying "
+                    "the quality requirements. Falling back to another "
+                    "radomly-chosen reference data file.",
+                        ref_file
+                )
+                new_ind = self.rng.integers(0, len(self))
+                return self[new_ind]
+        else:
+            slices = (0, scene_size[0], 0, scene_size[1])
+
+        target_time = ref_dataset.load_sample_time(
+            ref_file,
+            self.scene_size,
+            self.base_scale,
+            ref_time,
+            slices,
+            rotate=ang,
+            flip=flip
+        )
+        median_time = np.median(target_time[torch.isfinite(target_time)]).item()
+        ref_time = ref_time + np.timedelta64(int(median_time), "m")
+
+        if self.retrieve_input:
+            end_time = ref_time + self.rng.random() * self.input_range
+        else:
+            end_time = ref_time - self.rng.random() * self.forecast_range
+        start_time = end_time - self.input_range
+
+        slices = (slices[0], int(slices[0] + scene_size), slices[2], int(slices[2] + scene_size))
+
+        # Load target data
+        targets = {}
+        inputs = {}
+
+        any_ref = False
+        for dataset_ind, ref_dataset in enumerate(self.reference_datasets):
+            if ref_dataset == self.reference_datasets[0]:
+                sample_file = ref_file
+            else:
+                sample_file = "None"
+                files = self.get_files_in_range(ref_dataset, start_time, end_time)
+                if len(files) > 0:
+                    sample_file = rng.choice(files)
+
+            trgt = ref_dataset.load_sample(
+                sample_file,
+                self.scene_size,
+                self.base_scale,
+                slices,
+                self.rng,
+                rotate=ang,
+                flip=flip,
+                quality_threshold=self.quality_threshold[dataset_ind]
+            )
+
+            for tnsr in trgt.values():
+                if torch.isfinite(tnsr).any():
+                    any_ref = True
+                    break
+
+            if not any_ref:
+                LOGGER.warning(
+                    "No valid target samples in scene loaded from file %s."
+                    "Falling back to another radomly-chosen sample.",
+                    ref_file
+                )
+                if self.validation:
+                    new_ind = index + 1
+                else:
+                    new_ind = self.rng.integers(0, len(self))
+                return self[new_ind]
+
+
+            for name, tnsr in trgt.items():
+                targets[name] = [tnsr]
+                if f"{name}_target_time" in trgt:
+                    inputs[f"{name}_target_time"] = trgt.pop("target_time")
+                else:
+                    inputs[f"{name}_target_time"] = [ref_dataset.load_sample_time(
+                        sample_file,
+                        self.scene_size,
+                        self.base_scale,
+                        end_time,
+                        slices,
+                        rotate=ang,
+                        flip=flip
+                    )]
+
+
+        # Load input data
+        any_inpt = False
+
+        valid_inputs = 0
+
+        for input_dataset in self.input_datasets:
+            files = self.get_files_in_range(input_dataset, start_time, end_time)
+            if files.size > 0:
+                files = self.rng.permutation(files)
+
+            if hasattr(input_dataset, "input_length"):
+                input_length = input_dataset.input_length
+            else:
+                input_length = self.input_length
+
+            step = 0
+            while step < input_length:
+                if step < len(files):
+                    input_file = files[step]
+                    if hasattr(input_dataset, "input_drop"):
+                        if self.rng.random() < input_dataset.input_drop:
+                            input_file = "None"
+                else:
+                    input_file = "None"
+
+                try:
+                    input_data = input_dataset.load_sample(
+                        input_file, self.scene_size, self.base_scale, slices, self.rng, rotate=ang, flip=flip
+                    )
+                except Exception as exc:
+                    LOGGER.warning(
+                        "Loading of input data from input file '%s' failed.",
+                        input_file
+                    )
+                    files[step] = "None"
+                    continue
+
+                if torch.isfinite(input_data).any():
+                    any_inpt = True
+                inputs.setdefault(input_dataset.input_name, []).append(
+                    input_data
+                )
+                input_time = input_dataset.load_sample_time(
+                        input_file, self.scene_size, self.base_scale, end_time, slices, rotate=ang, flip=flip
+                )
+                inputs.setdefault(input_dataset.input_name + "_time", []).append(
+                    input_time
+                )
+
+                step += 1
+
+        if not any_inpt:
+            LOGGER.warning(
+                "No valid input data for scene loaded from file %s."
+                "Falling back to another radomly-chosen sample.",
+                ref_file
+            )
+            if self.validation:
+                new_ind = index + 1
+            else:
+                new_ind = self.rng.integers(0, len(self))
+            return self[new_ind]
+
+        inputs = {name: torch.stack(tnsrs, 1) for name, tnsrs in inputs.items()}
+
+        # Generate masks
+        input_names = [name for name in inputs.keys() if not name.endswith("_time")]
+        for name in input_names:
+            tnsr = inputs[name]
+            mask = torch.isnan(tnsr).all(-1).all(-1).all(0)
+            inputs[name + "_mask"] = mask
+
+        return inputs, targets
+
+
+    def _plot_sample_frequency(
+        self,
+        datasets,
+        ax=None,
+        temporal_resolution="M",
+    ):
+        """
+        Plot sample frequency of datasets.
+
+        Args:
+            datasets: A list of dataset types defining the input or reference datasets in the training
+                data.
+            files:
+        """
+        if ax is None:
+            f, ax = plt.subplots(1, 1, figsize=(6, 4))
+
+        start_time = None
+        end_time = None
+
+        for dataset in datasets:
+            times, _ = self.get_times_and_files(dataset)
+            if start_time is None:
+                start_time = times.min()
+                end_time = times.max()
+            else:
+                start_time = min(start_time, times.min())
+                end_time = max(end_time, times.max())
+
+        if isinstance(temporal_resolution, str):
+            time_step = np.timedelta64(1, temporal_resolution).astype("timedelta64[s]")
+        else:
+            time_step = temporal_resolution.astype("timedelta64[s]")
+
+        bins = np.arange(
+            start_time,
+            end_time + 2 * time_step,
+            time_step,
+        )
+
+        acc = None
+        x = bins[:-1] + 0.5 * (bins[1:] - bins[:-1])
+
+        n_ds = len(datasets)
+        norm = Normalize(0, n_ds)
+        cmap = ScalarMappable(norm=norm, cmap="plasma")
+
+        for ind, dataset in enumerate(datasets):
+            times, _ = self.get_times_and_files(dataset)
+            cts = np.histogram(times, bins=bins)[0]
+
+            color = cmap.to_rgba(ind)
+
+            if acc is None:
+                ax.fill_between(
+                    x,
+                    cts,
+                    label=dataset.name,
+                    facecolor=color,
+                    edgecolor="none",
+                    alpha=0.7,
+                    linewidth=2,
+                )
+                acc = cts
+            else:
+                ax.fill_between(
+                    x,
+                    acc,
+                    acc + cts,
+                    label=dataset.name,
+                    facecolor=color,
+                    edgecolor="none",
+                    alpha=0.7,
+                    linewidth=2,
+                )
+                acc += cts
+
+        for label in ax.xaxis.get_ticklabels():
+            label.set_rotation(90)
+
+        return ax
+
+    def plot_input_sample_frequency(self, ax=None, temporal_resolution="M"):
+        return self._plot_sample_frequency(
+            self.input_datasets,
+            ax=ax,
+            temporal_resolution=temporal_resolution,
+        )
+
+    def plot_reference_sample_frequency(self, ax=None, temporal_resolution="M"):
+        return self._plot_sample_frequency(
+            self.reference_datasets,
+            ax=ax,
+            temporal_resolution=temporal_resolution,
+        )

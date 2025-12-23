@@ -5,6 +5,7 @@ chimp.data.input
 This sub-module defines classes for representing different input types.
 """
 from dataclasses import dataclass
+from functools import cache
 import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
@@ -18,6 +19,7 @@ import xarray as xr
 from pytorch_retrieve.tensors import MaskedTensor
 
 from chimp import extensions
+from chimp.utils import get_date
 from chimp.data.utils import scale_slices
 from chimp.data.source import DataSource
 
@@ -39,6 +41,8 @@ class InputBase(DataSource):
         self.dataset_name = dataset_name
         self.input_name = input_name
         self.ALL_INPUT_DATASETS[dataset_name] = self
+        self.stack = False
+        self.stacking_mode = "before"
 
     @classmethod
     def register_dataset(cls, name: str, dataset: DataSource) -> None:
@@ -151,6 +155,42 @@ class InputDataset(InputBase):
         self.n_dim = n_dim
         self.spatial_dims = spatial_dims[:self.n_dim]
 
+    def __hash__(self):
+        """
+        Use input dataset name to hash input dataset.
+        """
+        return hash(self.name)
+
+    def get_files_to_stack(
+            self,
+            base_file: Path,
+            stack: int,
+            mode: str,
+            time_step: np.timedelta64
+    ) -> List[Path]:
+        """
+        Determine input files to stack.
+
+        Args:
+            base_file: The original input file.
+            stack: The number of input files to stack.
+            mode: The stacking mode ('before', 'after', 'centered')
+
+        Return:
+            A list containing the input files corresponding to the files to stack.
+        """
+        base_file = Path(base_file)
+        date = get_date(base_file)
+        stem = "_".join(base_file.name.split("_")[:-3])
+        if mode.lower() == "before":
+            deltas = np.arange(-stack + 1, 1)
+        elif mode.lower() == "after":
+            deltas = np.arange(0, stack)
+        else:
+            deltas = np.arange(-(stack // 2), (stack // 2 + stack % 2))
+        times = [(date + time_step * delta).astype("datetime64[s]").item() for delta in deltas]
+        files = [base_file.parent / time.strftime(f"{stem}_%Y%m%d_%H_%M.nc") for time in times]
+        return [path if path.exists else None for path in files]
 
     def load_sample(
         self,
@@ -189,59 +229,76 @@ class InputDataset(InputBase):
 
         if input_file != "None":
             try:
-                data = xr.open_dataset(input_file, decode_timedelta=False)
+                data = xr.open_dataset(input_file, decode_timedelta=False, chunks=None, cache=False)
                 data.close()
+                del data
             except OSError:
                 LOGGER.warning(
                     "Reading of the input file '%s' failed. Skipping.",
                     input_file
                 )
-                input_file = None
+                input_file = "None"
 
 
         if input_file != "None":
             slices = scale_slices(slices, rel_scale)
 
-            with xr.open_dataset(input_file, decode_timedelta=False) as data:
-                vars = self.variables
-                if not isinstance(vars, list):
-                    vars = [vars]
-                all_data = []
-                for vrbl in vars:
-                    x_s = data[vrbl][dict(zip(self.spatial_dims, slices))].data
-                    if np.issubdtype(x_s.dtype, np.timedelta64):
-                        x_s = x_s.astype("timedelta64[m]").astype("float32")
-                        x_s[x_s < -1e16] = np.nan
-                    if x_s.ndim < 3:
-                        x_s = x_s[..., None]
-                    if x_s.ndim > 3:
-                        x_s = x_s.reshape(x_s.shape[:2] + (-1,))
-                    x_s = np.transpose(x_s, (2, 0, 1))
-                    all_data.append(x_s)
-                x_s = np.concatenate(all_data, axis=0)
+            try:
+                with xr.open_dataset(input_file, decode_timedelta=False, chunks=None, cache=False) as data:
+                    vars = self.variables
+                    if not isinstance(vars, list):
+                        vars = [vars]
+                    all_data = []
+                    for vrbl in vars:
 
-            # Apply augmentations
-            if rotate is not None:
-                x_s = ndimage.rotate(
-                    x_s, rotate, order=0, reshape=False, axes=(-2, -1), cval=np.nan
-                )
-                height = x_s.shape[-2]
+                        if slices is None:
+                            slices = (slice(0, crop_sizes[0]), slice(0, crop_sizes[1]))
 
-                # In case of a rotation, we may need to cut off some input.
-                height_out = crop_size[0]
-                if height > height_out:
-                    start = (height - height_out) // 2
-                    end = start + height_out
-                    x_s = x_s[..., start:end, :]
+                        if slices[0].stop is not None:
+                            height = slices[0].stop - slices[0].start
+                            width = slices[1].stop - slices[1].start
+                        else:
+                            height = crop_size[0]
+                            width = crop_size[1]
 
-                width = x_s.shape[-1]
-                width_out = crop_size[1]
-                if width > width_out:
-                    start = (width - width_out) // 2
-                    end = start + width_out
-                    x_s = x_s[..., start:end]
-            if flip:
-                x_s = np.flip(x_s, -2)
+                        x_s = np.nan * np.zeros((height, width) + data[vrbl].shape[2:], dtype=np.float32)
+                        slices_offset = slices
+
+                        if "row_start" in data.attrs or "row_start" in data:
+                            if "row_start" in data.attrs:
+                                row_start = data.attrs["row_start"]
+                                col_start = data.attrs["col_start"]
+                            else:
+                                row_start = data["row_start"].data
+                                col_start = data["col_start"].data
+
+                            slices_offset = (
+                                slice(max(slices[0].start - row_start, 0), max(slices[0].stop - row_start, 0)),
+                                slice(max(slices[1].start - col_start, 0), max(slices[1].stop - col_start, 0)),
+                            )
+                            height = min(data[vrbl].shape[0], slices_offset[0].stop) - slices_offset[0].start
+                            width = min(data[vrbl].shape[1], slices_offset[1].stop) - slices_offset[1].start
+
+                        x_s[:height, :width] = data[vrbl][dict(zip(self.spatial_dims, slices_offset))].data
+
+                        if np.issubdtype(x_s.dtype, np.timedelta64):
+                            x_s = x_s.astype("timedelta64[m]").astype("float32")
+                            x_s[x_s < -1e16] = np.nan
+                        if x_s.ndim < 3:
+                            x_s = x_s[..., None]
+                        if x_s.ndim > 3:
+                            x_s = x_s.reshape(x_s.shape[:2] + (-1,))
+                        x_s = np.transpose(x_s, (2, 0, 1))
+                        all_data.append(x_s)
+                    x_s = np.concatenate(all_data, axis=0)
+                data.close()
+                del data
+
+                # Apply augmentations
+                x_s = self.transform(x_s, crop_size, rotate, flip)
+            except Exception as exc:
+                raise exc
+                x_s = np.nan * np.ones(((self.n_channels,) + crop_size), dtype=np.float32)
         else:
             x_s = np.nan * np.ones(((self.n_channels,) + crop_size), dtype=np.float32)
 
@@ -264,7 +321,7 @@ class InputDataset(InputBase):
         Return:
             A torch tensor containing the loaded input data.
         """
-        with xr.open_dataset(input_file) as data:
+        with xr.open_dataset(input_file, chunks=None, cache=False) as data:
             vars = self.variables
             if not isinstance(vars, list):
                 vars = [vars]
@@ -305,7 +362,7 @@ class InputDataset(InputBase):
             A tuple ``(i_start, i_end, j_start, j_end)`` defining the position
             of the random crop.
         """
-        with xr.open_dataset(path) as data:
+        with xr.open_dataset(path, chunks=None, cache=False) as data:
             if "latitude" in data.dims:
                 n_rows = data.latitude.size
                 n_cols = data.longitude.size
@@ -430,6 +487,8 @@ def get_input_map(
 
     if isinstance(inputs[ref_name], list):
         seq_len = len(inputs[ref_name])
+    elif inputs[ref_name].dim() > 4:
+        seq_len = inputs[ref_name].shape[2]
     else:
         seq_len = None
 
@@ -450,6 +509,10 @@ def get_input_map(
 
     input_maps = [[] for _ in range(seq_len)]
     for name, tensors in inputs.items():
+        if name.endswith("_mask") or name.endswith("_time"):
+            continue
+        if isinstance(tensors, torch.Tensor):
+            tensors = torch.unbind(tensors, dim=2)
         for step, tensor in enumerate(tensors):
             if tensor.ndim < 4:
                 tensor = tensor[None]
@@ -596,14 +659,13 @@ class InputLoader():
         sample_files = {}
         scene_sizes = [None] * n_input_datasets
 
-
         for input_ind, input_dataset in enumerate(self.input_datasets):
             if isinstance(input_dataset, StaticInputDataset):
                 continue
             times, input_files = input_dataset.find_training_files(self.path)
             # Determine input size for all inputs.
             if len(input_files) > 0:
-                with xr.open_dataset(input_files[0], decode_timedelta=False) as scene:
+                with xr.open_dataset(input_files[0], decode_timedelta=False, chunks=None, cache=False) as scene:
                     scene_sizes[input_ind] = [
                         scene[dim].size for dim in input_dataset.spatial_dims
                     ]
@@ -625,9 +687,9 @@ class InputLoader():
 
         self.scene_sizes = scene_sizes
 
-        self.times = np.array(list(sample_files.keys()))
+        self.times = np.array(list(self.sample_files.keys()))
         if time_step is None:
-            times = np.array(list(sample_files.keys()))
+            times = np.array(list(self.sample_files.keys()))
             if len(times) <= 1:
                 time_step = None
             else:
@@ -639,7 +701,7 @@ class InputLoader():
             if not isinstance(input_dataset, StaticInputDataset):
                 continue
             times, input_files = input_dataset.find_training_files(self.path, self.times)
-            with xr.open_dataset(input_files[0], decode_timedelta=False) as scene:
+            with xr.open_dataset(input_files[0], decode_timedelta=False, chunks=None, cache=False) as scene:
                 scene_sizes[input_ind] = [
                     scene[dim].size for dim in input_dataset.spatial_dims
                 ]
@@ -785,7 +847,7 @@ class SequenceInputLoader(InputLoader):
 
         inputs = {}
         for time in sequence_times:
-            files = self.sample_files.get(time, [None] * len(self.input_datasets))
+            files = self.sample_files.get(time, ["None"] * len(self.input_datasets))
             for ind, input_dataset in enumerate(self.input_datasets):
                 x = input_dataset.load_sample(
                     input_file=files[ind],
@@ -796,6 +858,7 @@ class SequenceInputLoader(InputLoader):
                 )
                 inputs.setdefault(input_dataset.input_name, []).append(x[None])
 
+
         if self.forecast > 0:
             lead_time = self.time_step * (np.arange(self.forecast) + 1)
             minutes = lead_time.astype("timedelta64[m]").astype("int64")
@@ -804,6 +867,192 @@ class SequenceInputLoader(InputLoader):
         return inputs
 
 
+class SparseSequenceInputLoader(InputLoader):
+    """
+    An input loader for sequences of input observations.
+    """
+    def __init__(
+            self,
+            path: Union[Path, List[Path]],
+            input_datasets: List[str],
+            sequence_length: int,
+            forecast: int = 0,
+            start_time: Optional[np.datetime64] = None,
+            end_time: Optional[np.datetime64] = None,
+            time_step: Optional[np.timedelta64] = None,
+            temporal_overlap: Optional[int] = None
+    ):
+        """
+        Args:
+            path: The path pointing to the directory containing the inputs
+                or pathes to a set of files.
+            input_datasets: A list of names of input datasets.
+            sequence_length: The length of the input sequences.
+            forecast: The number of forecast steps to perform.
+            start_time: An optional start time to limit the input samples loaded
+                by the loader.
+            end_time: An optional end time to limit the input samples loaded
+                by the loader.
+            time_step: The time step between consecutive inputs.
+            temporal_overlap: The amount overlapping time steps between
+                consectutive retrievals.
+        """
+        super().__init__(
+            path=path,
+            input_datasets=input_datasets,
+            start_time=start_time,
+            end_time=end_time,
+            time_step=time_step
+        )
+        self.sequence_length = sequence_length
+        self.forecast = forecast
+        if temporal_overlap is None:
+            temporal_overlap = self.sequence_length // 2
+        if temporal_overlap >= sequence_length:
+            raise ValueError(
+                "Temporal overlap must not exceed the sequence length."
+            )
+        self.temporal_overlap = temporal_overlap
+        self.output_scale = 4
+
+    @cache
+    def get_times_and_files(self, dataset: [InputDataset]) -> np.ndarray:
+        """
+        Get available input time for a given input dataset.
+        """
+        times, files = dataset.find_training_files(self.path, times=None)
+        files = np.array([str(path) for path in files])
+        mask = np.ones_like(times, dtype=bool)
+        times = times[mask]
+        files = files[mask]
+        return times, files
+
+    @cache
+    def get_files_in_range(
+            self,
+            dataset: [InputDataset],
+            start_time: np.datetime64,
+            end_time: np.datetime64
+    ) -> np.ndarray:
+        """
+        Get available input time for a given input dataset.
+        """
+        times, files = self.get_times_and_files(dataset)
+        if len(times) == 0:
+            return np.zeros(0)
+        mask = (start_time <= times) * (times <= end_time)
+        times = times[mask]
+        files = files[mask]
+        return files
+
+    def __iter__(self):
+        curr_start_time = self.times.min()
+        curr_end_time = curr_start_time + self.time_step * self.sequence_length
+        end_time = self.times.max()
+        while curr_start_time <= end_time:
+            try:
+                yield curr_end_time, self.get_input(curr_start_time, curr_end_time)
+            except RuntimeError:
+                LOGGER.warning(
+                    "Found no input for step %s.",
+                    curr_start_time
+                )
+            curr_start_time += self.time_step * (self.sequence_length - self.temporal_overlap)
+            curr_end_time += self.time_step * (self.sequence_length - self.temporal_overlap)
+
+    def get_input(self, start_time: np.datetime64, end_time: np.datetime64) -> Dict[str, torch.Tensor]:
+        """
+        Get input for a given time.
+
+        Args:
+            time: Time stamp defining the time for which to retrieve  inputs.
+
+        Return:
+            A dictionary containing the input tensors from all input datasets.
+        """
+
+        inputs = {}
+        # Load input data
+        any_inpt = False
+        valid_inputs = 0
+
+        for ds_ind, input_dataset in enumerate(self.input_datasets):
+
+            files = self.get_files_in_range(input_dataset, start_time, end_time)[:2]
+            if files.size > 0:
+                files = self.rng.permutation(files)
+
+            if hasattr(input_dataset, "input_length"):
+                input_length = input_dataset.input_length
+            else:
+                input_length = self.sequence_length
+
+            step = 0
+            while step < input_length:
+
+                if step < len(files):
+                    input_file = files[step]
+                    if hasattr(input_dataset, "input_drop"):
+                        if self.rng.random() < input_dataset.input_drop:
+                            input_file = "None"
+                else:
+                    input_file = "None"
+
+                try:
+                    input_data = input_dataset.load_sample(
+                        input_file, self.scene_sizes[ds_ind], input_dataset.scale, None, None
+                    )
+                except Exception as exc:
+                    raise exc
+                    LOGGER.warning(
+                        "Loading of input data from input file '%s' failed.",
+                        input_file
+                    )
+                    continue
+
+                if torch.isfinite(input_data).any():
+                    any_inpt = True
+
+                inputs.setdefault(input_dataset.input_name, []).append(
+                    input_data
+                )
+                input_time = input_dataset.load_sample_time(
+                        input_file, self.scene_sizes[ds_ind], input_dataset.scale, end_time, None
+                )
+                inputs.setdefault(input_dataset.input_name + "_time", []).append(
+                    input_time
+                )
+
+                step += 1
 
 
+        if not any_inpt:
+            raise ValueError(
+                "No valid input for retrieval time %s - %s.",
+                start_time,
+                end_time
+            )
 
+        inputs = {name: torch.stack(tnsrs, 1)[None] for name, tnsrs in inputs.items()}
+
+        target_times = np.arange(start_time, end_time + self.time_step, self.time_step)
+        scene_size = self.scene_sizes[ds_ind]
+        scaling = self.output_scale // input_dataset.scale
+        scene_size = (scene_size[0] // scaling, scene_size[1] // scaling)
+        target_times = [(time - end_time).astype("timedelta64[m]").astype(np.float32) for time in target_times]
+        targets = ["surface_precip", "rain_water_content", "snow_water_content"]
+        for targ in targets:
+            inputs[targ + "_target_time"] = torch.stack(
+                [torch.ones((1, 1,) + scene_size) * time for time in target_times],
+                dim=2
+            )
+
+
+        # Generate masks
+        input_names = [name for name in inputs.keys() if not name.endswith("_time")]
+        for name in input_names:
+            tnsr = inputs[name]
+            mask = torch.isnan(tnsr).all(-1).all(-1).all(1)
+            inputs[name + "_mask"] = mask
+
+        return inputs
