@@ -1,15 +1,8 @@
 name: chimp
 channels:
-  - pytorch
-  - nvidia
   - conda-forge
   - defaults
 dependencies:
-  - python=3.10
-  - pytorch::pytorch
-  - pytorch::pytorch-cuda=11.8
-  - pytorch::torchvision
-  - pytorch::torchaudio
   - cfgrib
   - netcdf4
   - pyyaml
@@ -32,11 +25,15 @@ dependencies:
   - cartopy
   - llvm-openmp
   - ipywidgets
-  - lightning
   - protobuf
   - geopandas
   - jupyter-book
   - pip
   - pip:
-    - "git+https://github.com/see-geo/pansat@refactoring"
-    - "git+https://github.com/simonpf/pytorch_retrieve"
+    - --extra-index-url https://download.pytorch.org/whl/cu118
+    - torch
+    - torchvision
+    - torchaudio
+    - lightning
+    - git+https://github.com/see-geo/pansat@refactoring
+    - git+https://github.com/simonpf/pytorch_retrieve

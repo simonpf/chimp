@@ -11,6 +11,7 @@ from typing import List, Optional
 
 import numpy as np
 from pansat import FileRecord, Geometry, TimeRange
+from pansat.time import to_datetime64
 from pansat.products.reanalysis.merra import MERRA2, MERRA2Constant
 import xarray as xr
 
@@ -54,6 +55,7 @@ SURFACE_VARS = [
     "TQV",
     "TS",
     "U10M",
+    "V10M",
     "Z0M"
 ]
 
@@ -186,15 +188,49 @@ class WxFMDynamicData(InputDataset):
 
         all_data = []
         for path in paths:
-            with xr.open_dataset(path) as data:
-                vars = [
-                    var for var in VERTICAL_VARS + SURFACE_VARS if var in data.variables
-                ]
-                data = data[vars]
-                if "lev" in data:
-                    data = data.loc[{"lev": np.array(LEVELS)}]
-                all_data.append(data.load())
-        data = xr.merge(all_data)
+
+            prod_paths = [path]
+
+            time = None
+            if m2t1nxlnd.matches(path):
+                time = m2t1nxlnd.get_temporal_coverage(path)
+                prod_paths.insert(0, m2t1nxlnd.get(time.start - np.timedelta64(12, "h"))[0].local_path)
+                prod_paths.insert(-1, m2t1nxlnd.get(time.end + np.timedelta64(12, "h"))[0].local_path)
+
+            if m2t1nxrad.matches(path):
+                time = m2t1nxrad.get_temporal_coverage(path)
+                prod_paths.insert(0, m2t1nxrad.get(time.start - np.timedelta64(12, "h"))[0].local_path)
+                prod_paths.insert(-1, m2t1nxrad.get(time.end + np.timedelta64(12, "h"))[0].local_path)
+
+            if m2t1nxflx.matches(path):
+                time = m2t1nxflx.get_temporal_coverage(path)
+                prod_paths.insert(0, m2t1nxflx.get(time.start - np.timedelta64(12, "h"))[0].local_path)
+                prod_paths.insert(-1, m2t1nxflx.get(time.end + np.timedelta64(12, "h"))[0].local_path)
+
+            prod_data = []
+
+            for path in prod_paths:
+                with xr.open_dataset(path) as data:
+                    vars = [
+                        var for var in VERTICAL_VARS + SURFACE_VARS if var in data.variables
+                    ]
+                    data = data[vars]
+                    if "lev" in data:
+                        data = data.loc[{"lev": np.array(LEVELS)}]
+                    prod_data.append(data.load())
+
+            prod_data = xr.concat(prod_data, dim="time")
+
+            if time is not None:
+                print(time.start, time.end)
+                steps = np.arange(time.start, time.end, np.timedelta64(3, "h"))
+                prod_data = prod_data.interp(time=steps)
+
+            print(list(prod_data.variables.keys()), prod_data.time.data)
+            all_data.append(prod_data)
+
+
+        data = xr.merge(all_data, compat="override")
         data = data.rename(
             lat="latitude",
             lon="longitude"
@@ -217,7 +253,13 @@ class WxFMDynamicData(InputDataset):
         end_time = round_time(data.time.max().data, time_step)
         time = start_time
         while time <= end_time:
-            data_t = data.interp(time=time, method="nearest")
+            dtype = data.time.data.dtype
+
+            data_t = data.interp(
+                time=np.array(time),
+                method="nearest",
+                kwargs={"fill_value": "extrapolate"}
+            )
             filename = get_output_filename(
                 self.name, time, time_step
             )
@@ -234,8 +276,7 @@ WXFM_DYNAMIC = WxFMDynamicData()
 m2conxasm = MERRA2Constant(
     collection="m2conxasm",
 )
-m2conxctm = MERRA2Constant(
-    collection="m2conxctm",
+m2conxctm = MERRA2Constant(collection="m2conxctm",
 )
 STATIC_PRODUCTS = [
     m2conxasm,

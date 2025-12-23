@@ -1039,7 +1039,6 @@ class SequenceDataset(SingleStepDataset):
             validation=validation,
             require_ref_data=False,
         )
-
         self.sequence_length = sequence_length
         self.forecast = forecast
         if forecast_range is None:
@@ -1128,6 +1127,9 @@ class SequenceDataset(SingleStepDataset):
             rd_ind = np.where(self.reference_files[ref_index])[0][0]
 
             try:
+                ref_offset = np.where(self.valid_ref[ref_start:ref_end])[0][-1]
+                ref_index = ref_start + ref_offset
+                rd_ind = np.where(self.reference_files[ref_index])[0][0]
                 slices = self.reference_datasets[rd_ind].find_random_scene(
                     self.reference_files[ref_index][rd_ind],
                     self.rng,

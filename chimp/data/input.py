@@ -684,6 +684,7 @@ class InputLoader():
             sample_files_filtered[time] = [str(fle) for fle in files]
 
         self.sample_files = sample_files_filtered
+
         self.scene_sizes = scene_sizes
 
         self.times = np.array(list(self.sample_files.keys()))
@@ -710,6 +711,7 @@ class InputLoader():
 
         self.rng = np.random.default_rng()
         self.dtype = times[0].dtype
+
 
     def __iter__(self):
         for time in self.times:
@@ -802,18 +804,23 @@ class SequenceInputLoader(InputLoader):
 
     def __iter__(self):
         offset = (self.sequence_length - 1) * self.time_step
-        curr_time = self.times.min() + offset
-
         end_time = self.times.max()
+
+        curr_time = min(self.times.min() + offset, end_time)
+
         while curr_time <= end_time:
             try:
                 yield curr_time, self.get_input(curr_time)
             except RuntimeError:
-                LOGGER.warning(
-                    "Found no input for step %s.",
-                    curr_time
-                )
+                LOGGER.warning("Found no input for step %s.", curr_time)
             curr_time += (self.sequence_length - self.temporal_overlap) * self.time_step
+
+        if curr_time < end_time:
+            try:
+                yield end_time, self.get_input(end_time)
+            except RuntimeError:
+                LOGGER.warning("Found no input for step %s.", end_time)
+
 
     def get_input(self, time: np.datetime64) -> Dict[str, torch.Tensor]:
         """
