@@ -14,7 +14,9 @@ from typing import List, Optional, Tuple, Union
 
 
 import numpy as np
+from scipy import ndimage
 from pyresample import AreaDefinition
+import torch
 import xarray as xr
 
 
@@ -25,6 +27,7 @@ from pansat.time import to_datetime64, to_timedelta64
 from chimp.areas import Area
 from chimp.data.utils import round_time
 from chimp.utils import get_date
+from chimp.data.utils import scale_slices
 from chimp import extensions
 
 
@@ -39,6 +42,7 @@ class DataSource(ABC):
     def __init__(self, name):
         self.name = name
         ALL_SOURCES[name] = self
+        self.spatial_dims = ("y", "x")
 
     def find_files(
             self,
@@ -144,6 +148,77 @@ class DataSource(ABC):
         return failed
 
 
+    def process_day_conditional(
+        self,
+        conditional: str,
+        domain: Area,
+        year: int,
+        month: int,
+        day: int,
+        input_range: np.timedelta64,
+        output_folder: Path,
+        path=None,
+        time_step=timedelta(minutes=15),
+        include_scan_time=False,
+    ):
+        """
+        Extract training data from a day of GOES observations.
+
+        Args:
+            conditional: Name of the dataset to condition the data extraction on.
+            domain: A domain object identifying the spatial domain for which
+                to extract input data.
+            year: The year
+            month: The month
+            day: The day
+            input_range: The time range whithing which to consider input data.
+            output_folder: The folder to which to write the extracted
+                observations.
+            path: Not used, included for compatibility.
+            time_step: The temporal resolution of the training data.
+            include_scan_time: Not used.
+        """
+        from chimp.data.reference import get_reference_dataset
+        ref_dataset = get_reference_dataset(conditional)
+        times, files = ref_dataset.find_training_files(output_folder)
+        files = np.array(files)
+
+        start_time = datetime(year, month, day)
+        end_time = start_time + timedelta(hours=23, minutes=59)
+        start_time = to_datetime64(start_time)
+        end_time = to_datetime64(end_time)
+        time_step = to_timedelta64(time_step)
+
+        time_mask = (start_time <= times) * (times <= end_time)
+        files = files[time_mask]
+        times = times[time_mask]
+
+        LOGGER.info(
+            "Found %s reference files for %s/%s/%s.",
+            len(files), year, month, day
+        )
+
+        failed = []
+        for ref_file, ref_time in zip(files, times):
+            try:
+                self.process_files_conditional(
+                    reference_dataset=ref_dataset,
+                    reference_file=ref_file,
+                    median_time=ref_time,
+                    input_range=input_range,
+                    domain=domain,
+                    output_folder=output_folder,
+                    time_step=time_step
+                )
+            except Exception:
+                LOGGER.exception(
+                    "Encountered an error when extracting data for reference file %s.",
+                    ref_file
+                )
+                failed.append(ref_file)
+        return failed
+
+
     def find_training_files(
             self,
             path: Union[Path, List[Path]],
@@ -187,6 +262,97 @@ class DataSource(ABC):
 
         times = np.array(list(map(get_date, files)))
         return times, files
+
+    def transform(self, tnsr: np.ndarray, crop_size: Tuple[int, int], rotate: float, flip: bool) -> np.ndarray:
+        """
+        Rotate and flip an input or target scene.
+
+        Applies rotation an flipping to input array and resizes it to the targeted output dimensions.
+
+        Args:
+            tnsr: The array to apply the transformations to.
+            rotate: The number of degrees by which to rotate the array.
+
+        Return:
+            The transformed arrary.
+        """
+        if rotate is not None:
+            tnsr = ndimage.rotate(
+                tnsr, rotate, order=0, axes=(-2, -1), reshape=False, cval=np.nan
+            )
+
+            height = tnsr.shape[-2]
+            if height > crop_size[0]:
+                d_l = (height - crop_size[0]) // 2
+                d_r = d_l + crop_size[0]
+                tnsr = tnsr[..., d_l:d_r, :]
+            width = tnsr.shape[-1]
+            if width > crop_size[1]:
+                d_l = (width - crop_size[1]) // 2
+                d_r = d_l + crop_size[1]
+                tnsr = tnsr[..., d_l:d_r]
+
+        if flip:
+            tnsr = np.flip(tnsr, -2)
+
+        return tnsr
+
+    def load_sample_time(
+            self,
+            path: Path,
+            crop_size: int,
+            base_scale,
+            relative_to: np.datetime64,
+            slices: Tuple[int, int, int, int],
+            rotate: Optional[float] = None,
+            flip: Optional[bool] = None,
+    ) -> torch.Tensor:
+        """
+        Load relative sample-time tensor from sample file.
+
+        Args:
+            path: Path pointing to the reference data file from which to load the time.
+            crop_size: The size of the input slice to load to load.
+            base_scale: The scale with respect to which the slices are defined.
+            relative_to: Reference time relative to which to compute the time difference.
+            slices: Tuple of ints defining the subset of reference data to load.
+            rng: A numpy random generator object to use to generate random numbers.
+            rotate: An optional float indicating the degrees by which to rotate
+                the input.
+            flip: Whether or not the input should be flipped.
+
+        Return:
+            A 2D tensor containing the relative sample times in minutes.
+        """
+        rel_scale = self.scale / base_scale
+        if isinstance(crop_size, int):
+            crop_size = (crop_size,) * self.n_dim
+        crop_size = tuple((int(size / rel_scale) for size in crop_size))
+        n_rows, n_cols = crop_size
+        row_slice, col_slice = scale_slices(slices, rel_scale)
+
+        if path is None or path == "None":
+            return torch.zeros((1, n_rows, n_cols))
+
+        try:
+            with xr.open_dataset(path) as data:
+                if "time" in data:
+                    time = data["time"].data
+                    time = (get_date(path) - relative_to).astype("timedelta64[m]").astype(np.float32)
+                    if time.ndim > 1:
+                        time = time[row_slice, col_slice]
+                        if time.ndim < 3:
+                            time = time[None]
+                        time = self.transform(time, crop_size, rotate, flip).copy()
+                    else:
+                        time = np.ones((1, n_rows, n_cols), dtype=np.float32) * time
+                else:
+                    time = (get_date(path) - relative_to).astype("timedelta64[m]").astype(np.float32)
+                    time = np.ones((1, n_rows, n_cols), dtype=np.float32) * time
+        except Exception as exc:
+            return torch.zeros((1, n_rows, n_cols))
+
+        return torch.tensor(time)
 
 
 def get_source(name: Union[str, DataSource]) -> DataSource:
