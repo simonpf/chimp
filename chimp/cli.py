@@ -12,6 +12,7 @@ from chimp import testing
 from chimp import eda
 from chimp import lr_search
 from chimp import processing
+from chimp import stats
 from chimp.data import extract
 
 
@@ -28,3 +29,4 @@ chimp.command(name="train")(training.cli)
 chimp.command(name="test")(testing.cli)
 chimp.command(name="extract_data")(extract.cli)
 chimp.command(name="process")(processing.cli)
+chimp.command(name="stats")(stats.calculate_spatial_statistics)

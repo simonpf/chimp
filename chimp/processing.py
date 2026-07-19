@@ -178,8 +178,9 @@ def retrieval_step(
         results_s = xr.Dataset(
             {key: (dims[-value.ndim :], value) for key, value in results_s.items()}
         )
-        tau = next(iter(quantile_outputs.values()))
-        results_s["tau"] = ("tau", tau)
+        if len(quantile_outputs) > 0:
+            tau = next(iter(quantile_outputs.values()))
+            results_s["tau"] = ("tau", tau)
 
         if step < n_retrieved:
             results_s["input_map"] = (("inputs", "y", "x"), input_map[step].numpy()[0])

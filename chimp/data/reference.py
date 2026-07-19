@@ -157,7 +157,7 @@ class ReferenceDataset(DataSource):
         crop_size = tuple((int(size / rel_scale) for size in crop_size))
         row_slice, col_slice = scale_slices(slices, rel_scale)
 
-        if path is None:
+        if path is "None":
             if isinstance(crop_size, tuple):
                 n_rows, n_cols = crop_size
             else:

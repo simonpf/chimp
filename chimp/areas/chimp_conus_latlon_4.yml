@@ -1,4 +1,4 @@
-cpcir_area:
+chimp_conus_latlon:
   description: CPCIR grid
   projection:
     proj: longlat
