@@ -151,6 +151,12 @@ CONUS_LATLON = Area(
     },
 )
 
+CONUS_IMERG = pyresample.load_area(Path(__file__).parent / "chimp_conus_imerg.yml")
+CONUS_LATLON = Area(
+    name="conus_imerg",
+    areas=CONUS_IMERG
+)
+
 
 ###############################################################################
 # EUROPE
@@ -236,6 +242,18 @@ CPCIR = Area(
     }
 )
 
+###############################################################################
+# GridSat B1 QUASI-GLOBAL
+###############################################################################
+
+GRIDSAT_8 = pyresample.load_area(Path(__file__).parent / "chimp_cpcir_8.yml")
+
+GRIDSAT = Area(
+    name="gridsat",
+    areas={
+        8: GRIDSAT_8,
+    }
+)
 
 ###############################################################################
 # WUSSR

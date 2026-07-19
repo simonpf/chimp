@@ -1,0 +1,13 @@
+gridsat_area:
+  description: GridSat B1 Global Latitude-Longitude Grid
+  projection:
+    proj: longlat
+    datum: WGS84
+    no_defs: null
+    type: crs
+  shape:
+    height: 2000
+    width: 5143
+  area_extent:
+    lower_left_xy: [-180.0, -70]
+    upper_right_xy: [179.94, 69.3]
